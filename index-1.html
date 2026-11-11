@@ -1,5 +1,16 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>AmaySST Quiz</title>
+<meta name="description" content="AmaySST Quiz: practice quizzes by level, current affairs, XP and badges.">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#E7EAEE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#050607" media="(prefers-color-scheme: dark)">
+<meta name="application-name" content="AmaySST Quiz">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="AmaySST">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
@@ -40,6 +51,14 @@ header{display:flex;align-items:center;gap:10px;width:calc(100% - 32px);max-widt
 nav{position:fixed;left:0;right:0;margin:0 auto;bottom:calc(12px + env(safe-area-inset-bottom,0px));width:calc(100% - 32px);max-width:480px;z-index:40;display:flex;gap:4px;padding:8px;box-sizing:border-box;border-radius:32px;background:var(--card);border:1px solid var(--line);box-shadow:var(--sh);backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%)}
 nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 0 8px;border:0;border-radius:24px;background:none;color:var(--mute);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;transition:background .2s,color .2s}
 nav button svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}nav button.on{background:var(--act);color:var(--ink);font-weight:800}
+html,body{overscroll-behavior-y:none}button,a{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+header button{padding:7px 14px;border:0;border-radius:20px;background:var(--grad);color:var(--on);font:inherit;font-size:13px;font-weight:700;cursor:pointer;box-shadow:var(--sh);white-space:nowrap}header button[hidden]{display:none}
+#pw{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;justify-content:center}.pw-b{position:absolute;inset:0;background:rgba(0,0,0,.5)}
+.pw-s{position:relative;width:100%;max-width:560px;box-sizing:border-box;background:var(--card);border:1px solid var(--line);border-radius:22px 22px 0 0;padding:22px 20px calc(20px + env(safe-area-inset-bottom,0px));box-shadow:var(--sh);animation:pwu .25s ease-out}
+@keyframes pwu{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
+.pw-s img{width:64px;height:64px;border-radius:50%;object-fit:cover;margin-bottom:10px}.pw-s h2{margin:0 0 6px}.pw-s p{margin:0 0 16px;color:var(--mute)}.pw-s .b{text-align:center}.pw-s ol{padding-left:20px;margin:0 0 14px;line-height:1.7}
+#ob{position:fixed;left:0;right:0;top:0;z-index:60;background:var(--ink);color:var(--bg);text-align:center;font-size:13px;padding:calc(6px + env(safe-area-inset-top,0px)) 12px 6px}#ob[hidden]{display:none}
+@media(prefers-reduced-motion:reduce){.pw-s{animation:none}}
 body::before{content:"";position:fixed;inset:0;z-index:-1;background:var(--mesh);pointer-events:none}
 .c,.sj,.opt,.ch,.vid,.hero,.soc a,.pw-s,input,select{backdrop-filter:blur(22px) saturate(170%);-webkit-backdrop-filter:blur(22px) saturate(170%)}
 .c,.vid,.hero{border-radius:24px}.sj{border-radius:20px}.opt,.ch{border-radius:18px}
@@ -47,8 +66,12 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;background:var(--mesh)
 .opt.on{border-color:var(--blue);background:rgba(77,184,245,.2)}
 .seg{display:flex;gap:4px;padding:6px;margin:8px 0;border-radius:26px;background:var(--card);border:1px solid var(--line);box-shadow:var(--sh);backdrop-filter:blur(22px) saturate(170%);-webkit-backdrop-filter:blur(22px) saturate(170%)}
 .seg button{flex:1;padding:10px;border:0;border-radius:20px;background:none;color:var(--mute);font:inherit;font-weight:600;cursor:pointer;transition:background .2s,color .2s}.seg button.on{background:var(--act);color:var(--ink);font-weight:800}
+.rks{display:flex;gap:8px;flex-wrap:wrap}.rks span{padding:6px 12px;border-radius:20px;background:var(--act);font-size:14px}.rks b{font-size:15px}.rks small{color:var(--mute)}
+.bm{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}.bm-b{position:absolute;inset:0;background:rgba(0,0,0,.62)}
+.bm-s{position:relative;width:100%;max-width:420px;max-height:100%;overflow:auto;box-sizing:border-box;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:26px;padding:16px;box-shadow:var(--sh);text-align:center}
+.bm-s img{width:100%;max-height:52vh;object-fit:contain;border-radius:16px;display:block;margin:0 auto 12px}.bm-s img[hidden],.bm-s button[hidden]{display:none}.bm-s .b{text-align:center}
 </style></head><body>
-<header id="hd"><img src="data:image/jpeg;base64,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" alt="AmaySST logo"><b>AmaySST Quiz</b></header>
+<header id="hd"><img src="data:image/jpeg;base64,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" alt="AmaySST logo"><b>AmaySST Quiz</b><button id="ib" type="button" hidden>Install App</button></header>
 <main id="app"></main>
 <nav id="nav" aria-label="Main"><button onclick="go('home')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V20H4z"/><path d="M10 20v-5h4v5"/></svg><span>Home</span></button><button onclick="go('subs')"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg><span>Subjects</span></button><button onclick="go('rank')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20V11M12 20V4M18 20v-6"/></svg><span>Ranks</span></button><button onclick="go('me')"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4.5 20.5c.8-3.6 3.8-5.5 7.5-5.5s6.7 1.9 7.5 5.5"/></svg><span>Me</span></button></nav>
 <script>
@@ -678,7 +701,7 @@ ca:{n:"Current Affairs",e:"📰",q:[/*bank500*/["On which date is World Environm
 ["Ayushman Bharat PM-JAY gives health cover per family per year of up to",["₹1 lakh","₹5 lakh","₹10 lakh","₹20 lakh"],1,"PM-JAY covers up to ₹5 lakh per family per year."],
 ["ISRO’s headquarters is in",["Bengaluru","Delhi","Mumbai","Hyderabad"],0,"ISRO is headquartered in Bengaluru."],
 ["UPI is operated by",["NPCI","RBI","SEBI","NITI Aayog"],0,"The National Payments Corporation of India runs UPI."]]}};
-const D=[["Aarav S.","Delhi",1840],["Ananya R.","Karnataka",1725],["Ishita K.","Maharashtra",1610],["Rohan P.","Bihar",1490],["Sneha M.","Uttar Pradesh",1320],["Kabir A.","Tamil Nadu",1190],["Priya D.","Bihar",980],["Vikram T.","Rajasthan",760]];
+const D="Yash T.|10160|0;Sourav R.|10075|6940;Neha N.|9975|6580;Riya S.|9870|6245;Swati M.|9645|5845;Siddharth T.|9550|5430;Tarun Y.|9305|5030;Muskan K.|9185|0;Lakshmi K.|9120|4695;Aditi D.|9050|4355;Ayaan G.|8905|4040;Divya V.|8705|3770;Tanvi G.|8505|0;Sneha A.|8475|0;Sakshi A.|8390|3460;Diya C.|8235|0;Abhishek R.|8130|3195;Aarav Y.|7905|2885;Aishwarya P.|7795|2645;Rohan M.|7735|2385;Harsh T.|7565|2150;Karthik N.|7395|1925;Karan Y.|7250|1725;Aanya M.|7140|1505;Vivaan J.|7135|1320;Aarti Y.|6900|1160;Aaliya D.|6820|1015;Gaurav G.|6705|870;Tejas S.|6645|0;Naveen M.|6435|745;Harpreet M.|6385|635;Jaspreet N.|6250|0;Sachin T.|6135|0;Zoya V.|6025|540;Dhruv M.|5895|465;Gurpreet T.|5880|405;Rahul K.|5730|370;Venkat N.|5650|0;Anushka R.|5470|350;Saanvi Y.|5405|0;Ayush A.|5295|0;Isha V.|5180|0;Arnab G.|5105|0;Simran J.|5015|0;Ishita M.|4855|0;Palak Y.|4790|0;Manish T.|4675|0;Rituparna B.|4645|0;Irfan M.|4470|0;Kavya S.|4420|0;Rajesh S.|4355|0;Abhirami T.|4230|0;Varun N.|4165|0;Mohit G.|4025|0;Krishna M.|3980|0;Vikas Y.|3905|0;Anjali C.|3765|0;Aravind K.|3710|0;Suraj V.|3645|0;Shaurya S.|3540|0;Mansi M.|3490|0;Kritika B.|3355|0;Sai R.|3325|0;Ananya G.|3215|0;Sayantani Y.|3145|0;Kunal M.|3070|0;Nikhil J.|2975|0;Gauri B.|2915|0;Shreya D.|2850|0;Debojit S.|2775|0;Priya V.|2720|0;Payal K.|2670|0;Jyoti C.|2585|0;Amit M.|2525|0;Reyansh Y.|2455|0;Sana A.|2400|0;Raghav B.|2325|0;Deepak A.|2300|0;Amandeep M.|2240|0;Sandeep P.|2185|0;Arjun N.|2135|0;Rutuja Y.|2060|0;Radhika V.|2035|0;Nandini B.|1985|0;Fatima P.|1930|0;Imran T.|1875|0;Manpreet D.|1850|0;Meenakshi D.|1810|0;Farhan B.|1765|0;Komal P.|1740|0;Shruti A.|1685|0;Subhash T.|1645|0;Khushi N.|1630|0;Bhavna G.|1600|0;Kabir R.|1575|0;Pooja T.|1540|0;Ishaan R.|1535|0;Omkar J.|1520|0;Aditya C.|1510|0;Meera A.|1490|0".split(";").map(s=>{const a=s.split("|");return[a[0],"",+a[1],+a[2]]});
 const ST=["Bihar","Delhi","Karnataka","Maharashtra","Tamil Nadu","Uttar Pradesh","Rajasthan","Other"];
 let S=null;try{S=JSON.parse(localStorage.getItem("r10"))}catch(e){}
 S=S||{name:"",state:"Bihar",xp:0,streak:0,last:"",quizzes:0,perfect:0,theme:""};
@@ -734,11 +757,11 @@ function pick(j){Z.sel[Z.i]=j;render()}
 function next(){Z.i<Z.qs.length-1?(Z.i++,render()):finish()}
 function finish(){if(Z.done)return;clearInterval(Z.id);const n=Z.qs.length,c=Z.qs.filter((q,i)=>Z.sel[i]===q[2]).length,xp=c*XPV[Z.L]+(c===n?20:0);
 if(S.last!==day(0)){S.streak=S.last===day(1)?S.streak+1:1;S.last=day(0)}
-S.td=S.td&&S.td.d===day(0)?S.td:{d:day(0),xp:0};S.td.xp+=xp;S.xp+=xp;S.quizzes++;if(c===n)S.perfect++;save();Z.res={c,n,xp};Z.done=true;render()}
+S.td=S.td&&S.td.d===day(0)?S.td:{d:day(0),xp:0};S.td.xp+=xp;S.xp+=xp;S.quizzes++;if(c===n)S.perfect++;save();Z.res={c,n,xp,up:S.xp-xp<500&&S.xp>=500};Z.done=true;render()}
 function ms(){const a=[10,50,100,150,200];for(let m=300;m<=S.xp+300;m+=100)a.push(m);return a}
 function bdg(){const a=ms(),IC=["🌱","🥉","🥈","🥇","🏅","💎","👑","🚀"],up=a.filter(m=>m>S.xp).slice(0,3);return[["🎯","First quiz",S.quizzes>=1],["🔥","3-day streak",S.streak>=3],["💯","Perfect score",S.perfect>=1],...a.filter(m=>m<=S.xp).map((m,i)=>[IC[i%8],m+" XP",true]),...up.map(m=>["🔒",m+" XP",false])]}
-const DT=[260,180,140,210,90,60,120,40];
-function rankOf(){const t=rt==="td";return[...D.map((x,i)=>[x[0],"",t?DT[i]:x[2]]),[S.name||"You","",t?(S.td&&S.td.d===day(0)?S.td.xp:0):S.xp,1]].sort((a,b)=>b[2]-a[2])}
+const DT=0;
+function rankOf(){const t=rt==="td";return[...D.filter(x=>!t||x[3]).map(x=>[x[0],"",t?x[3]:x[2]]),[S.name||"You","",t?(S.td&&S.td.d===day(0)?S.td.xp:0):S.xp,1]].sort((a,b)=>b[2]-a[2])}
 function render(){if(!S.name)view="gate";
 const tab={home:0,subs:1,sub:1,quiz:1,rank:2,me:3}[view];
 document.querySelectorAll("nav button").forEach((b,i)=>b.className=i===tab?"on":"");
@@ -750,13 +773,17 @@ const VID={url:"https://www.youtube.com/shorts/eImoedOLXh8",thumb:"",title:"Watc
 function vidCard(){return `<a class="vid" href="${VID.url}" target="_blank" rel="noopener noreferrer"><div class="th"${VID.thumb?` style="background-image:url(${VID.thumb})"`:""}><span class="pl">▶</span></div><b>Latest video</b><br><span class="mute">${VID.title} · opens on ${VID.src}</span></a>`}
 const IG="https://www.instagram.com/amaysst7",YT="https://www.youtube.com/@amaysst";
 function socials(){return `<p class="mute" style="text-align:center;margin:24px 0 8px">Follow AmaySST</p><div class="soc"><a href="${IG}" target="_blank" rel="noopener noreferrer">Instagram</a><a href="${YT}" target="_blank" rel="noopener noreferrer">YouTube</a></div>`}
-function nextBadge(){const A=ms(),nx=A.find(m=>m>S.xp),pv=A.filter(m=>m<=S.xp).pop()||0,need=nx-S.xp;
-return `<div class="c nb"><div class="mute">Next badge · ${nx} XP</div><div class="cd"><b>${need}</b> XP to go</div><div class="bar" style="margin:10px 0"><div style="width:${(S.xp-pv)/(nx-pv)*100}%"></div></div><p class="mute" style="margin:0 0 12px">About ${Math.ceil(need/XPV[1])} correct answers on Medium${S.streak&&S.last!==day(0)?" · keep your "+S.streak+"🔥 streak":""}</p><button class="b" style="margin:0" onclick="openSub('mix')">Play now</button></div>`}
+function myRanks(){const t=S.td&&S.td.d===day(0)?S.td.xp:0;return{a:1+D.filter(x=>x[2]>S.xp).length,an:D.length+1,t:1+D.filter(x=>x[3]>t).length,tn:D.filter(x=>x[3]).length+1}}
+function nextBadge(){const A=ms(),nx=A.find(m=>m>S.xp),pv=A.filter(m=>m<=S.xp).pop()||0,need=nx-S.xp,k=Math.ceil(need/XPV[1]),r=myRanks();
+return `<div class="c nb"><div class="mute">Next badge · ${nx} XP</div><div class="cd"><b>${need}</b> XP to go</div><div class="bar" style="margin:10px 0"><div style="width:${(S.xp-pv)/(nx-pv)*100}%"></div></div>
+<div class="rks"><span>🏆 Rank <b>#${r.a}</b> <small>of ${r.an}</small></span><span>⚡ Today <b>#${r.t}</b> <small>of ${r.tn}</small></span></div>
+<p class="mute" style="margin:10px 0 12px">About ${k} correct answer${k>1?"s":""} on Medium${S.streak&&S.last!==day(0)?" · keep your "+S.streak+"🔥 streak":""}${S.xp<500?" · "+(500-S.xp)+" XP to your shareable badge":""}</p>
+<button class="b" style="margin:0" onclick="openSub('mix')">Play now</button>${S.xp>=500?`<button class="b g" style="margin:10px 0 0" onclick="openBadge()">🏅 Share my badge</button>`:""}</div>`}
 function stats(){return `<div class="stats"><div><b>${S.xp}</b>XP</div><div><b>${S.streak}🔥</b>day streak</div><div><b>${S.quizzes}</b>quizzes</div></div>`}
 function vHome(){return `<h2>Hey, ${esc(S.name)}</h2>${nextBadge()}
 <button class="b g" onclick="go('subs')">Choose a subject</button>
 ${vidCard()}${socials()}`}
-function lb(x,i){return `<div class="lb${x[3]?" me":""}"><b>${i+1}</b><span>${esc(x[3]&&S.name?S.name:x[0])}</span><b>${x[2]} XP</b></div>`}
+function lb(x,i){return `<div class="lb${x[3]?" me":""}"${x[3]?' id="mine"':""}><b>${["🥇","🥈","🥉"][i]||i+1}</b><span>${esc(x[3]&&S.name?S.name:x[0])}</span><b>${x[2]} XP</b></div>`}
 function vSubs(){return `<h2>Subjects</h2><div class="grid">${Object.keys(Q).map(k=>`<button class="sj" onclick="openSub('${k}')"><span>${Q[k].e}</span>${Q[k].n}</button>`).join("")}</div>`}
 function vSub(){const k=Z.k,mx=avail(k);
 return `<button class="b g" style="width:auto;display:inline-block" onclick="go('${k==="mix"?"home":"subs"}')">‹ Back</button><h2>${em(k)} ${nm(k)}</h2>
@@ -765,6 +792,7 @@ return `<button class="b g" style="width:auto;display:inline-block" onclick="go(
 <button class="b" onclick="start()">Start quiz</button>`}
 function vQuiz(){
 if(Z.done){const r=Z.res,a=Math.round(r.c/r.n*100);return `<h2>Result</h2><div class="c"><div class="big">${r.c}/${r.n}</div><p>Accuracy ${a}% · <b>+${r.xp} XP</b> · ${LV[Z.L]} · ${S.streak}🔥 day streak${r.c===r.n?"<br>Perfect score bonus: +20 XP":""}</p></div>
+${S.xp>=500?`<div class="c"><b>${r.up?"🎉 Badge unlocked!":"🏅 Your badge"}</b><p class="mute" style="margin:4px 0 10px">${r.up?"You reached 500 XP. ":""}Share your achievement with friends.</p><button class="b" style="margin:0" onclick="openBadge()">View and share badge</button></div>`:""}
 <button class="b" onclick="start()">Try again</button><button class="b g" onclick="openSub('${Z.k}')">Change level or length</button><button class="b g" onclick="go('rank')">See my rank</button>
 <div class="c"><h3>Review</h3>${Z.qs.map((q,i)=>{const s=Z.sel[i],ok=s===q[2];return `<div class="rv"><b>${i+1}. ${q[0]}</b><br>You: ${s===undefined?"skipped":q[1][s]} ${ok?"✅":"❌"}<br>Correct: ${q[1][q[2]]}<br><span class="mute">${q[3]}</span></div>`}).join("")}</div>`}
 const q=Z.qs[Z.i],a=Z.sel[Z.i],n=Z.qs.length;
@@ -775,14 +803,105 @@ ${q[1].map((o,j)=>`<button class="opt ${a===j?"on":""}" onclick="pick(${j})"><i>
 <button class="b" onclick="next()">${Z.i<n-1?"Next":"Finish"}</button>`}
 function vRank(){const r=rankOf(),p=r.findIndex(x=>x[3])+1;
 return `<h2>Leaderboard</h2><div class="seg"><button class="${rt==="all"?"on":""}" onclick="rt='all';render()">All time</button><button class="${rt==="td"?"on":""}" onclick="rt='td';render()">Today</button></div>
-<p class="mute" style="margin:4px 0">You are #${p} of ${r.length}</p>
+<p class="mute" style="margin:4px 0">You are #${p} of ${r.length} · <a href="#" style="color:var(--blue)" onclick="document.getElementById('mine').scrollIntoView({behavior:'smooth',block:'center'});return false">Jump to me</a></p>
 <div class="c">${r.map((x,i)=>lb(x,i)).join("")}</div>
-<p class="mute">Demo ranks with sample students. Real rankings need an online database.</p>`}
+<p class="mute">Includes sample players. Real rankings need an online database.</p>`}
 function vMe(){const dk=(document.documentElement.dataset.theme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"))==="dark";
 const B=bdg(),A=ms(),nx=A.find(m=>m>S.xp),pv=A.filter(m=>m<=S.xp).pop()||0;
 return `<h2>Me</h2><div style="margin:-8px 0 8px">${stats()}</div>
 <div class="c"><label>Name on leaderboard<input value="${esc(S.name)}" maxlength="20" placeholder="Your name" onchange="S.name=this.value.trim()||S.name;save()"></label>
 <button class="b g" onclick="flip()">${dk?"Switch to light mode":"Switch to dark mode"}</button></div>
-<div class="c"><h3>Badges</h3><p class="mute" style="margin:4px 0 8px">Next badge at ${nx} XP · ${nx-S.xp} XP to go</p><div class="bar" style="margin-bottom:10px"><div style="width:${(S.xp-pv)/(nx-pv)*100}%"></div></div>${B.map(b=>`<span class="bd${b[2]?"":" off"}">${b[0]} ${b[1]}</span>`).join("")}</div>`}
+<div class="c"><h3>Badges</h3><p class="mute" style="margin:4px 0 8px">Next badge at ${nx} XP · ${nx-S.xp} XP to go</p><div class="bar" style="margin-bottom:10px"><div style="width:${(S.xp-pv)/(nx-pv)*100}%"></div></div>${B.map(b=>`<span class="bd${b[2]?"":" off"}">${b[0]} ${b[1]}</span>`).join("")}${S.xp>=500?'<button class="b" style="margin:12px 0 0" onclick="openBadge()">🏅 Share my badge</button>':'<p class="mute" style="margin:12px 0 0">Reach 500 XP to unlock a shareable badge.</p>'}</div>`}
+
+/* ---- Shareable achievement badge (500 XP and above) ---- */
+let BL=null,BU="";
+function rr(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
+function spaced(c,t,x,y,gap){const a=[...t],w=a.map(ch=>c.measureText(ch).width),tot=w.reduce((s,v)=>s+v,0)+gap*(a.length-1);let p=x-tot/2;c.textAlign="left";a.forEach((ch,i)=>{c.fillText(ch,p,y);p+=w[i]+gap});c.textAlign="center"}
+async function makeBadge(){
+const m=Math.floor(S.xp/100)*100,title=m>=2000?"QUIZ LEGEND":m>=1000?"QUIZ CHAMPION":"RISING STAR",name=S.name||"Player",num=m.toLocaleString("en-US");
+try{await document.fonts.load('800 80px "Bricolage Grotesque"');await document.fonts.load('600 40px "Bricolage Grotesque"')}catch(e){}
+const W=1080,H=1350,cx=W/2,cy=450,cv=document.createElement("canvas");cv.width=W;cv.height=H;
+const c=cv.getContext("2d"),F=(w,n)=>w+" "+n+'px "Bricolage Grotesque",system-ui,sans-serif',lin=(x0,y0,x1,y1,s)=>{const g=c.createLinearGradient(x0,y0,x1,y1);s.forEach((v,i)=>g.addColorStop(i/(s.length-1),v));return g};
+c.fillStyle=lin(0,0,W,H,["#05070B","#0E141D","#05070B"]);c.fillRect(0,0,W,H);
+let g=c.createRadialGradient(cx,cy,40,cx,cy,640);g.addColorStop(0,"rgba(77,184,245,.4)");g.addColorStop(1,"rgba(77,184,245,0)");c.fillStyle=g;c.fillRect(0,0,W,H);
+g=c.createRadialGradient(cx,H,40,cx,H,560);g.addColorStop(0,"rgba(190,200,220,.2)");g.addColorStop(1,"rgba(190,200,220,0)");c.fillStyle=g;c.fillRect(0,0,W,H);
+c.strokeStyle=lin(0,0,W,H,["#E6EBF2","#4DB8F5","#8E99A9"]);c.lineWidth=4;rr(c,36,36,W-72,H-72,48);c.stroke();
+c.textAlign="center";c.fillStyle="#7FD0FA";c.font=F(600,30);spaced(c,"ACHIEVEMENT UNLOCKED",cx,128,10);
+[-1,1].forEach(d=>{c.save();c.translate(cx,cy+150);c.rotate(-d*.2);c.beginPath();[[d*20,0],[d*170,0],[d*170,300],[d*95,245],[d*20,300]].forEach((p,i)=>c[i?"lineTo":"moveTo"](p[0],p[1]));c.closePath();c.fillStyle=lin(0,0,0,300,["#35A9EE","#0A5E9E"]);c.fill();c.strokeStyle="rgba(255,255,255,.35)";c.lineWidth=3;c.stroke();c.restore()});
+const n=36;c.beginPath();for(let i=0;i<n*2;i++){const a=i*Math.PI/n-Math.PI/2,r=i%2?282:300;c[i?"lineTo":"moveTo"](cx+r*Math.cos(a),cy+r*Math.sin(a))}c.closePath();
+c.fillStyle=lin(0,cy-300,0,cy+300,["#FFFFFF","#C9D1DC","#8E99A9","#E6EBF2"]);c.shadowColor="rgba(77,184,245,.65)";c.shadowBlur=60;c.fill();c.shadowBlur=0;
+c.beginPath();c.arc(cx,cy,262,0,7);c.fillStyle="#0A0E14";c.fill();
+c.beginPath();c.arc(cx,cy,250,0,7);c.fillStyle=lin(0,cy-250,0,cy+250,["#22304A","#080B10"]);c.fill();
+c.lineWidth=5;c.strokeStyle="#4DB8F5";c.beginPath();c.arc(cx,cy,230,0,7);c.stroke();
+c.lineWidth=2;c.strokeStyle="rgba(255,255,255,.25)";c.beginPath();c.arc(cx,cy,212,0,7);c.stroke();
+c.font=F(600,34);c.fillStyle="#C9D1DC";spaced(c,"★ ★ ★",cx,cy-120,6);
+c.font=F(800,num.length>3?150:190);c.fillStyle=lin(0,cy-130,0,cy+40,["#FFFFFF","#8FD3FA"]);c.fillText(num,cx,cy+45);
+c.font=F(800,60);c.fillStyle="#4DB8F5";spaced(c,"XP",cx,cy+135,18);
+c.font=F(800,40);c.fillStyle="#7FD0FA";spaced(c,title,cx,975,12);
+let fs=104;c.font=F(800,fs);while(c.measureText(name).width>880&&fs>40){fs-=4;c.font=F(800,fs)}c.fillStyle="#FFFFFF";c.fillText(name,cx,1085);
+c.font=F(600,36);c.fillStyle="#AEB8C7";c.fillText("Reached "+num+" XP · "+new Date().toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}),cx,1150);
+c.strokeStyle="rgba(255,255,255,.18)";c.lineWidth=2;c.beginPath();c.moveTo(160,1195);c.lineTo(W-160,1195);c.stroke();
+c.font=F(800,46);const tw=c.measureText("AmaySST Quiz").width,x0=cx-(80+16+tw)/2,im=document.querySelector("#hd img");
+if(im&&im.complete&&im.naturalWidth){c.save();c.beginPath();c.arc(x0+40,1262,40,0,7);c.clip();c.drawImage(im,x0,1222,80,80);c.restore();c.strokeStyle="#4DB8F5";c.lineWidth=3;c.beginPath();c.arc(x0+40,1262,40,0,7);c.stroke()}
+c.textAlign="left";c.fillStyle="#FFFFFF";c.fillText("AmaySST Quiz",x0+96,1277);
+return new Promise(r=>cv.toBlob(r,"image/png"))}
+async function openBadge(){
+if(document.getElementById("bm"))return;
+const d=document.createElement("div");d.id="bm";d.className="bm";
+d.innerHTML='<div class="bm-b"></div><div class="bm-s" role="dialog" aria-modal="true" aria-label="Your badge"><p class="mute" id="bmt" style="margin:0 0 10px">Creating your badge…</p><img id="bmi" alt="" hidden><button class="b" id="bms" type="button" hidden>Share to Instagram or WhatsApp</button><button class="b g" id="bmd" type="button" hidden>Save image</button><button class="b g" id="bmc" type="button">Close</button></div>';
+document.body.appendChild(d);
+const $=i=>document.getElementById(i),close=()=>{if(BU)URL.revokeObjectURL(BU);BL=null;BU="";d.remove();removeEventListener("keydown",esc)},esc=e=>{if(e.key==="Escape")close()};
+d.firstChild.onclick=close;$("bmc").onclick=close;addEventListener("keydown",esc);
+try{BL=await makeBadge();BU=URL.createObjectURL(BL)}catch(e){$("bmt").textContent="Couldn’t create the badge. Please try again.";return}
+$("bmt").textContent="Your badge is ready. Share it or save it.";$("bmi").src=BU;$("bmi").alt="AmaySST Quiz badge for "+S.name;
+["bmi","bms","bmd"].forEach(i=>$(i).hidden=false);
+$("bms").onclick=async()=>{const f=new File([BL],"amaysst-quiz-badge.png",{type:"image/png"});
+if(navigator.canShare&&navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:"AmaySST Quiz",text:"I reached "+Math.floor(S.xp/100)*100+" XP on AmaySST Quiz! 🏅"});return}catch(e){if(e.name==="AbortError")return}}
+$("bmt").textContent="Sharing isn’t supported here. Save the image, then post it from Instagram or WhatsApp."};
+$("bmd").onclick=()=>{const a=document.createElement("a");a.href=BU;a.download="amaysst-quiz-badge.png";document.body.appendChild(a);a.click();a.remove()}}
 theme();render();
-</script></body></html>
+</script><script>
+/* PWA layer: install button and popup, offline notice, Android back button, service worker. */
+(function(){
+var KEY="pwa_ask",DAY=864e5,dp=null,shown=false,act=0,extra=false,skip=false,cur=null;
+var $=function(i){return document.getElementById(i)};
+var inst=function(){return matchMedia("(display-mode: standalone)").matches||navigator.standalone===true};
+var ios=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+function get(){try{return Object.assign({n:0,t:0,done:0},JSON.parse(localStorage.getItem(KEY)))}catch(e){return{n:0,t:0,done:0}}}
+function put(o){try{localStorage.setItem(KEY,JSON.stringify(o))}catch(e){}}
+function can(){return !inst()&&!get().done&&!!(dp||ios)}
+function btn(){var b=$("ib");if(b)b.hidden=!can()}
+function close(){var d=$("pw");if(d)d.remove();document.removeEventListener("keydown",esc)}
+function esc(e){if(e.key==="Escape"&&cur)cur()}
+function later(){close();var o=get();o.n++;o.t=Date.now();put(o)}
+function sheet(html,fn){close();cur=fn||close;var d=document.createElement("div");d.id="pw";
+d.innerHTML='<div class="pw-b"></div><div class="pw-s" role="dialog" aria-modal="true" aria-labelledby="pw-t"><img alt="">'+html+'</div>';
+document.body.appendChild(d);var lg=document.querySelector("#hd img"),im=d.querySelector("img");if(lg)im.src=lg.src;
+d.firstChild.onclick=function(){cur()};document.addEventListener("keydown",esc);return d}
+function popup(auto){sheet('<h2 id="pw-t">Install Our App</h2><p>Get faster access to quizzes, current affairs and your progress. Add our app to your home screen and learn anytime!</p><button class="b" id="pw-y" type="button">Install Now</button><button class="b g" id="pw-n" type="button">Maybe Later</button>',auto?later:close);
+$("pw-y").onclick=install;$("pw-n").onclick=function(){cur()};$("pw-y").focus()}
+function steps(){sheet('<h2 id="pw-t">Add to Home Screen</h2><ol><li>Tap the <b>Share</b> button in Safari’s toolbar.</li><li>Scroll down and tap <b>Add to Home Screen</b>.</li><li>Tap <b>Add</b>.</li></ol><p>Can’t see it? Open this page in Safari first.</p><button class="b" id="pw-n" type="button">Got it</button>',close);
+$("pw-n").onclick=close;$("pw-n").focus()}
+function install(){close();if(dp){var p=dp;dp=null;btn();p.prompt();
+p.userChoice.then(function(c){var o=get();if(c.outcome==="accepted")o.done=1;else{o.n++;o.t=Date.now()}put(o);btn()}).catch(btn)}
+else if(ios)steps()}
+addEventListener("beforeinstallprompt",function(e){e.preventDefault();dp=e;var o=get();if(o.done){o.done=0;put(o)}btn()});
+addEventListener("appinstalled",function(){var o=get();o.done=1;put(o);dp=null;close();btn()});
+var ib=$("ib");if(ib)ib.onclick=install;btn();
+function maybe(){if(shown||act<30||!can())return;if(typeof view!=="undefined"&&(view==="quiz"||view==="gate"))return;
+var o=get();if(o.n>=3||Date.now()-o.t<7*DAY)return;
+try{if(sessionStorage.getItem("pwa_s"))return;sessionStorage.setItem("pwa_s","1")}catch(e){}
+shown=true;popup(true)}
+setInterval(function(){if(document.visibilityState==="visible"){act+=5;maybe()}},5000);
+function net(e){var b=$("ob");if(!b){b=document.createElement("div");b.id="ob";b.setAttribute("role","status");
+b.textContent="You’re offline. Quizzes still work; videos and social links need internet.";document.body.appendChild(b)}b.hidden=e&&e.type?e.type==="online":navigator.onLine}
+addEventListener("online",net);addEventListener("offline",net);net();
+if(typeof render==="function"&&history.pushState){var R=render;
+var sync=function(){var h=view==="home"||view==="gate";if(h&&extra){extra=false;skip=true;history.back()}else if(!h&&!extra){extra=true;history.pushState({m:1},"")}};
+window.render=function(){R();sync()};
+addEventListener("popstate",function(){if(skip){skip=false;return}extra=false;if(view!=="home"&&view!=="gate")go("home")})}
+if("serviceWorker" in navigator&&(location.protocol==="https:"||location.hostname==="localhost"))
+addEventListener("load",function(){navigator.serviceWorker.register("sw.js",{scope:"./"}).catch(function(e){console.warn("Service worker not registered:",e)})});
+})();
+</script>
+</body></html>
