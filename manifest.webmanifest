@@ -1,0 +1,18 @@
+{
+  "id": "./",
+  "name": "AmaySST Quiz",
+  "short_name": "AmaySST",
+  "description": "Practice quizzes by level, current affairs, XP and badges.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#E7EAEE",
+  "theme_color": "#E7EAEE",
+  "lang": "en",
+  "categories": ["education"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
