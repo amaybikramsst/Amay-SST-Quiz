@@ -959,5 +959,5 @@ addEventListener("popstate",function(){if(skip){skip=false;return}extra=false;if
 if("serviceWorker" in navigator&&(location.protocol==="https:"||location.hostname==="localhost"))
 addEventListener("load",function(){navigator.serviceWorker.register("sw.js",{scope:"./"}).catch(function(e){console.warn("Service worker not registered:",e)})});
 })();
-</script>
+<script src="backend.js"></script>
 </body></html>
