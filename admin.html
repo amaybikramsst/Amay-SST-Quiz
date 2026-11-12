@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>AmaySST Quiz - Admin Console</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --bg: #0B1120; --card: #1E293B; --ink: #F8FAFC; --mute: #94A3B8;
+      --blue: #2563EB; --accent: #38BDF8; --line: #334155; --ok: #10B981; --bad: #EF4444;
+    }
+    body { margin:0; font-family:'Plus Jakarta Sans',sans-serif; background:var(--bg); color:var(--ink); padding:20px; }
+    .container { max-width:960px; margin:0 auto; }
+    h1 { font-size:26px; margin:0 0 4px; display:flex; align-items:center; gap:10px; }
+    .badge { font-size:12px; background:var(--blue); padding:4px 10px; border-radius:20px; text-transform:uppercase; font-weight:700; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:16px; margin:24px 0; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:20px; }
+    .card h3 { margin:0 0 8px; font-size:13px; color:var(--mute); text-transform:uppercase; letter-spacing:0.05em; }
+    .card .val { font-size:32px; font-weight:800; color:var(--accent); }
+    .tabs { display:flex; gap:8px; border-bottom:1px solid var(--line); margin-bottom:20px; overflow-x:auto; }
+    .tabs button { background:none; border:none; color:var(--mute); font:inherit; font-weight:700; padding:12px 18px; cursor:pointer; white-space:nowrap; }
+    .tabs button.on { color:var(--accent); border-bottom:3px solid var(--accent); }
+    input, select, textarea { width:100%; box-sizing:border-box; padding:12px; border-radius:10px; border:1px solid var(--line); background:#0F172A; color:#fff; font:inherit; margin:6px 0 16px; }
+    label { font-size:14px; font-weight:600; color:var(--mute); display:block; }
+    .btn { background:linear-gradient(90deg, #2563EB, #1D4ED8); border:none; color:#fff; padding:14px 24px; border-radius:12px; font:inherit; font-weight:700; cursor:pointer; width:100%; transition:opacity 0.2s; }
+    .btn:hover { opacity:0.9; }
+    table { width:100%; border-collapse:collapse; margin-top:12px; font-size:14px; }
+    th, td { text-align:left; padding:12px 10px; border-bottom:1px solid var(--line); }
+    th { color:var(--mute); font-size:12px; text-transform:uppercase; }
+    .sec { display:none; }
+    .sec.on { display:block; }
+    .alert { padding:12px; border-radius:10px; background:rgba(16,185,129,0.2); border:1px solid var(--ok); color:var(--ok); margin-bottom:16px; display:none; font-weight:600; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>AmaySST Admin <span class="badge">Master Console</span></h1>
+  <p style="color:var(--mute); margin:0 0 20px;">Manage questions, monitor candidates, and view real-time attempts.</p>
+
+  <!-- STATS OVERVIEW -->
+  <div class="grid">
+    <div class="card"><h3>Total Candidates</h3><div class="val" id="st-users">0</div></div>
+    <div class="card"><h3>Total Tests Taken</h3><div class="val" id="st-tests">0</div></div>
+    <div class="card"><h3>Total XP Awarded</h3><div class="val" id="st-xp">0</div></div>
+    <div class="card"><h3>Cloud Questions</h3><div class="val" id="st-qs">0</div></div>
+  </div>
+
+  <!-- NAVIGATION TABS -->
+  <div class="tabs">
+    <button class="on" onclick="switchTab('add', this)">Add New Question</button>
+    <button onclick="switchTab('candidates', this)">Live Candidates</button>
+    <button onclick="switchTab('attempts', this)">Recent Tests</button>
+  </div>
+
+  <!-- TAB 1: ADD QUESTION -->
+  <div id="sec-add" class="sec on">
+    <div class="card">
+      <div id="q-alert" class="alert">Question saved successfully to Supabase!</div>
+      <form id="q-form" onsubmit="saveQuestion(event)">
+        <label>Subject</label>
+        <select id="q-sub" required>
+          <option value="sst">Social Science (SST)</option>
+          <option value="sci">Science</option>
+          <option value="math">Mathematics</option>
+          <option value="eng">English</option>
+          <option value="hin">Hindi</option>
+          <option value="ca">Current Affairs</option>
+        </select>
+
+        <label>Difficulty Level</label>
+        <select id="q-lvl">
+          <option value="0">Easy</option>
+          <option value="1" selected>Medium</option>
+          <option value="2">Hard</option>
+          <option value="3">Amay Special</option>
+        </select>
+
+        <label>Question Text</label>
+        <textarea id="q-txt" rows="3" placeholder="Enter NCERT question here..." required></textarea>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div><label>Option A</label><input id="q-oa" placeholder="Option A" required></div>
+          <div><label>Option B</label><input id="q-ob" placeholder="Option B" required></div>
+          <div><label>Option C</label><input id="q-oc" placeholder="Option C" required></div>
+          <div><label>Option D</label><input id="q-od" placeholder="Option D" required></div>
+        </div>
+
+        <label>Correct Answer</label>
+        <select id="q-ans" required>
+          <option value="0">Option A</option>
+          <option value="1">Option B</option>
+          <option value="2">Option C</option>
+          <option value="3">Option D</option>
+        </select>
+
+        <label>Explanation / NCERT Reference</label>
+        <input id="q-exp" placeholder="e.g. NCERT Class 10 Chapter 3">
+
+        <button type="submit" class="btn">Publish Question to Live App</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- TAB 2: CANDIDATES -->
+  <div id="sec-candidates" class="sec">
+    <div class="card">
+      <h3>All Registered Candidates</h3>
+      <table>
+        <thead>
+          <tr><th>Rank</th><th>Candidate Name</th><th>State</th><th>Total XP</th><th>Streak</th><th>Quizzes</th></tr>
+        </thead>
+        <tbody id="tb-candidates"><tr><td colspan="6" style="color:var(--mute)">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TAB 3: ATTEMPTS -->
+  <div id="sec-attempts" class="sec">
+    <div class="card">
+      <h3>Live Test Submissions</h3>
+      <table>
+        <thead>
+          <tr><th>Time</th><th>Student Name</th><th>Subject</th><th>Score</th><th>XP Earned</th></tr>
+        </thead>
+        <tbody id="tb-attempts"><tr><td colspan="5" style="color:var(--mute)">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  // PASTE YOUR KEYS HERE:
+  const SB_URL = "https://mhlsezufxyypvgygqgiz.supabase.co";
+  const SB_KEY = "sb_publishable_PwaUNHsURR2mGKxKBtagBw_MzNtJ0yd";
+  
+  const sb = window.supabase ? window.supabase.createClient(SB_URL, SB_KEY) : null;
+
+  function switchTab(name, btn) {
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('on'));
+    document.querySelectorAll('.sec').forEach(s => s.classList.remove('on'));
+    btn.classList.add('on');
+    document.getElementById('sec-' + name).classList.add('on');
+    if(name === 'candidates') loadCandidates();
+    if(name === 'attempts') loadAttempts();
+  }
+
+  async function loadStats() {
+    if (!sb) return;
+    const { count: userCount } = await sb.from('candidates').select('*', { count: 'exact', head: true });
+    const { count: testCount } = await sb.from('quiz_attempts').select('*', { count: 'exact', head: true });
+    const { count: qCount } = await sb.from('dynamic_questions').select('*', { count: 'exact', head: true });
+    const { data: xpData } = await sb.from('candidates').select('xp');
+
+    document.getElementById('st-users').textContent = userCount || 0;
+    document.getElementById('st-tests').textContent = testCount || 0;
+    document.getElementById('st-qs').textContent = qCount || 0;
+
+    const totalXP = xpData ? xpData.reduce((acc, c) => acc + (c.xp || 0), 0) : 0;
+    document.getElementById('st-xp').textContent = totalXP.toLocaleString();
+  }
+
+  async function saveQuestion(e) {
+    e.preventDefault();
+    if (!sb) return alert("Supabase not connected. Please verify your keys.");
+
+    const payload = {
+      subject: document.getElementById('q-sub').value,
+      level: parseInt(document.getElementById('q-lvl').value),
+      question_text: document.getElementById('q-txt').value.trim(),
+      option_a: document.getElementById('q-oa').value.trim(),
+      option_b: document.getElementById('q-ob').value.trim(),
+      option_c: document.getElementById('q-oc').value.trim(),
+      option_d: document.getElementById('q-od').value.trim(),
+      correct_index: parseInt(document.getElementById('q-ans').value),
+      explanation: document.getElementById('q-exp').value.trim()
+    };
+
+    const { error } = await sb.from('dynamic_questions').insert([payload]);
+    if (!error) {
+      const alt = document.getElementById('q-alert');
+      alt.style.display = 'block';
+      document.getElementById('q-form').reset();
+      setTimeout(() => alt.style.display = 'none', 3000);
+      loadStats();
+    } else {
+      alert("Error: " + error.message);
+    }
+  }
+
+  async function loadCandidates() {
+    if (!sb) return;
+    const { data } = await sb.from('candidates').select('*').order('xp', { ascending: false }).limit(100);
+    const tb = document.getElementById('tb-candidates');
+    if (!data || data.length === 0) { tb.innerHTML = '<tr><td colspan="6" style="color:var(--mute)">No students in database yet.</td></tr>'; return; }
+    tb.innerHTML = data.map((c, i) => `<tr>
+      <td>#${i + 1}</td>
+      <td><b>${c.display_name}</b></td>
+      <td>${c.state || 'Other'}</td>
+      <td><b>${c.xp} XP</b></td>
+      <td>${c.streak}🔥</td>
+      <td>${c.quizzes_count}</td>
+    </tr>`).join('');
+  }
+
+  async function loadAttempts() {
+    if (!sb) return;
+    const { data } = await sb.from('quiz_attempts').select('*').order('created_at', { ascending: false }).limit(50);
+    const tb = document.getElementById('tb-attempts');
+    if (!data || data.length === 0) { tb.innerHTML = '<tr><td colspan="5" style="color:var(--mute)">No quiz attempts recorded yet.</td></tr>'; return; }
+    tb.innerHTML = data.map(a => `<tr>
+      <td>${new Date(a.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+      <td><b>${a.candidate_name}</b></td>
+      <td>${a.subject.toUpperCase()}</td>
+      <td>${a.score} / ${a.total}</td>
+      <td>+${a.xp_earned} XP</td>
+    </tr>`).join('');
+  }
+
+  loadStats();
+</script>
+</body>
+</html>
