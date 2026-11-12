@@ -2,8 +2,8 @@
    AmaySST Quiz - Live Cloud Sync + Diagnostic Monitor
    ========================================================= */
 
-const SB_URL = "PASTE_YOUR_PROJECT_URL_HERE";
-const SB_KEY = "PASTE_YOUR_PUBLISHABLE_KEY_HERE";
+const SB_URL = "https://mhlsezufxyypvgygqgiz.supabase.co";
+const SB_KEY = "sb_publishable_PwaUNHsURR2mGKxKBtagBw_MzNtJ0yd";
 
 // 1. Create a live status badge at the top of the screen
 const dbg = document.createElement("div");
