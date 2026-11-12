@@ -11,7 +11,7 @@ dbg.id = "cloud-status";
 dbg.style = "position:fixed;top:6px;left:50%;transform:translateX(-50%);background:#0F172A;color:#38BDF8;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;font-family:sans-serif;z-index:9999;box-shadow:0 4px 14px rgba(0,0,0,0.5);border:1px solid #38BDF8;";
 dbg.textContent = "☁️ Supabase: Connecting...";
 document.addEventListener("DOMContentLoaded", () => document.body.appendChild(dbg));
-if (document.body) document.body.appendChild(dbg);
+// if (document.body) document.body.appendChild(dbg);
 
 function setStatus(msg, isError) {
   if (!dbg) return;
