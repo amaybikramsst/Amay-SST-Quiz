@@ -32,7 +32,10 @@ const GUEST_ID = getGuestUUID();
 async function fetchLiveRanks() {
   if (!sb || typeof D === "undefined") return;
   try {
-    const { data, error } = await sb.from("candidates").select("display_name,xp,today_xp,guest_uuid");
+    // Skip anyone the admin has removed (falls back safely if the setup step is not done yet)
+    let res = await sb.from("candidates").select("display_name,xp,today_xp,guest_uuid").eq("hidden", false);
+    if (res.error) res = await sb.from("candidates").select("display_name,xp,today_xp,guest_uuid");
+    const { data, error } = res;
     if (!error && data) {
       if (!window._initialD) window._initialD = [...D];
 
