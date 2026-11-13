@@ -44,6 +44,12 @@
     .sec { display:none; }
     .sec.on { display:block; }
     .alert { padding:12px; border-radius:10px; background:rgba(16,185,129,0.2); border:1px solid var(--ok); color:var(--ok); margin-bottom:16px; display:none; font-weight:600; }
+    .btn-row { padding:6px 12px; border-radius:8px; font:inherit; font-size:12px; font-weight:700; cursor:pointer; background:transparent; }
+    .btn-row.del { border:1px solid var(--bad); color:var(--bad); } .btn-row.del:hover { background:var(--bad); color:#fff; }
+    .btn-row.ok { border:1px solid var(--ok); color:var(--ok); } .btn-row.ok:hover { background:var(--ok); color:#fff; }
+    .msg { padding:12px; border-radius:10px; margin-bottom:12px; font-weight:600; display:none; }
+    .msg.good { display:block; background:rgba(16,185,129,0.2); border:1px solid var(--ok); color:var(--ok); }
+    .msg.warn { display:block; background:rgba(239,68,68,0.15); border:1px solid var(--bad); color:var(--bad); }
   </style>
 </head>
 <body>
@@ -141,11 +147,12 @@
     <div id="sec-candidates" class="sec">
       <div class="card">
         <h3>All Registered Candidates</h3>
+        <div id="c-msg" class="msg"></div>
         <table>
           <thead>
-            <tr><th>Rank</th><th>Candidate Name</th><th>State</th><th>Total XP</th><th>Streak</th><th>Quizzes</th></tr>
+            <tr><th>Rank</th><th>Candidate Name</th><th>State</th><th>Total XP</th><th>Streak</th><th>Quizzes</th><th>Action</th></tr>
           </thead>
-          <tbody id="tb-candidates"><tr><td colspan="6" style="color:var(--mute)">Loading...</td></tr></tbody>
+          <tbody id="tb-candidates"><tr><td colspan="7" style="color:var(--mute)">Loading...</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -170,6 +177,9 @@
   const SB_URL = "https://mhlsezufxyypvgygqgiz.supabase.co";
   const SB_KEY = "sb_publishable_PwaUNHsURR2mGKxKBtagBw_MzNtJ0yd";
   const sb = window.supabase ? window.supabase.createClient(SB_URL, SB_KEY) : null;
+
+  // Shows text safely, so a student name like <img onerror=...> can never run as code
+  const esc = v => String(v ?? "").replace(/[&<>"']/g, c => "&#" + c.charCodeAt(0) + ";");
 
   // Check login state on startup
   async function checkAuth() {
@@ -279,20 +289,57 @@
     }
   }
 
+  // Small message box on the Live Candidates tab
+  function say(text, good) {
+    const m = document.getElementById('c-msg');
+    m.textContent = text;
+    m.className = 'msg ' + (good ? 'good' : 'warn');
+    setTimeout(() => { m.className = 'msg'; }, 6000);
+  }
+
   async function loadCandidates() {
     if (!sb) return;
     const { data } = await sb.from('candidates').select('*').order('xp', { ascending: false }).limit(100);
     const tb = document.getElementById('tb-candidates');
-    if (!data || data.length === 0) { tb.innerHTML = '<tr><td colspan="6" style="color:var(--mute)">No students yet.</td></tr>'; return; }
-    tb.innerHTML = data.map((c, i) => `<tr>
+    if (!data || data.length === 0) { tb.innerHTML = '<tr><td colspan="7" style="color:var(--mute)">No students yet.</td></tr>'; return; }
+    tb.innerHTML = data.map((c, i) => {
+      const gone = c.hidden === true;
+      return `<tr style="${gone ? 'opacity:.55' : ''}">
       <td>#${i + 1}</td>
-      <td><b>${c.display_name}</b></td>
-      <td>${c.state || 'Other'}</td>
-      <td><b>${c.xp} XP</b></td>
-      <td>${c.streak}🔥</td>
-      <td>${c.quizzes_count}</td>
-    </tr>`).join('');
+      <td><b style="${gone ? 'text-decoration:line-through' : ''}">${esc(c.display_name)}</b>${gone ? ' <span class="badge" style="background:var(--bad)">Removed</span>' : ''}</td>
+      <td>${esc(c.state || 'Other')}</td>
+      <td><b>${esc(c.xp)} XP</b></td>
+      <td>${esc(c.streak)}🔥</td>
+      <td>${esc(c.quizzes_count)}</td>
+      <td><button class="btn-row ${gone ? 'ok' : 'del'}" data-id="${esc(c.guest_uuid)}" data-name="${esc(c.display_name)}" data-hide="${gone ? '0' : '1'}">${gone ? 'Restore' : 'Remove'}</button></td>
+    </tr>`;
+    }).join('');
   }
+
+  // Remove a candidate from the ranks (or bring them back)
+  async function setHidden(id, name, hide) {
+    if (!sb) return;
+    const q = hide
+      ? 'Remove "' + name + '" from the ranks?\n\nNobody will see this name in the leaderboard. You can restore it later.'
+      : 'Restore "' + name + '" to the ranks?';
+    if (!confirm(q)) return;
+    const { data, error } = await sb.from('candidates').update({ hidden: hide }).eq('guest_uuid', id).select('guest_uuid');
+    if (error) {
+      say(/hidden/i.test(error.message) ? 'The one-time setup step is not done yet, so nothing was changed. Ask Claude for the setup step.' : 'Could not update: ' + error.message, false);
+      return;
+    }
+    if (!data || data.length === 0) {
+      say('Nothing was changed. Your database settings blocked it. Ask Claude for the setup step.', false);
+      return;
+    }
+    say(hide ? '"' + name + '" was removed from the ranks.' : '"' + name + '" was restored.', true);
+    loadCandidates();
+  }
+
+  document.getElementById('tb-candidates').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-id]');
+    if (b) setHidden(b.dataset.id, b.dataset.name, b.dataset.hide === '1');
+  });
 
   async function loadAttempts() {
     if (!sb) return;
@@ -301,10 +348,10 @@
     if (!data || data.length === 0) { tb.innerHTML = '<tr><td colspan="5" style="color:var(--mute)">No quiz attempts yet.</td></tr>'; return; }
     tb.innerHTML = data.map(a => `<tr>
       <td>${new Date(a.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
-      <td><b>${a.candidate_name}</b></td>
-      <td>${a.subject.toUpperCase()}</td>
-      <td>${a.score} / ${a.total}</td>
-      <td>+${a.xp_earned} XP</td>
+      <td><b>${esc(a.candidate_name)}</b></td>
+      <td>${esc(String(a.subject ?? '').toUpperCase())}</td>
+      <td>${esc(a.score)} / ${esc(a.total)}</td>
+      <td>+${esc(a.xp_earned)} XP</td>
     </tr>`).join('');
   }
 
