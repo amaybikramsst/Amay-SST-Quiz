@@ -1,5 +1,8 @@
 /* =========================================================
-   AmaySST Quiz - Universal Cloud Sync & Live Leaderboard
+   AmaySST Quiz - Cloud Sync & Live Leaderboard (SAFE version)
+   Students can no longer send XP numbers. The app only reports
+   "I finished a quiz: level, questions, correct answers" and the
+   database works out the XP itself.
    ========================================================= */
 
 const SB_URL = "https://mhlsezufxyypvgygqgiz.supabase.co";
@@ -12,7 +15,7 @@ let sb = null;
   s.onload = () => {
     if (window.supabase && SB_URL && !SB_URL.includes("PASTE_YOUR")) {
       sb = window.supabase.createClient(SB_URL, SB_KEY);
-      fetchLiveRanks();
+      startSync();
     }
   };
   document.head.appendChild(s);
@@ -27,83 +30,120 @@ function getGuestUUID() {
   return id;
 }
 const GUEST_ID = getGuestUUID();
+const todayUTC = () => new Date().toISOString().slice(0, 10);
 
-// Pull all students from Supabase and put them on the Leaderboard
-async function fetchLiveRanks() {
-  if (!sb || typeof D === "undefined") return;
+let lastRanks = 0, lastName = "", lastState = "", flushing = false;
+
+/* 1) Tell the database the student's name and state (never XP) */
+async function syncProfile() {
+  if (!sb || typeof S === "undefined" || !S || !S.name) return;
+  const state = S.state || "Bihar";
+  if (S.name === lastName && state === lastState) return;
   try {
-    const { data, error } = await sb.from("candidates").select("display_name,xp,today_xp,guest_uuid").eq("hidden", false);
-    if (!error && data) {
-      if (!window._initialD) window._initialD = [...D];
-
-      // Restore benchmark candidates
-      D.length = 0;
-      window._initialD.forEach(x => D.push([...x]));
-
-      // Merge all live cloud students into the leaderboard
-      data.forEach(c => {
-        if (c.guest_uuid !== GUEST_ID) {
-          D.push([c.display_name, "", c.xp || 0, c.today_xp || 0]);
-        }
-      });
-
-      if (typeof render === "function") render();
-    }
-  } catch(e) {}
+    const { error } = await sb.rpc("register_player", { p_guest: GUEST_ID, p_name: S.name, p_state: state });
+    if (!error) { lastName = S.name; lastState = state; }
+  } catch (e) {}
 }
 
-// Automatically fetch latest ranks whenever student clicks any navigation button
+/* 2) Take the numbers saved in the database and show them in the app */
+function applyStats(st) {
+  if (!st || typeof S === "undefined") return;
+  S.xp = st.xp;
+  S.streak = st.streak;
+  S.quizzes = st.quizzes;
+  S.perfect = st.perfect;
+  S.td = { d: todayUTC(), xp: st.today_xp || 0 };
+  if (typeof save === "function") save();
+  if (typeof view !== "undefined" && view !== "quiz" && typeof render === "function") render();
+}
+async function loadMine() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.rpc("get_my_stats", { p_guest: GUEST_ID });
+    if (!error && data) applyStats(data);
+  } catch (e) {}
+}
+
+/* 3) Quiz results waiting to be sent (kept safely if there is no internet) */
+const QKEY = "amaysst_queue";
+function getQ() { try { return JSON.parse(localStorage.getItem(QKEY)) || []; } catch (e) { return []; } }
+function setQ(q) { try { localStorage.setItem(QKEY, JSON.stringify(q)); } catch (e) {} }
+
+async function flushQueue() {
+  if (!sb || flushing) return;
+  flushing = true;
+  try {
+    await syncProfile();
+    const q = getQ();
+    while (q.length) {
+      const a = q[0];
+      const { data, error } = await sb.rpc("submit_quiz", {
+        p_guest: GUEST_ID, p_subject: a.k, p_level: a.L, p_total: a.t, p_correct: a.c
+      });
+      if (!error) { q.shift(); setQ(q); applyStats(data); continue; }
+      if (error.code === "P0001") {                       // the database said no
+        if (/wait/i.test(error.message || "")) { setTimeout(flushQueue, 16000); break; }
+        q.shift(); setQ(q); continue;                     // not a valid result: drop it
+      }
+      break;                                              // no internet: keep it, try later
+    }
+  } catch (e) {}
+  flushing = false;
+  fetchLiveRanks(true);
+}
+
+/* Notice when a quiz finishes and add its result to the waiting list */
+(function hookFinish() {
+  if (typeof window.finish !== "function") return;
+  const original = window.finish;
+  window.finish = function () {
+    const fresh = typeof Z !== "undefined" && Z && !Z.done && Z.qs;
+    const result = original.apply(this, arguments);
+    if (fresh && Z && Z.done && Z.res) {
+      const q = getQ();
+      q.push({ k: Z.k, L: Z.L, t: Z.qs.length, c: Z.res.c });
+      setQ(q);
+      flushQueue();
+    }
+    return result;
+  };
+})();
+
+/* 4) Live leaderboard: other students, top 100 only, at most every 20 seconds */
+async function fetchLiveRanks(force) {
+  if (!sb || typeof D === "undefined") return;
+  if (!force && Date.now() - lastRanks < 20000) return;
+  lastRanks = Date.now();
+  try {
+    const { data, error } = await sb.rpc("get_leaderboard", { p_guest: GUEST_ID });
+    if (!error && Array.isArray(data)) {
+      if (!window._initialD) window._initialD = [...D];
+      D.length = 0;
+      window._initialD.forEach(x => D.push([...x]));       // the benchmark players
+      data.forEach(c => D.push([c.name, "", c.xp || 0, c.today_xp || 0]));
+      if (typeof view !== "undefined" && view !== "quiz" && typeof render === "function") render();
+    }
+  } catch (e) {}
+}
+
 document.addEventListener("click", (e) => {
   if (e.target.closest("button") || e.target.closest("nav")) {
-    setTimeout(fetchLiveRanks, 150);
+    setTimeout(() => fetchLiveRanks(false), 150);
   }
 });
 
-// Save student data to Supabase
-async function pushToCloud(student) {
-  if (!sb) return;
-  try {
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const todayXP = (student.td && student.td.d === todayStr) ? student.td.xp : 0;
-
-    await sb.from("candidates").upsert({
-      guest_uuid: GUEST_ID,
-      display_name: student.name,
-      state: student.state || "Bihar",
-      xp: student.xp || 0,
-      today_xp: todayXP,
-      streak: student.streak || 0,
-      quizzes_count: student.quizzes || 0,
-      perfect_count: student.perfect || 0,
-      last_active_date: todayStr,
-      updated_at: new Date()
-    }, { onConflict: "guest_uuid" });
-
-    if (student.quizzes > 0) {
-      await sb.from("quiz_attempts").insert([{
-        guest_uuid: GUEST_ID,
-        candidate_name: student.name,
-        subject: "General Quiz",
-        level: 1,
-        score: 10,
-        total: 10,
-        xp_earned: 20
-      }]);
-    }
-
-    fetchLiveRanks();
-  } catch(e) {}
+/* 5) Start-up, and whenever the internet comes back */
+async function startSync() {
+  await syncProfile();
+  await loadMine();
+  await flushQueue();
+  fetchLiveRanks(true);
 }
+window.addEventListener("online", flushQueue);
 
+/* Whenever the app saves, check if the name changed */
 const _orig = Storage.prototype.setItem;
-Storage.prototype.setItem = function(k, v) {
+Storage.prototype.setItem = function (k, v) {
   _orig.apply(this, arguments);
-  if (k === "r10") {
-    try {
-      const data = JSON.parse(v);
-      if (data && data.name) {
-        setTimeout(() => pushToCloud(data), 300);
-      }
-    } catch(e) {}
-  }
+  if (k === "r10") setTimeout(syncProfile, 300);
 };
