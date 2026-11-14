@@ -26,6 +26,28 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Organize folders if uploaded flat
+        run: |
+          if [ ! -d "src" ]; then
+            mkdir -p src/components src/data src/lib public
+            for f in App.tsx index.css main.tsx; do
+              [ -f "$f" ] && mv "$f" src/
+            done
+            for f in AdminView.tsx BadgeModal.tsx BottomNav.tsx GateView.tsx Header.tsx HomeView.tsx ProfileView.tsx QuizView.tsx RankView.tsx SubjectsView.tsx; do
+              [ -f "$f" ] && mv "$f" src/components/
+            done
+            for f in benchmarks.ts questions.ts; do
+              [ -f "$f" ] && mv "$f" src/data/
+            done
+            for f in badgeCanvas.ts questionParser.ts quizEngine.ts supabase.ts; do
+              [ -f "$f" ] && mv "$f" src/lib/
+            done
+            for f in amay-avatar.jpg apple-touch-icon.png icon-192.png icon-512.png icon-maskable-512.png; do
+              [ -f "$f" ] && mv "$f" public/
+            done
+            printf '%s\n' 'self.addEventListener("install",()=>self.skipWaiting());self.addEventListener("activate",e=>e.waitUntil((async()=>{try{for(const k of await caches.keys())await caches.delete(k);await self.registration.unregister();for(const c of await self.clients.matchAll({type:"window"}))c.navigate(c.url);}catch{}})()));' > public/sw.js
+          fi
+
       - name: Install dependencies
         run: npm install
 
