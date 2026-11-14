@@ -1,0 +1,6 @@
+{
+  "name": "AmaySST Quiz",
+  "description": "Practice quizzes across Mathematics, Science, Social Science, English, Hindi, and Current Affairs with XP, streaks, live rankings, and shareable badges.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
