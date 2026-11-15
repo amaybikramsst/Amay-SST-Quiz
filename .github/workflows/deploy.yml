@@ -42,7 +42,7 @@ jobs:
             for f in usePWAInstall.ts; do
               [ -f "$f" ] && mv "$f" src/hooks/
             done
-            for f in badgeCanvas.ts confetti.ts questionParser.ts quizEngine.ts soundEffects.ts supabase.ts; do
+            for f in badgeCanvas.ts botSimulator.ts confetti.ts questionParser.ts quizEngine.ts soundEffects.ts supabase.ts; do
               [ -f "$f" ] && mv "$f" src/lib/
             done
             for f in amay-avatar.jpg apple-touch-icon.png icon-192.png icon-512.png icon-maskable-512.png; do
