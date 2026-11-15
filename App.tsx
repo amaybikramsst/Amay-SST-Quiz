@@ -5,6 +5,7 @@ import { BottomNav } from "./components/BottomNav";
 import { GateView } from "./components/GateView";
 import { Header, type AppRoute } from "./components/Header";
 import { HomeView } from "./components/HomeView";
+import { NotificationInboxModal, NotificationPopupModal } from "./components/NotificationModal";
 import { ProfileView } from "./components/ProfileView";
 import { PWAInstallModal } from "./components/PWAInstallModal";
 import { QuizView } from "./components/QuizView";
@@ -34,14 +35,17 @@ import {
   fetchBotOverrides,
   fetchDynamicQuestions,
   fetchLatestVideo,
+  fetchNotifications,
   getLeaderboard,
   getMyStats,
   loadBotOverrides,
   loadLocalLatestVideo,
+  loadLocalNotifications,
   logCandidateTap,
   registerPlayer,
   reportAppInstallStatus,
   submitQuizAttempt,
+  type AppNotification,
   type BotOverride,
   type CloudStats,
   type LatestVideoConfig,
@@ -83,6 +87,16 @@ export default function App() {
   const [quiz, setQuiz] = useState<ActiveQuizState | null>(null);
   const [showBadgeModal, setShowBadgeModal] = useState(false);
   const [showInstallModal, setShowInstallModal] = useState(false);
+  const [allNotifications, setAllNotifications] = useState<AppNotification[]>(() => loadLocalNotifications());
+  const [seenNotifIds, setSeenNotifIds] = useState<string[]>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem("amaysst_seen_notifs") || "[]");
+      return Array.isArray(parsed) ? (parsed as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showNotifInbox, setShowNotifInbox] = useState(false);
   const [impersonated, setImpersonated] = useState<{
     guestUuid: string;
     profile: StudentProfile;
@@ -92,6 +106,47 @@ export default function App() {
 
   const effectiveProfile = impersonated ? impersonated.profile : profile;
   const effectiveGuestId = impersonated ? impersonated.guestUuid : guestId;
+
+  const myNotifications = useMemo(
+    () =>
+      allNotifications.filter(
+        (n) => n.target === "all" || (n.target === "candidate" && n.targetGuestUuid === effectiveGuestId)
+      ),
+    [allNotifications, effectiveGuestId]
+  );
+
+  const unreadNotifCount = useMemo(
+    () => myNotifications.filter((n) => !seenNotifIds.includes(n.id)).length,
+    [myNotifications, seenNotifIds]
+  );
+
+  const activePopupNotif = useMemo(() => {
+    if (
+      impersonated ||
+      showNotifInbox ||
+      showInstallModal ||
+      showBadgeModal ||
+      view === "quiz" ||
+      view === "gate" ||
+      view === "admin"
+    ) {
+      return null;
+    }
+    return myNotifications.find((n) => !seenNotifIds.includes(n.id)) || null;
+  }, [impersonated, myNotifications, seenNotifIds, showBadgeModal, showInstallModal, showNotifInbox, view]);
+
+  const markNotifsSeen = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    setSeenNotifIds((prev) => {
+      const next = Array.from(new Set([...ids, ...prev])).slice(0, 100);
+      try {
+        localStorage.setItem("amaysst_seen_notifs", JSON.stringify(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  }, []);
 
   const flushingRef = useRef(false);
   const lastSyncedNameRef = useRef("");
@@ -298,6 +353,7 @@ export default function App() {
     refreshDynamicQuestions();
     fetchLatestVideo().then((v) => setLatestVideo(v));
     fetchBotOverrides().then((ov) => setBotOverrides(ov));
+    fetchNotifications().then((list) => setAllNotifications(list));
 
     const initCloud = async () => {
       const current = loadProfile();
@@ -312,20 +368,30 @@ export default function App() {
 
     initCloud();
 
+    const refreshNotifs = () => {
+      fetchNotifications().then((list) => setAllNotifications(list));
+    };
+
+    const pollInterval = window.setInterval(refreshNotifs, 30000);
+
     const onOnline = () => {
       setIsOffline(false);
       flushQueue();
       refreshDynamicQuestions();
       fetchLatestVideo().then((v) => setLatestVideo(v));
       fetchBotOverrides().then((ov) => setBotOverrides(ov));
+      refreshNotifs();
     };
     const onOffline = () => setIsOffline(true);
 
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
+    window.addEventListener("focus", refreshNotifs);
     return () => {
+      window.clearInterval(pollInterval);
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
+      window.removeEventListener("focus", refreshNotifs);
       if (retryTimerRef.current) window.clearTimeout(retryTimerRef.current);
     };
   }, [applyCloudStats, flushQueue, guestId, refreshDynamicQuestions, refreshLeaderboard, syncIdentity]);
@@ -610,6 +676,18 @@ export default function App() {
             onNavigateHome={() => navigate("home")}
             showInstallButton={!isInstalled}
             onInstallClick={handleInstallClick}
+            unreadNotifications={view !== "gate" ? unreadNotifCount : 0}
+            onOpenNotifications={
+              view !== "gate"
+                ? () => {
+                    fetchNotifications().then((list) => setAllNotifications(list));
+                    setShowNotifInbox(true);
+                    if (!impersonated) {
+                      markNotifsSeen(myNotifications.map((n) => n.id));
+                    }
+                  }
+                : undefined
+            }
           />
         )}
 
@@ -723,6 +801,7 @@ export default function App() {
               onQuestionsChanged={refreshDynamicQuestions}
               onBotsChanged={(ov) => setBotOverrides(ov)}
               onLatestVideoChanged={(v) => setLatestVideo(v)}
+              onNotificationsChanged={(list) => setAllNotifications(list)}
               onOpenCandidateId={handleOpenCandidateId}
             />
           )}
@@ -736,6 +815,26 @@ export default function App() {
           xp={effectiveProfile.xp}
           name={effectiveProfile.name}
           onClose={() => setShowBadgeModal(false)}
+        />
+      )}
+
+      {showNotifInbox && (
+        <NotificationInboxModal
+          notifications={myNotifications}
+          latestVideoUrl={latestVideo.url}
+          onPlayNow={() => openSubjectConfig("mix")}
+          onOpenRanks={() => navigate("rank")}
+          onClose={() => setShowNotifInbox(false)}
+        />
+      )}
+
+      {activePopupNotif && (
+        <NotificationPopupModal
+          notification={activePopupNotif}
+          latestVideoUrl={latestVideo.url}
+          onPlayNow={() => openSubjectConfig("mix")}
+          onOpenRanks={() => navigate("rank")}
+          onDismiss={() => markNotifsSeen([activePopupNotif.id])}
         />
       )}
 

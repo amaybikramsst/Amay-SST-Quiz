@@ -578,4 +578,125 @@ export async function adminSaveBotOverrides(map: Record<string, BotOverride>): P
   }
 }
 
+// ============================================================
+// Manual Admin Notifications (All Candidates or Specific ID)
+// ============================================================
+
+export type NotificationActionType = "none" | "play" | "ranks" | "video" | "link";
+
+export interface AppNotification {
+  id: string;
+  target: "all" | "candidate";
+  targetGuestUuid?: string;
+  targetName?: string;
+  title: string;
+  message: string;
+  actionType?: NotificationActionType;
+  actionLabel?: string;
+  actionUrl?: string;
+  createdAt: string;
+}
+
+const LOCAL_NOTIFS_KEY = "amaysst_notifications";
+
+export function loadLocalNotifications(): AppNotification[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LOCAL_NOTIFS_KEY) || "[]");
+    return Array.isArray(parsed) ? (parsed as AppNotification[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveLocalNotifications(list: AppNotification[]): void {
+  try {
+    localStorage.setItem(LOCAL_NOTIFS_KEY, JSON.stringify(list.slice(0, 50)));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export async function fetchNotifications(): Promise<AppNotification[]> {
+  try {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "notifications")
+      .maybeSingle();
+
+    if (error || !data?.value || !Array.isArray(data.value)) {
+      return loadLocalNotifications();
+    }
+
+    const list = data.value as AppNotification[];
+    saveLocalNotifications(list);
+    return list;
+  } catch {
+    return loadLocalNotifications();
+  }
+}
+
+async function persistNotificationsList(nextList: AppNotification[]): Promise<{
+  ok: boolean;
+  needsTableSetup: boolean;
+  errorMessage?: string;
+}> {
+  const trimmed = nextList.slice(0, 50);
+  saveLocalNotifications(trimmed);
+  try {
+    const { error } = await supabase.from("app_settings").upsert(
+      {
+        key: "notifications",
+        value: trimmed,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "key" }
+    );
+
+    if (error) {
+      const missing = /could not find the table|relation.*does not exist/i.test(error.message);
+      return { ok: false, needsTableSetup: missing, errorMessage: error.message };
+    }
+    return { ok: true, needsTableSetup: false };
+  } catch (err) {
+    return {
+      ok: false,
+      needsTableSetup: false,
+      errorMessage: (err as Error)?.message || "Network error",
+    };
+  }
+}
+
+export async function adminSendNotification(
+  input: Omit<AppNotification, "id" | "createdAt">
+): Promise<{
+  ok: boolean;
+  needsTableSetup: boolean;
+  errorMessage?: string;
+  list: AppNotification[];
+}> {
+  const current = await fetchNotifications();
+  const nextItem: AppNotification = {
+    ...input,
+    id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    createdAt: new Date().toISOString(),
+  };
+  const nextList = [nextItem, ...current].slice(0, 50);
+  const res = await persistNotificationsList(nextList);
+  return { ...res, list: nextList };
+}
+
+export async function adminDeleteNotification(id: string): Promise<{
+  ok: boolean;
+  needsTableSetup: boolean;
+  errorMessage?: string;
+  list: AppNotification[];
+}> {
+  const current = await fetchNotifications();
+  const nextList = current.filter((n) => n.id !== id);
+  const res = await persistNotificationsList(nextList);
+  return { ...res, list: nextList };
+}
+
+
 

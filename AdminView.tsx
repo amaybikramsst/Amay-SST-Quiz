@@ -18,11 +18,16 @@ import {
   Image as ImageIcon,
   ExternalLink,
   Smartphone,
+  Bell,
+  Send,
+  Users,
+  User,
 } from "lucide-react";
 import { BENCHMARK_PLAYERS } from "../data/benchmarks";
 import type { SubjectKey } from "../data/questions";
 import { parseBulkQuestionFile, type ParsedBulkQuestion } from "../lib/questionParser";
 import {
+  adminDeleteNotification,
   adminDeleteQuestion,
   adminGetSession,
   adminInsertQuestion,
@@ -33,6 +38,7 @@ import {
   adminLoadStats,
   adminSaveBotOverrides,
   adminSaveLatestVideo,
+  adminSendNotification,
   adminSignIn,
   adminSignOut,
   adminUpdateCandidate,
@@ -41,15 +47,18 @@ import {
   fetchBotOverrides,
   fetchDynamicQuestions,
   fetchLatestVideo,
+  fetchNotifications,
   loadBotOverrides,
   saveBotOverrides,
   supabase,
   type AdminAttemptRow,
   type AdminCandidateRow,
+  type AppNotification,
   type BotOverride,
   type CandidateTapEvent,
   type DynamicQuestionRow,
   type LatestVideoConfig,
+  type NotificationActionType,
 } from "../lib/supabase";
 
 export interface OpenCandidateIdPayload {
@@ -68,6 +77,7 @@ interface AdminViewProps {
   onQuestionsChanged: () => void;
   onBotsChanged: (overrides: Record<string, BotOverride>) => void;
   onLatestVideoChanged: (video: LatestVideoConfig) => void;
+  onNotificationsChanged: (list: AppNotification[]) => void;
   onOpenCandidateId: (target: OpenCandidateIdPayload) => void;
 }
 
@@ -100,6 +110,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onQuestionsChanged,
   onBotsChanged,
   onLatestVideoChanged,
+  onNotificationsChanged,
   onOpenCandidateId,
 }) => {
   const [adminEmail, setAdminEmail] = useState<string | null>(null);
@@ -110,7 +121,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [loginError, setLoginError] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
 
-  const [tab, setTab] = useState<"candidates" | "attempts" | "taps" | "questions" | "video">("candidates");
+  const [tab, setTab] = useState<
+    "candidates" | "attempts" | "taps" | "questions" | "video" | "notifications"
+  >("candidates");
   const [candidateFilter, setCandidateFilter] = useState<"students" | "bots">("students");
   const [installFilter, setInstallFilter] = useState<"all" | "installed" | "not_installed">("all");
   const [stats, setStats] = useState({ users: 0, tests: 0, questions: 0, totalXp: 0 });
@@ -121,6 +134,20 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [taps, setTaps] = useState<CandidateTapEvent[]>([]);
   const [needsTapTable, setNeedsTapTable] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
+
+  // Manual Notifications state
+  const [notificationsList, setNotificationsList] = useState<AppNotification[]>([]);
+  const [notifTarget, setNotifTarget] = useState<"all" | "candidate">("all");
+  const [notifTargetGuestUuid, setNotifTargetGuestUuid] = useState("");
+  const [notifCandidateSearch, setNotifCandidateSearch] = useState("");
+  const [notifTitle, setNotifTitle] = useState("");
+  const [notifMessage, setNotifMessage] = useState("");
+  const [notifActionType, setNotifActionType] = useState<NotificationActionType>("none");
+  const [notifActionLabel, setNotifActionLabel] = useState("");
+  const [notifActionUrl, setNotifActionUrl] = useState("");
+  const [sendingNotif, setSendingNotif] = useState(false);
+  const [needsNotifTable, setNeedsNotifTable] = useState(false);
+  const [copiedNotifSql, setCopiedNotifSql] = useState(false);
 
   // Latest video editor state
   const [videoUrl, setVideoUrl] = useState(DEFAULT_LATEST_VIDEO.url);
@@ -182,7 +209,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const loadAllAdminData = async () => {
     const localBots = loadBotOverrides();
-    const [st, dqs, cands, atts, tapRes, vid, cloudBots, installMap] = await Promise.all([
+    const [st, dqs, cands, atts, tapRes, vid, cloudBots, installMap, notifs] = await Promise.all([
       adminLoadStats(),
       fetchDynamicQuestions(),
       adminLoadCandidates(),
@@ -191,6 +218,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       fetchLatestVideo(),
       fetchBotOverrides(),
       adminLoadInstallStatusMap(),
+      fetchNotifications(),
     ]);
     const mergedBots = { ...cloudBots, ...localBots };
     setStats(st);
@@ -204,6 +232,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setVideoTitle(vid.title);
     setVideoSubtitle(vid.subtitle);
     setVideoThumb(vid.thumbnailUrl);
+    setNotificationsList(notifs);
+    onNotificationsChanged(notifs);
     setBotOverrides(mergedBots);
     saveBotOverrides(mergedBots);
     onBotsChanged(mergedBots);
@@ -600,6 +630,88 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
+  const openNotifyForCandidate = (cand: AdminCandidateRow) => {
+    setSelectedCandidate(null);
+    setNotifTarget("candidate");
+    setNotifTargetGuestUuid(cand.guest_uuid);
+    setNotifCandidateSearch("");
+    setTab("notifications");
+    setFeedback(null);
+  };
+
+  const handleSendNotification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanTitle = notifTitle.trim();
+    const cleanMessage = notifMessage.trim();
+    if (!cleanTitle || !cleanMessage) {
+      setFeedback({ text: "Please enter both a Title and Message.", ok: false });
+      return;
+    }
+
+    let targetName: string | undefined;
+    if (notifTarget === "candidate") {
+      const picked = candidates.find((c) => c.guest_uuid === notifTargetGuestUuid);
+      if (!picked) {
+        setFeedback({ text: "Please select a candidate to notify.", ok: false });
+        return;
+      }
+      targetName = picked.display_name;
+    }
+
+    setSendingNotif(true);
+    setFeedback(null);
+    const res = await adminSendNotification({
+      target: notifTarget,
+      targetGuestUuid: notifTarget === "candidate" ? notifTargetGuestUuid : undefined,
+      targetName,
+      title: cleanTitle,
+      message: cleanMessage,
+      actionType: notifActionType,
+      actionLabel: notifActionLabel.trim() || undefined,
+      actionUrl: notifActionType === "link" ? notifActionUrl.trim() || undefined : undefined,
+    });
+    setSendingNotif(false);
+    setNotificationsList(res.list);
+    onNotificationsChanged(res.list);
+
+    if (res.ok) {
+      setNeedsNotifTable(false);
+      setNotifTitle("");
+      setNotifMessage("");
+      setNotifActionLabel("");
+      setNotifActionUrl("");
+      setFeedback({
+        text:
+          notifTarget === "all"
+            ? "Notification sent to ALL candidates!"
+            : `Notification sent to ${targetName}!`,
+        ok: true,
+      });
+    } else if (res.needsTableSetup) {
+      setNeedsNotifTable(true);
+      setFeedback({
+        text: "Saved locally, but run the 1-time SQL below in Supabase so all students receive notifications.",
+        ok: false,
+      });
+    } else {
+      setFeedback({
+        text: `Failed to send: ${res.errorMessage || "Unknown error"}`,
+        ok: false,
+      });
+    }
+  };
+
+  const handleDeleteNotification = async (id: string) => {
+    const res = await adminDeleteNotification(id);
+    setNotificationsList(res.list);
+    onNotificationsChanged(res.list);
+    if (res.ok) {
+      setFeedback({ text: "Notification deleted.", ok: true });
+    } else {
+      setFeedback({ text: `Could not delete: ${res.errorMessage || "Unknown error"}`, ok: false });
+    }
+  };
+
   const isCandidateInstalled = (c: AdminCandidateRow): boolean => {
     if (c.guest_uuid in installStatusMap) return installStatusMap[c.guest_uuid];
     return Boolean(c.app_installed);
@@ -814,6 +926,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               ["taps", "Every Tap"],
               ["questions", "Questions & Bulk Upload"],
               ["video", "Latest Video"],
+              ["notifications", "Notifications"],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -834,7 +947,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           ))}
         </div>
 
-        {tab !== "questions" && tab !== "video" && (
+        {tab !== "questions" && tab !== "video" && tab !== "notifications" && (
           <div className="relative sm:w-64">
             <Search className="w-4 h-4 text-[#5A6A92] absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
@@ -1014,6 +1127,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         <td className="py-3 px-4 font-mono-nums">{c.quizzes_count}</td>
                         <td className="py-3 px-4">
                           <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => openNotifyForCandidate(c)}
+                              className="px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                              title="Send notification to this candidate"
+                            >
+                              <Bell className="w-3.5 h-3.5" />
+                              <span>Notify</span>
+                            </button>
                             <button
                               type="button"
                               onClick={() => launchCandidateIdView(c)}
@@ -1924,6 +2046,295 @@ export const AdminView: React.FC<AdminViewProps> = ({
         </div>
       )}
 
+      {/* TAB 6: MANUAL NOTIFICATIONS (ALL OR SPECIFIC CANDIDATE) */}
+      {tab === "notifications" && (
+        <div className="space-y-5">
+          {needsNotifTable && (
+            <div className="amay-card rounded-[24px] p-5 border-2 border-amber-400/60 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-extrabold text-amber-800 dark:text-amber-300">
+                    One-time Supabase table needed for Live Notifications
+                  </h3>
+                  <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+                    Run this SQL once in Supabase → SQL Editor so all students receive your notifications instantly.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(SETTINGS_SQL);
+                    setCopiedNotifSql(true);
+                    setTimeout(() => setCopiedNotifSql(false), 2000);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  {copiedNotifSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedNotifSql ? "Copied SQL" : "Copy SQL"}</span>
+                </button>
+              </div>
+              <pre className="p-3 rounded-xl bg-slate-950 text-slate-100 text-[11px] overflow-x-auto font-mono">
+                {SETTINGS_SQL}
+              </pre>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+            <form
+              onSubmit={handleSendNotification}
+              className="lg:col-span-7 amay-card rounded-[28px] p-5 sm:p-6 space-y-4"
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="w-10 h-10 rounded-2xl bg-[#1457E0]/12 text-[#1457E0] dark:text-[#5AA2FF] flex items-center justify-center">
+                  <Bell className="w-5 h-5" />
+                </span>
+                <div>
+                  <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-white">
+                    Send Notification
+                  </h2>
+                  <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+                    Choose to broadcast to everyone in 1 click or target one particular candidate.
+                  </p>
+                </div>
+              </div>
+
+              {/* Exact 2 Audience Options */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setNotifTarget("all")}
+                  className={`p-3.5 rounded-2xl text-left border-2 transition cursor-pointer flex items-start gap-2.5 ${
+                    notifTarget === "all"
+                      ? "border-[#1457E0] bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15"
+                      : "border-[#1846AA]/12 dark:border-white/10 amay-card"
+                  }`}
+                >
+                  <Users className="w-5 h-5 text-[#1457E0] dark:text-[#5AA2FF] shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block text-sm font-extrabold text-[#0B1B4D] dark:text-white">
+                      1. Send to All ({candidates.length})
+                    </strong>
+                    <span className="block text-[11px] text-[#5A6A92] dark:text-[#93A3CC]">
+                      Broadcast to every student
+                    </span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setNotifTarget("candidate")}
+                  className={`p-3.5 rounded-2xl text-left border-2 transition cursor-pointer flex items-start gap-2.5 ${
+                    notifTarget === "candidate"
+                      ? "border-[#1457E0] bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15"
+                      : "border-[#1846AA]/12 dark:border-white/10 amay-card"
+                  }`}
+                >
+                  <User className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block text-sm font-extrabold text-[#0B1B4D] dark:text-white">
+                      2. Particular Candidate
+                    </strong>
+                    <span className="block text-[11px] text-[#5A6A92] dark:text-[#93A3CC]">
+                      Send private notice to 1 person
+                    </span>
+                  </div>
+                </button>
+              </div>
+
+              {notifTarget === "candidate" && (
+                <div className="space-y-2 rounded-2xl bg-[#1457E0]/[0.04] dark:bg-white/[0.04] p-3.5 border border-[#1846AA]/12 dark:border-white/10">
+                  <label className="block text-xs font-bold text-[#0B1B4D] dark:text-white">
+                    Pick Candidate
+                  </label>
+                  <input
+                    type="search"
+                    value={notifCandidateSearch}
+                    onChange={(e) => setNotifCandidateSearch(e.target.value)}
+                    placeholder="Filter candidate by name or ID…"
+                    className="w-full h-9 px-3 rounded-xl bg-white/90 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-xs focus:outline-none focus:border-[#1457E0]"
+                  />
+                  <select
+                    value={notifTargetGuestUuid}
+                    onChange={(e) => setNotifTargetGuestUuid(e.target.value)}
+                    className="w-full h-11 px-3 rounded-xl bg-white/90 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm font-semibold focus:outline-none focus:border-[#1457E0]"
+                    required
+                  >
+                    <option value="">-- Select a candidate --</option>
+                    {candidates
+                      .filter((c) => {
+                        const q = notifCandidateSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          c.display_name.toLowerCase().includes(q) ||
+                          c.guest_uuid.toLowerCase().includes(q)
+                        );
+                      })
+                      .map((c) => (
+                        <option key={c.guest_uuid} value={c.guest_uuid}>
+                          {c.display_name} ({c.xp} XP · {isCandidateInstalled(c) ? "Installed" : "Not Installed"})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC] mb-1">
+                  Notification Title
+                </label>
+                <input
+                  type="text"
+                  required
+                  maxLength={80}
+                  value={notifTitle}
+                  onChange={(e) => setNotifTitle(e.target.value)}
+                  placeholder="e.g. Mega SST Test Tonight at 8 PM!"
+                  className="w-full h-11 px-3.5 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm font-semibold focus:outline-none focus:border-[#1457E0]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC] mb-1">
+                  Message
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  maxLength={400}
+                  value={notifMessage}
+                  onChange={(e) => setNotifMessage(e.target.value)}
+                  placeholder="Write your announcement or personal message here…"
+                  className="w-full p-3.5 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm focus:outline-none focus:border-[#1457E0]"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC] mb-1">
+                    Action Button (Optional)
+                  </label>
+                  <select
+                    value={notifActionType}
+                    onChange={(e) => setNotifActionType(e.target.value as NotificationActionType)}
+                    className="w-full h-11 px-3 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm"
+                  >
+                    <option value="none">No button</option>
+                    <option value="play">Open Quiz (Play Now)</option>
+                    <option value="ranks">Open Leaderboard</option>
+                    <option value="video">Open Latest Video</option>
+                    <option value="link">Custom Link URL</option>
+                  </select>
+                </div>
+
+                {notifActionType !== "none" && (
+                  <div>
+                    <label className="block text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC] mb-1">
+                      Button Label (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={32}
+                      value={notifActionLabel}
+                      onChange={(e) => setNotifActionLabel(e.target.value)}
+                      placeholder="Default button text"
+                      className="w-full h-11 px-3 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {notifActionType === "link" && (
+                <div>
+                  <label className="block text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC] mb-1">
+                    Custom Link URL
+                  </label>
+                  <input
+                    type="url"
+                    required
+                    value={notifActionUrl}
+                    onChange={(e) => setNotifActionUrl(e.target.value)}
+                    placeholder="https://youtube.com/..."
+                    className="w-full h-11 px-3.5 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm"
+                  />
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={sendingNotif}
+                className="w-full h-12 rounded-2xl amay-play-btn text-white font-bold text-sm inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+              >
+                <Send className="w-4 h-4" />
+                <span>
+                  {sendingNotif
+                    ? "Sending…"
+                    : notifTarget === "all"
+                      ? "Send to All Candidates (1-Click)"
+                      : `Send to ${
+                          candidates.find((c) => c.guest_uuid === notifTargetGuestUuid)?.display_name ||
+                          "Selected Candidate"
+                        }`}
+                </span>
+              </button>
+            </form>
+
+            {/* Sent Notifications History */}
+            <div className="lg:col-span-5 amay-card rounded-[28px] p-5 sm:p-6 space-y-4">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-extrabold text-[#0B1B4D] dark:text-white">
+                  Sent Notifications ({notificationsList.length})
+                </h3>
+              </div>
+
+              {notificationsList.length === 0 ? (
+                <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] py-6 text-center">
+                  No notifications sent yet. Send one on the left!
+                </p>
+              ) : (
+                <div className="max-h-[460px] overflow-y-auto space-y-3 pr-1">
+                  {notificationsList.map((n) => (
+                    <div
+                      key={n.id}
+                      className="rounded-2xl p-3.5 bg-[#1457E0]/[0.04] dark:bg-white/[0.04] border border-[#1846AA]/10 dark:border-white/10 space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                            n.target === "all"
+                              ? "bg-[#1457E0]/12 text-[#1457E0] dark:text-[#5AA2FF]"
+                              : "bg-amber-500/15 text-amber-800 dark:text-amber-300"
+                          }`}
+                        >
+                          {n.target === "all" ? <Users className="w-3 h-3" /> : <User className="w-3 h-3" />}
+                          <span>{n.target === "all" ? "Everyone" : `To: ${n.targetName || "Candidate"}`}</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteNotification(n.id)}
+                          aria-label="Delete notification"
+                          className="text-[#5A6A92] hover:text-[#D92D3A] p-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <strong className="block text-sm font-extrabold text-[#0B1B4D] dark:text-white">
+                        {n.title}
+                      </strong>
+                      <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] whitespace-pre-line">
+                        {n.message}
+                      </p>
+                      <div className="text-[10px] text-[#5A6A92] dark:text-[#93A3CC] font-mono-nums">
+                        {new Date(n.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* CANDIDATE EDITOR & INSPECTOR MODAL */}
       {selectedCandidate && (
         <div
@@ -1971,6 +2382,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => openNotifyForCandidate(selectedCandidate)}
+                  className="h-9 px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <Bell className="w-3.5 h-3.5" />
+                  <span>Notify</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => launchCandidateIdView(selectedCandidate)}
