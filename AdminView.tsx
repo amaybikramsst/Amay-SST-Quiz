@@ -39,6 +39,7 @@ import {
   adminLoadNotificationSeenMap,
   adminLoadStats,
   adminSaveBotOverrides,
+  adminSaveCandidateTodayOverrides,
   adminSaveLatestVideo,
   adminSendNotification,
   adminSignIn,
@@ -47,17 +48,21 @@ import {
   DEFAULT_LATEST_VIDEO,
   deriveYouTubeThumbnail,
   fetchBotOverrides,
+  fetchCandidateTodayOverrides,
   fetchDynamicQuestions,
   fetchLatestVideo,
   fetchNotifications,
   loadBotOverrides,
+  loadCandidateTodayOverrides,
   saveBotOverrides,
+  saveCandidateTodayOverrides,
   supabase,
   type AdminAttemptRow,
   type AdminCandidateRow,
   type AppNotification,
   type BotOverride,
   type CandidateTapEvent,
+  type CandidateTodayOverride,
   type DynamicQuestionRow,
   type LatestVideoConfig,
   type NotificationActionType,
@@ -78,6 +83,7 @@ interface AdminViewProps {
   onBack: () => void;
   onQuestionsChanged: () => void;
   onBotsChanged: (overrides: Record<string, BotOverride>) => void;
+  onCandidateTodayChanged?: (overrides: Record<string, CandidateTodayOverride>) => void;
   onLatestVideoChanged: (video: LatestVideoConfig) => void;
   onNotificationsChanged: (list: AppNotification[]) => void;
   onOpenCandidateId: (target: OpenCandidateIdPayload) => void;
@@ -111,6 +117,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onBack,
   onQuestionsChanged,
   onBotsChanged,
+  onCandidateTodayChanged,
   onLatestVideoChanged,
   onNotificationsChanged,
   onOpenCandidateId,
@@ -172,11 +179,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   // Bot overrides state + live 30s schedule tick
   const [botOverrides, setBotOverrides] = useState<Record<string, BotOverride>>(() => loadBotOverrides());
+  const [candidateTodayOverrides, setCandidateTodayOverrides] = useState<
+    Record<string, CandidateTodayOverride>
+  >(() => loadCandidateTodayOverrides());
   const [botClockTick, setBotClockTick] = useState<number>(() => Date.now());
   const [editingBotOriginalName, setEditingBotOriginalName] = useState<string | null>(null);
   const [botDraftName, setBotDraftName] = useState("");
   const [botDraftXp, setBotDraftXp] = useState(0);
   const [botDraftTodayXp, setBotDraftTodayXp] = useState(0);
+  const [botBaseWithoutToday, setBotBaseWithoutToday] = useState(0);
   const [needsBotTable, setNeedsBotTable] = useState(false);
   const [copiedBotSql, setCopiedBotSql] = useState(false);
 
@@ -186,6 +197,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [editName, setEditName] = useState("");
   const [editXp, setEditXp] = useState(0);
   const [editTodayXp, setEditTodayXp] = useState(0);
+  const [candidateBaseWithoutToday, setCandidateBaseWithoutToday] = useState(0);
   const [editStreak, setEditStreak] = useState(0);
   const [editQuizzes, setEditQuizzes] = useState(0);
   const [savingCandidate, setSavingCandidate] = useState(false);
@@ -215,19 +227,23 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const loadAllAdminData = async () => {
     const localBots = loadBotOverrides();
-    const [st, dqs, cands, atts, tapRes, vid, cloudBots, installMap, notifs, seenMap] = await Promise.all([
-      adminLoadStats(),
-      fetchDynamicQuestions(),
-      adminLoadCandidates(),
-      adminLoadAttempts(),
-      adminLoadCandidateTaps(),
-      fetchLatestVideo(),
-      fetchBotOverrides(),
-      adminLoadInstallStatusMap(),
-      fetchNotifications(),
-      adminLoadNotificationSeenMap(),
-    ]);
+    const localCandToday = loadCandidateTodayOverrides();
+    const [st, dqs, cands, atts, tapRes, vid, cloudBots, cloudCandToday, installMap, notifs, seenMap] =
+      await Promise.all([
+        adminLoadStats(),
+        fetchDynamicQuestions(),
+        adminLoadCandidates(),
+        adminLoadAttempts(),
+        adminLoadCandidateTaps(),
+        fetchLatestVideo(),
+        fetchBotOverrides(),
+        fetchCandidateTodayOverrides(),
+        adminLoadInstallStatusMap(),
+        fetchNotifications(),
+        adminLoadNotificationSeenMap(),
+      ]);
     const mergedBots = { ...cloudBots, ...localBots };
+    const mergedCandToday = { ...cloudCandToday, ...localCandToday };
     setStats(st);
     setDynamicQuestions(dqs);
     setCandidates(cands);
@@ -245,6 +261,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setBotOverrides(mergedBots);
     saveBotOverrides(mergedBots);
     onBotsChanged(mergedBots);
+    setCandidateTodayOverrides(mergedCandToday);
+    saveCandidateTodayOverrides(mergedCandToday);
+    onCandidateTodayChanged?.(mergedCandToday);
   };
 
   useEffect(() => {
@@ -281,11 +300,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
   };
 
   const openCandidateEditor = (cand: AdminCandidateRow) => {
+    const todayVal = getCandidateTodayIstXp(cand);
+    const totalVal = cand.xp || 0;
     setCopiedCandidateId(false);
     setSelectedCandidate(cand);
     setEditName(cand.display_name || "");
-    setEditXp(cand.xp || 0);
-    setEditTodayXp(getCandidateTodayIstXp(cand));
+    setEditXp(totalVal);
+    setEditTodayXp(todayVal);
+    setCandidateBaseWithoutToday(totalVal - todayVal);
     setEditStreak(cand.streak || 0);
     setEditQuizzes(cand.quizzes_count || 0);
   };
@@ -404,21 +426,25 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setSavingCandidate(true);
     setFeedback(null);
 
+    const savedName = editName.trim() || selectedCandidate.display_name;
+    const savedXp = Math.max(0, Math.round(Number(editXp) || 0));
+    const savedTodayXp = Math.max(0, Math.round(Number(editTodayXp) || 0));
+
     const { data, error } = await adminUpdateCandidate(selectedCandidate.guest_uuid, {
-      display_name: editName.trim() || selectedCandidate.display_name,
-      xp: Math.max(0, Math.round(Number(editXp) || 0)),
-      today_xp: Math.max(0, Math.round(Number(editTodayXp) || 0)),
+      display_name: savedName,
+      xp: savedXp,
+      today_xp: savedTodayXp,
       streak: Math.max(0, Math.round(Number(editStreak) || 0)),
       quizzes_count: Math.max(0, Math.round(Number(editQuizzes) || 0)),
     });
 
-    setSavingCandidate(false);
-
     if (error) {
+      setSavingCandidate(false);
       setFeedback({ text: `Update failed: ${error.message}`, ok: false });
       return;
     }
     if (!data || data.length === 0) {
+      setSavingCandidate(false);
       setFeedback({
         text: "Database settings blocked updating this row. Check Supabase RLS policies for candidates UPDATE.",
         ok: false,
@@ -426,7 +452,26 @@ export const AdminView: React.FC<AdminViewProps> = ({
       return;
     }
 
-    setFeedback({ text: `Updated ${editName.trim()}'s name, XP, and stats.`, ok: true });
+    const todayKey = getIstClock().dateKey;
+    const attemptsToday = getCandidateAttemptsTodayIstXp(selectedCandidate);
+    const nextDelta = savedTodayXp - attemptsToday;
+    const nextOverrides: Record<string, CandidateTodayOverride> = { ...candidateTodayOverrides };
+    if (nextDelta === 0) {
+      delete nextOverrides[selectedCandidate.guest_uuid];
+    } else {
+      nextOverrides[selectedCandidate.guest_uuid] = {
+        dateKey: todayKey,
+        delta: nextDelta,
+        name: savedName,
+      };
+    }
+    setCandidateTodayOverrides(nextOverrides);
+    onCandidateTodayChanged?.(nextOverrides);
+    await adminSaveCandidateTodayOverrides(nextOverrides);
+
+    setSavingCandidate(false);
+    setCandidateBaseWithoutToday(savedXp - savedTodayXp);
+    setFeedback({ text: `Updated ${savedName}'s name, XP, and stats.`, ok: true });
     setSelectedCandidate(data[0] as AdminCandidateRow);
     await loadAllAdminData();
   };
@@ -797,9 +842,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
     return { byGuest, byName };
   }, [attempts, botClockTick]);
 
-  const getCandidateTodayIstXp = (c: AdminCandidateRow): number => {
+  const getCandidateAttemptsTodayIstXp = (c: AdminCandidateRow): number => {
     const val = istTodayXpMap.byGuest.get(c.guest_uuid) ?? istTodayXpMap.byName.get(c.display_name) ?? 0;
     return Math.max(0, val);
+  };
+
+  const getCandidateTodayIstXp = (c: AdminCandidateRow): number => {
+    const attemptsVal = getCandidateAttemptsTodayIstXp(c);
+    const todayKey = getIstClock(botClockTick).dateKey;
+    const ov = candidateTodayOverrides[c.guest_uuid];
+    const adminDelta = ov && ov.dateKey === todayKey ? ov.delta : 0;
+    return Math.max(0, attemptsVal + adminDelta);
   };
 
   const botSchedule = useMemo(() => {
@@ -1364,7 +1417,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
                                 type="number"
                                 min={0}
                                 value={botDraftXp}
-                                onChange={(e) => setBotDraftXp(Number(e.target.value))}
+                                onChange={(e) => {
+                                  const nextTotal = Math.max(0, Math.round(Number(e.target.value) || 0));
+                                  setBotDraftXp(nextTotal);
+                                  setBotBaseWithoutToday(nextTotal - botDraftTodayXp);
+                                }}
                                 className="w-24 h-8 px-2.5 rounded-lg bg-white dark:bg-[#0B1224] border border-[#1457E0] text-xs font-mono-nums font-bold"
                               />
                             ) : (
@@ -1377,7 +1434,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
                                 type="number"
                                 min={0}
                                 value={botDraftTodayXp}
-                                onChange={(e) => setBotDraftTodayXp(Number(e.target.value))}
+                                onChange={(e) => {
+                                  const nextToday = Math.max(0, Math.round(Number(e.target.value) || 0));
+                                  setBotDraftTodayXp(nextToday);
+                                  setBotDraftXp(Math.max(0, botBaseWithoutToday + nextToday));
+                                }}
                                 className="w-20 h-8 px-2.5 rounded-lg bg-white dark:bg-[#0B1224] border border-[#1457E0] text-xs font-mono-nums font-bold"
                               />
                             ) : (
@@ -1430,6 +1491,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                                     setBotDraftName(b.name);
                                     setBotDraftXp(b.xp);
                                     setBotDraftTodayXp(b.todayXp);
+                                    setBotBaseWithoutToday(b.xp - b.todayXp);
                                   }}
                                   className="px-2.5 py-1.5 rounded-lg bg-[#1457E0] text-white text-xs font-bold cursor-pointer"
                                 >
@@ -2599,7 +2661,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   <button
                     key={delta}
                     type="button"
-                    onClick={() => setEditXp((x) => Math.max(0, x + delta))}
+                    onClick={() => {
+                      const nextTotal = Math.max(0, editXp + delta);
+                      setEditXp(nextTotal);
+                      setCandidateBaseWithoutToday(nextTotal - editTodayXp);
+                    }}
                     className="px-2.5 py-1 rounded-lg bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 text-[#1457E0] dark:text-[#5AA2FF] text-xs font-bold cursor-pointer"
                   >
                     {delta > 0 ? `+${delta}` : delta}
@@ -2607,7 +2673,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 ))}
                 <button
                   type="button"
-                  onClick={() => setEditXp(0)}
+                  onClick={() => {
+                    setEditXp(0);
+                    setCandidateBaseWithoutToday(0 - editTodayXp);
+                  }}
                   className="px-2.5 py-1 rounded-lg bg-[#D92D3A]/10 text-[#D92D3A] text-xs font-bold cursor-pointer"
                 >
                   Reset 0
@@ -2630,17 +2699,27 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     type="number"
                     min={0}
                     value={editXp}
-                    onChange={(e) => setEditXp(Number(e.target.value))}
+                    onChange={(e) => {
+                      const nextTotal = Math.max(0, Math.round(Number(e.target.value) || 0));
+                      setEditXp(nextTotal);
+                      setCandidateBaseWithoutToday(nextTotal - editTodayXp);
+                    }}
                     className="w-full h-10 px-3 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm font-mono-nums font-bold"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-[#5A6A92] mb-1">Today XP</label>
+                  <label className="block text-xs font-semibold text-[#5A6A92] mb-1">
+                    Today XP <span className="text-[10px] font-normal text-[#1457E0] dark:text-[#5AA2FF]">(adds to Total)</span>
+                  </label>
                   <input
                     type="number"
                     min={0}
                     value={editTodayXp}
-                    onChange={(e) => setEditTodayXp(Number(e.target.value))}
+                    onChange={(e) => {
+                      const nextToday = Math.max(0, Math.round(Number(e.target.value) || 0));
+                      setEditTodayXp(nextToday);
+                      setEditXp(Math.max(0, candidateBaseWithoutToday + nextToday));
+                    }}
                     className="w-full h-10 px-3 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm font-mono-nums font-bold"
                   />
                 </div>

@@ -42,6 +42,7 @@ import {
 } from "./lib/soundEffects";
 import {
   fetchBotOverrides,
+  fetchCandidateTodayOverrides,
   fetchDynamicQuestions,
   fetchLatestVideo,
   fetchNotifications,
@@ -49,6 +50,7 @@ import {
   getMyStats,
   getMyTodayIST,
   loadBotOverrides,
+  loadCandidateTodayOverrides,
   loadLocalLatestVideo,
   loadLocalNotifications,
   logCandidateTap,
@@ -58,6 +60,7 @@ import {
   submitQuizAttempt,
   type AppNotification,
   type BotOverride,
+  type CandidateTodayOverride,
   type CloudStats,
   type LatestVideoConfig,
   type LiveLeaderRow,
@@ -89,6 +92,9 @@ export default function App() {
   const [livePlayers, setLivePlayers] = useState<LiveLeaderRow[]>([]);
   const [liveLeaderboardIstSynced, setLiveLeaderboardIstSynced] = useState(false);
   const [botOverrides, setBotOverrides] = useState<Record<string, BotOverride>>(() => loadBotOverrides());
+  const [candidateTodayOverrides, setCandidateTodayOverrides] = useState<
+    Record<string, CandidateTodayOverride>
+  >(() => loadCandidateTodayOverrides());
   const [botClockTick, setBotClockTick] = useState<number>(() => Date.now());
   const [latestVideo, setLatestVideo] = useState<LatestVideoConfig>(() => loadLocalLatestVideo());
   const [isOffline, setIsOffline] = useState(() => (typeof navigator !== "undefined" ? !navigator.onLine : false));
@@ -285,7 +291,12 @@ export default function App() {
   // Sync cloud stats without overwriting client-side 1/4 negative-marked XP,
   // while honoring admin manual XP edits and strictly resetting Today XP at 12:00 AM IST!
   const applyCloudStats = useCallback(
-    (stats: CloudStats, fromAdminCheck = false, cloudTodayIst: number | null = null) => {
+    (
+      stats: CloudStats,
+      fromAdminCheck = false,
+      cloudTodayIst: number | null = null,
+      candTodayMap?: Record<string, CandidateTodayOverride>
+    ) => {
       if (loadQueue().length > 0) return;
       const current = loadProfile();
       const beforeXp = current.xp;
@@ -300,6 +311,10 @@ export default function App() {
       }
 
       const todayKey = todayIST(0);
+      const ovMap = candTodayMap ?? loadCandidateTodayOverrides();
+      const myOv = ovMap[guestId];
+      const adminTodayDelta = myOv && myOv.dateKey === todayKey ? myOv.delta : 0;
+
       setProfile((prev) => {
         let nextXp = prev.xp;
         let nextTodayXp = prev.td?.d === todayKey ? prev.td.xp : 0;
@@ -312,8 +327,13 @@ export default function App() {
             const delta = stats.xp - prev.lastCloudXp;
             nextXp = Math.max(0, prev.xp + delta);
           }
+          const prevAdminDelta =
+            prev.lastAdminTodayDate === todayKey ? (prev.lastAdminTodayDelta ?? 0) : 0;
+          if (adminTodayDelta !== prevAdminDelta) {
+            nextTodayXp = Math.max(0, nextTodayXp + (adminTodayDelta - prevAdminDelta));
+          }
           if (cloudTodayIst !== null) {
-            nextTodayXp = Math.max(nextTodayXp, cloudTodayIst);
+            nextTodayXp = Math.max(nextTodayXp, Math.max(0, cloudTodayIst + adminTodayDelta));
           }
         }
 
@@ -325,6 +345,8 @@ export default function App() {
           perfect: Math.max(prev.perfect, stats.perfect),
           td: { d: todayKey, xp: nextTodayXp },
           lastCloudXp: stats.xp,
+          lastAdminTodayDate: todayKey,
+          lastAdminTodayDelta: adminTodayDelta,
         };
         saveProfile(next);
         return next;
@@ -337,7 +359,7 @@ export default function App() {
         }
       }
     },
-    []
+    [guestId]
   );
 
   const refreshDynamicQuestions = useCallback(async () => {
@@ -413,9 +435,11 @@ export default function App() {
     const initCloud = async () => {
       const current = loadProfile();
       await syncIdentity(current);
+      const candTodayMap = await fetchCandidateTodayOverrides();
+      setCandidateTodayOverrides(candTodayMap);
       if (loadQueue().length === 0 && current.name) {
         const [stats, todayIst] = await Promise.all([getMyStats(guestId), getMyTodayIST(guestId)]);
-        if (stats) applyCloudStats(stats, true, todayIst);
+        if (stats) applyCloudStats(stats, true, todayIst, candTodayMap);
       }
       await flushQueue();
       await refreshLeaderboard(true);
@@ -442,6 +466,7 @@ export default function App() {
       refreshDynamicQuestions();
       fetchLatestVideo().then((v) => setLatestVideo(v));
       fetchBotOverrides().then((ov) => setBotOverrides(ov));
+      fetchCandidateTodayOverrides().then((ov) => setCandidateTodayOverrides(ov));
       refreshNotifs();
     };
     const onOffline = () => setIsOffline(true);
@@ -673,13 +698,26 @@ export default function App() {
     const todayKeyIst = todayIST(0);
     const myToday = effectiveProfile.td?.d === todayKeyIst ? effectiveProfile.td.xp : 0;
 
+    const adminTodayDeltaByName = new Map<string, number>();
+    for (const [id, ov] of Object.entries(candidateTodayOverrides)) {
+      if (id === effectiveGuestId) continue;
+      if (ov?.dateKey === todayKeyIst && ov.name) {
+        const key = ov.name.trim().toLowerCase();
+        adminTodayDeltaByName.set(key, (adminTodayDeltaByName.get(key) || 0) + (ov.delta || 0));
+      }
+    }
+
     // Prevent stale UTC today_xp (12:00 AM - 5:29 AM IST) if legacy get_leaderboard fallback was used
     const isUtcMismatchWindow = !liveLeaderboardIstSynced && todayKeyIst !== todayUTC(0);
-    const resolvedLivePlayers = livePlayers.map((l) => ({
-      name: l.name,
-      xp: l.xp || 0,
-      todayXp: isUtcMismatchWindow ? 0 : Math.max(0, l.today_xp || 0),
-    }));
+    const resolvedLivePlayers = livePlayers.map((l) => {
+      const baseToday = isUtcMismatchWindow ? 0 : Math.max(0, l.today_xp || 0);
+      const adminDelta = adminTodayDeltaByName.get((l.name || "").trim().toLowerCase()) || 0;
+      return {
+        name: l.name,
+        xp: l.xp || 0,
+        todayXp: Math.max(0, baseToday + adminDelta),
+      };
+    });
 
     const realTodayScores = [myToday, ...resolvedLivePlayers.map((l) => l.todayXp)];
     const { bots } = resolveBotRoster(botOverrides, realTodayScores, botClockTick);
@@ -708,6 +746,8 @@ export default function App() {
   }, [
     botClockTick,
     botOverrides,
+    candidateTodayOverrides,
+    effectiveGuestId,
     effectiveProfile.name,
     effectiveProfile.td,
     effectiveProfile.xp,
@@ -936,6 +976,7 @@ export default function App() {
               }}
               onQuestionsChanged={refreshDynamicQuestions}
               onBotsChanged={(ov) => setBotOverrides(ov)}
+              onCandidateTodayChanged={(ov) => setCandidateTodayOverrides(ov)}
               onLatestVideoChanged={(v) => setLatestVideo(v)}
               onNotificationsChanged={(list) => setAllNotifications(list)}
               onOpenCandidateId={handleOpenCandidateId}

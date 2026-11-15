@@ -611,6 +611,86 @@ export async function adminSaveBotOverrides(map: Record<string, BotOverride>): P
 }
 
 // ============================================================
+// Candidate Today XP Overrides (IST day-scoped admin additions)
+// ============================================================
+
+export interface CandidateTodayOverride {
+  dateKey: string;
+  delta: number;
+  name?: string;
+}
+
+const CANDIDATE_TODAY_OVERRIDES_KEY = "amaysst_candidate_today_overrides";
+
+export function loadCandidateTodayOverrides(): Record<string, CandidateTodayOverride> {
+  try {
+    return JSON.parse(localStorage.getItem(CANDIDATE_TODAY_OVERRIDES_KEY) || "{}") || {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveCandidateTodayOverrides(map: Record<string, CandidateTodayOverride>): void {
+  try {
+    localStorage.setItem(CANDIDATE_TODAY_OVERRIDES_KEY, JSON.stringify(map));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export async function fetchCandidateTodayOverrides(): Promise<Record<string, CandidateTodayOverride>> {
+  try {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "candidate_today_overrides")
+      .maybeSingle();
+
+    if (error || !data?.value || typeof data.value !== "object") {
+      return loadCandidateTodayOverrides();
+    }
+
+    const cloudMap = data.value as Record<string, CandidateTodayOverride>;
+    saveCandidateTodayOverrides(cloudMap);
+    return cloudMap;
+  } catch {
+    return loadCandidateTodayOverrides();
+  }
+}
+
+export async function adminSaveCandidateTodayOverrides(
+  map: Record<string, CandidateTodayOverride>
+): Promise<{
+  ok: boolean;
+  needsTableSetup: boolean;
+  errorMessage?: string;
+}> {
+  saveCandidateTodayOverrides(map);
+  try {
+    const { error } = await supabase.from("app_settings").upsert(
+      {
+        key: "candidate_today_overrides",
+        value: map,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "key" }
+    );
+
+    if (error) {
+      const missing = /could not find the table|relation.*does not exist/i.test(error.message);
+      return { ok: false, needsTableSetup: missing, errorMessage: error.message };
+    }
+    return { ok: true, needsTableSetup: false };
+  } catch (err) {
+    return {
+      ok: false,
+      needsTableSetup: false,
+      errorMessage: (err as Error)?.message || "Network error",
+    };
+  }
+}
+
+// ============================================================
 // Manual Admin Notifications (All Candidates or Specific ID)
 // ============================================================
 

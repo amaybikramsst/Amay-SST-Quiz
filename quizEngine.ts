@@ -31,6 +31,8 @@ export interface StudentProfile {
   nameAt?: number;
   td?: { d: string; xp: number };
   lastCloudXp?: number;
+  lastAdminTodayDate?: string;
+  lastAdminTodayDelta?: number;
   earnedDailyBadges?: DailyBadgeRecord[];
 }
 
