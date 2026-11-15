@@ -11,6 +11,15 @@ export const QUIZ_LENGTHS: Record<number, number> = {
   20: 5,
 };
 
+export const OVERALL_BADGE_MILESTONES = [100, 1000, 10000, 100000] as const;
+export type OverallBadgeMilestone = (typeof OVERALL_BADGE_MILESTONES)[number];
+
+export interface DailyBadgeRecord {
+  date: string; // YYYY-MM-DD IST
+  rank: 1 | 2 | 3;
+  xp: number;
+}
+
 export interface StudentProfile {
   name: string;
   xp: number;
@@ -22,6 +31,7 @@ export interface StudentProfile {
   nameAt?: number;
   td?: { d: string; xp: number };
   lastCloudXp?: number;
+  earnedDailyBadges?: DailyBadgeRecord[];
 }
 
 export interface QueuedAttempt {
@@ -103,6 +113,45 @@ export function todayUTC(offsetDays = 0): string {
   return new Date(Date.now() - offsetDays * 864e5).toISOString().slice(0, 10);
 }
 
+export interface TodayCutoffStatus {
+  dateKey: string;
+  isLocked: boolean;
+  remainingSeconds: number;
+  resetSeconds: number;
+  countdownLabel: string;
+  resetLabel: string;
+}
+
+function formatHms(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const hrs = Math.floor(s / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  const secs = s % 60;
+  return `${String(hrs).padStart(2, "0")}h ${String(mins).padStart(2, "0")}m ${String(secs).padStart(2, "0")}s`;
+}
+
+export function getTodayCutoffStatus(nowMs = Date.now()): TodayCutoffStatus {
+  const ist = new Date(nowMs + IST_OFFSET_MS);
+  const dateKey = ist.toISOString().slice(0, 10);
+  const secsSinceMidnight =
+    ist.getUTCHours() * 3600 + ist.getUTCMinutes() * 60 + ist.getUTCSeconds();
+  const cutoffSec = 23 * 3600; // 11:00 PM IST everyday
+  const midnightSec = 24 * 3600;
+
+  const isLocked = secsSinceMidnight >= cutoffSec;
+  const remainingSeconds = isLocked ? 0 : cutoffSec - secsSinceMidnight;
+  const resetSeconds = midnightSec - secsSinceMidnight;
+
+  return {
+    dateKey,
+    isLocked,
+    remainingSeconds,
+    resetSeconds,
+    countdownLabel: formatHms(remainingSeconds),
+    resetLabel: formatHms(resetSeconds),
+  };
+}
+
 export function formatTime(seconds: number): string {
   const s = Math.max(0, seconds);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -137,6 +186,9 @@ export function loadProfile(): StudentProfile {
         nameAt: parsed.nameAt,
         td: parsed.td,
         lastCloudXp: typeof parsed.lastCloudXp === "number" ? parsed.lastCloudXp : undefined,
+        earnedDailyBadges: Array.isArray(parsed.earnedDailyBadges)
+          ? (parsed.earnedDailyBadges as DailyBadgeRecord[])
+          : [],
       };
     }
   } catch {
@@ -439,29 +491,158 @@ export function buildQuizSet(
   });
 }
 
-export function getMilestones(xp: number): number[] {
-  const arr = [10, 50, 100, 150, 200];
-  for (let m = 300; m <= xp + 300; m += 100) arr.push(m);
-  return arr;
+export function getUnlockedOverallMilestones(xp: number): OverallBadgeMilestone[] {
+  return OVERALL_BADGE_MILESTONES.filter((m) => xp >= m);
+}
+
+export function getHighestOverallMilestone(xp: number): OverallBadgeMilestone | null {
+  const unlocked = getUnlockedOverallMilestones(xp);
+  return unlocked.length > 0 ? unlocked[unlocked.length - 1] : null;
+}
+
+export function getNextOverallMilestone(xp: number): OverallBadgeMilestone | null {
+  return OVERALL_BADGE_MILESTONES.find((m) => m > xp) ?? null;
+}
+
+export function getMilestones(): number[] {
+  return [...OVERALL_BADGE_MILESTONES];
 }
 
 export interface BadgeItem {
   icon: string;
   label: string;
+  milestone?: OverallBadgeMilestone;
   unlocked: boolean;
 }
 
 export function getBadges(profile: StudentProfile): BadgeItem[] {
-  const milestones = getMilestones(profile.xp);
-  const icons = ["🌱", "🥉", "🥈", "🥇", "🏅", "💎", "👑", "🚀"];
-  const upcoming = milestones.filter((m) => m > profile.xp).slice(0, 3);
-  return [
-    { icon: "🎯", label: "First quiz", unlocked: profile.quizzes >= 1 },
-    { icon: "🔥", label: "3-day streak", unlocked: profile.streak >= 3 },
-    { icon: "💯", label: "Perfect score", unlocked: profile.perfect >= 1 },
-    ...milestones
-      .filter((m) => m <= profile.xp)
-      .map((m, i) => ({ icon: icons[i % icons.length], label: `${m} XP`, unlocked: true })),
-    ...upcoming.map((m) => ({ icon: "🔒", label: `${m} XP`, unlocked: false })),
-  ];
+  const meta: Record<OverallBadgeMilestone, { icon: string; name: string }> = {
+    100: { icon: "🥉", name: "100 XP" },
+    1000: { icon: "🥈", name: "1,000 XP" },
+    10000: { icon: "🥇", name: "10,000 XP" },
+    100000: { icon: "👑", name: "100,000 XP" },
+  };
+  return OVERALL_BADGE_MILESTONES.map((m) => ({
+    icon: profile.xp >= m ? meta[m].icon : "🔒",
+    label: meta[m].name,
+    milestone: m,
+    unlocked: profile.xp >= m,
+  }));
+}
+
+export interface RankListEntry {
+  name: string;
+  xp: number;
+  isMe: boolean;
+}
+
+export interface ImmediateRival {
+  rank: number;
+  name: string;
+  xp: number;
+  diffXp: number;
+  xpToPass: number;
+  questionsNeeded: number;
+}
+
+export interface ChaserRival {
+  rank: number;
+  name: string;
+  xp: number;
+  gapBelow: number;
+}
+
+export interface RankSnapshot {
+  myRank: number;
+  myXp: number;
+  totalPlayers: number;
+  topPercentile: number;
+  climbPercent: number;
+  nextAhead: ImmediateRival[];
+  chaserBehind: ChaserRival | null;
+  podium: {
+    first: RankListEntry | null;
+    second: RankListEntry | null;
+    third: RankListEntry | null;
+    fourth: RankListEntry | null;
+  };
+  xpToTop3: number;
+  progressToTop3Pct: number;
+  podiumCushion: number;
+}
+
+export function computeRankSnapshot(
+  entries: RankListEntry[],
+  fallbackMyXp = 0
+): RankSnapshot {
+  const myIdx = entries.findIndex((e) => e.isMe);
+  const myEntry = myIdx >= 0 ? entries[myIdx] : undefined;
+  const myXp = myEntry ? myEntry.xp : fallbackMyXp;
+  const totalPlayers = Math.max(1, entries.length);
+
+  const strictlyAhead = entries.filter((e) => !e.isMe && e.xp > myXp);
+  const myRank = 1 + strictlyAhead.length;
+  const topPercentile = Math.max(1, Math.min(100, Math.round((myRank / totalPlayers) * 100)));
+  const climbPercent =
+    totalPlayers > 1
+      ? Math.max(4, Math.min(100, Math.round(((totalPlayers - myRank) / (totalPlayers - 1)) * 100)))
+      : 100;
+
+  const nextAhead: ImmediateRival[] =
+    myIdx > 0
+      ? entries
+          .slice(Math.max(0, myIdx - 3), myIdx)
+          .reverse()
+          .map((entry, offset) => {
+            const rank = myIdx - offset;
+            const diffXp = Math.max(0, entry.xp - myXp);
+            const xpToPass = Math.max(1, diffXp + 1);
+            return {
+              rank,
+              name: entry.name,
+              xp: entry.xp,
+              diffXp,
+              xpToPass,
+              questionsNeeded: Math.max(1, Math.ceil(xpToPass / XP_PER_LEVEL[1])),
+            };
+          })
+      : [];
+
+  const chaserEntry = myIdx >= 0 && myIdx + 1 < entries.length ? entries[myIdx + 1] : null;
+  const chaserBehind: ChaserRival | null = chaserEntry
+    ? {
+        rank: myIdx + 2,
+        name: chaserEntry.name,
+        xp: chaserEntry.xp,
+        gapBelow: Math.max(0, myXp - chaserEntry.xp),
+      }
+    : null;
+
+  const first = entries[0] ?? null;
+  const second = entries[1] ?? null;
+  const third = entries[2] ?? null;
+  const fourth = entries[3] ?? null;
+
+  const xpToTop3 = third && myRank > 3 ? Math.max(1, third.xp - myXp + 1) : 0;
+  const progressToTop3Pct =
+    myRank <= 3 && myXp > 0
+      ? 100
+      : third && third.xp > 0
+        ? Math.max(4, Math.min(99, Math.round((myXp / third.xp) * 100)))
+        : 0;
+  const podiumCushion = myRank <= 3 && fourth ? Math.max(0, myXp - fourth.xp) : 0;
+
+  return {
+    myRank,
+    myXp,
+    totalPlayers,
+    topPercentile,
+    climbPercent,
+    nextAhead,
+    chaserBehind,
+    podium: { first, second, third, fourth },
+    xpToTop3,
+    progressToTop3Pct,
+    podiumCushion,
+  };
 }

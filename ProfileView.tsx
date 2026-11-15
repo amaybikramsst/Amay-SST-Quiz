@@ -1,13 +1,21 @@
-import React, { useState } from "react";
-import { getBadges, getMilestones, type StudentProfile } from "../lib/quizEngine";
-import { isSoundEnabled, playCorrectSound, setSoundEnabled } from "../lib/soundEffects";
+import React, { useEffect, useState } from "react";
+import { Clock } from "lucide-react";
+import type { BadgeDesignSpec } from "../lib/badgeCanvas";
+import {
+  getBadges,
+  getMilestones,
+  getNextOverallMilestone,
+  getTodayCutoffStatus,
+  type DailyBadgeRecord,
+  type StudentProfile,
+} from "../lib/quizEngine";
 
 interface ProfileViewProps {
   profile: StudentProfile;
   isDark: boolean;
   onToggleTheme: () => void;
   onUpdateName: (name: string) => void;
-  onOpenBadge: () => void;
+  onOpenBadge: (spec?: BadgeDesignSpec) => void;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -20,7 +28,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(profile.name);
   const [error, setError] = useState("");
-  const [soundOn, setSoundOn] = useState<boolean>(() => isSoundEnabled());
+  const [cutoff, setCutoff] = useState(() => getTodayCutoffStatus());
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setCutoff(getTodayCutoffStatus());
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const msLeft = Math.max(0, (profile.nameAt || 0) + 864e5 - Date.now());
   const formatWait = (ms: number) => {
@@ -29,14 +44,18 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     return hrs ? `${hrs}h ${mins % 60}m` : `${mins}m`;
   };
 
-  const milestones = getMilestones(profile.xp);
-  const nextMilestone = milestones.find((m) => m > profile.xp) ?? profile.xp + 100;
+  const milestones = getMilestones();
+  const nextMilestone = getNextOverallMilestone(profile.xp);
   const prevMilestone = [...milestones].reverse().find((m) => m <= profile.xp) ?? 0;
   const progressPct =
-    nextMilestone > prevMilestone
-      ? Math.min(100, Math.max(0, ((profile.xp - prevMilestone) / (nextMilestone - prevMilestone)) * 100))
-      : 0;
+    nextMilestone === null
+      ? 100
+      : nextMilestone > prevMilestone
+        ? Math.min(100, Math.max(0, ((profile.xp - prevMilestone) / (nextMilestone - prevMilestone)) * 100))
+        : 0;
   const badges = getBadges(profile);
+  const dailyBadges: DailyBadgeRecord[] = profile.earnedDailyBadges ?? [];
+  const hasAnyBadge = profile.xp >= 100 || dailyBadges.length > 0;
   const initial = (profile.name || "?").trim().charAt(0).toUpperCase();
 
   const handleSave = (e: React.FormEvent) => {
@@ -151,8 +170,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         )}
       </div>
 
-      {/* Theme & Sound Settings */}
-      <div className="amay-card rounded-[30px] p-4 divide-y divide-[#1846AA]/10 dark:divide-white/10">
+      {/* Theme Settings */}
+      <div className="amay-card rounded-[30px] p-4">
         <button
           type="button"
           onClick={onToggleTheme}
@@ -160,62 +179,139 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         >
           {isDark ? "Switch to light mode" : "Switch to dark mode"}
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            const next = !soundOn;
-            setSoundOn(next);
-            setSoundEnabled(next);
-            if (next) playCorrectSound();
-          }}
-          className="w-full py-2.5 text-base font-bold text-[#1457E0] dark:text-[#5AA2FF] cursor-pointer text-center"
-        >
-          Quiz sound effects: {soundOn ? "On" : "Off"}
-        </button>
       </div>
 
       {/* Badges */}
-      <div className="amay-card rounded-[30px] p-5 space-y-3">
-        <div>
-          <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-white">Badges</h2>
-          <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC]">
-            Next badge at {nextMilestone} XP · {nextMilestone - profile.xp} XP to go
-          </p>
+      <div className="amay-card rounded-[30px] p-5 space-y-4">
+        <div className="space-y-2">
+          <div>
+            <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-white">
+              Overall Rank Badges
+            </h2>
+            <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC]">
+              {nextMilestone !== null
+                ? `Next badge at ${nextMilestone.toLocaleString()} XP · ${(nextMilestone - profile.xp).toLocaleString()} XP to go`
+                : "All Overall XP badges unlocked!"}
+            </p>
+          </div>
+
+          <div className="h-2.5 rounded-full bg-[#1457E0]/10 dark:bg-white/10 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-[#38B0FF] to-[#0B57DD]"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            {badges.map((b) =>
+              b.unlocked && b.milestone ? (
+                <button
+                  key={b.label}
+                  type="button"
+                  onClick={() => onOpenBadge({ kind: "overall", milestone: b.milestone! })}
+                  className="px-3 py-2.5 rounded-2xl text-left text-sm font-bold border border-[#1457E0]/25 dark:border-[#5AA2FF]/30 bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 text-[#0B1B4D] dark:text-white hover:bg-[#1457E0]/15 transition-colors cursor-pointer flex items-center justify-between gap-2"
+                >
+                  <span>
+                    {b.icon} {b.label}
+                  </span>
+                  <span className="text-[11px] font-bold text-[#1457E0] dark:text-[#5AA2FF]">
+                    View
+                  </span>
+                </button>
+              ) : (
+                <div
+                  key={b.label}
+                  className="px-3 py-2.5 rounded-2xl text-sm font-semibold border border-[#1846AA]/10 dark:border-white/10 opacity-50 text-[#5A6A92] dark:text-[#93A3CC]"
+                >
+                  {b.icon} {b.label}
+                </div>
+              )
+            )}
+          </div>
         </div>
 
-        <div className="h-2.5 rounded-full bg-[#1457E0]/10 dark:bg-white/10 overflow-hidden">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-[#38B0FF] to-[#0B57DD]"
-            style={{ width: `${progressPct}%` }}
-          />
+        <div className="pt-3 border-t border-[#1846AA]/10 dark:border-white/10 space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h3 className="text-base font-extrabold text-[#0B1B4D] dark:text-white">
+                Today Top 3 Badges
+              </h3>
+              <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+                Hold #1, #2 or #3 till 11:00 PM everyday to earn
+              </p>
+            </div>
+            <div className="text-right shrink-0">
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#5A6A92] dark:text-[#93A3CC]">
+                <Clock className="w-3 h-3" />
+                {cutoff.isLocked ? "Resets in" : "Cutoff in"}
+              </span>
+              <strong className="block font-mono-nums text-xs font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
+                {cutoff.isLocked ? cutoff.resetLabel : cutoff.countdownLabel}
+              </strong>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            {([1, 2, 3] as const).map((rank) => {
+              const wins = dailyBadges
+                .filter((d) => d.rank === rank)
+                .sort((a, b) => b.date.localeCompare(a.date));
+              const latest = wins[0];
+              const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : "🥉";
+              if (latest) {
+                return (
+                  <button
+                    key={`daily-slot-${rank}`}
+                    type="button"
+                    onClick={() =>
+                      onOpenBadge({
+                        kind: "daily",
+                        rank,
+                        dateLabel: latest.date,
+                        xpToday: latest.xp,
+                      })
+                    }
+                    className="p-2.5 rounded-2xl text-center border border-[#1457E0]/25 dark:border-[#5AA2FF]/30 bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 cursor-pointer hover:bg-[#1457E0]/15 transition-colors"
+                  >
+                    <span className="block text-lg leading-none">{medal}</span>
+                    <strong className="block text-xs font-extrabold text-[#0B1B4D] dark:text-white mt-1">
+                      Today #{rank}
+                    </strong>
+                    <span className="block text-[11px] font-bold text-[#1457E0] dark:text-[#5AA2FF] mt-0.5">
+                      {wins.length}× earned
+                    </span>
+                  </button>
+                );
+              }
+              return (
+                <div
+                  key={`daily-slot-${rank}`}
+                  className="p-2.5 rounded-2xl text-center border border-[#1846AA]/10 dark:border-white/10 opacity-55"
+                >
+                  <span className="block text-lg leading-none">{medal}</span>
+                  <strong className="block text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC] mt-1">
+                    Today #{rank}
+                  </strong>
+                  <span className="block text-[11px] text-[#5A6A92] dark:text-[#93A3CC] mt-0.5">
+                    Locked
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {badges.map((b, i) => (
-            <span
-              key={`${b.label}-${i}`}
-              className={`px-3 py-1.5 rounded-2xl text-sm font-semibold border border-[#1846AA]/12 dark:border-white/10 ${
-                b.unlocked
-                  ? "bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 text-[#0B1B4D] dark:text-white"
-                  : "opacity-45 text-[#5A6A92] dark:text-[#93A3CC]"
-              }`}
-            >
-              {b.icon} {b.label}
-            </span>
-          ))}
-        </div>
-
-        {profile.xp >= 500 ? (
+        {hasAnyBadge ? (
           <button
             type="button"
-            onClick={onOpenBadge}
+            onClick={() => onOpenBadge()}
             className="w-full h-12 rounded-[20px] amay-play-btn text-white font-bold text-sm cursor-pointer"
           >
             🏅 Share my badge
           </button>
         ) : (
           <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC]">
-            Reach 500 XP to unlock a shareable badge.
+            Reach 100 Overall XP or finish Top 3 by 11:00 PM today to unlock a shareable badge.
           </p>
         )}
       </div>

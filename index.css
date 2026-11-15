@@ -102,9 +102,38 @@
   animation: playGlow 3.2s ease-in-out infinite;
 }
 
+@keyframes amayShimmerSweep {
+  0% {
+    transform: translateX(-120%);
+  }
+  60%,
+  100% {
+    transform: translateX(240%);
+  }
+}
+
+.amay-fill-bar {
+  transform-origin: left center;
+  transition: transform 850ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+}
+
+.amay-shimmer-beam {
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.42), transparent);
+  animation: amayShimmerSweep 3.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-wave,
-  .amay-play-btn {
+  .amay-play-btn,
+  .amay-shimmer-beam {
     animation: none;
+  }
+  .amay-fill-bar {
+    transition: none;
   }
 }

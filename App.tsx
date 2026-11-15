@@ -14,10 +14,12 @@ import { SubjectConfigView, SubjectsGridView } from "./components/SubjectsView";
 import { usePWAInstall } from "./hooks/usePWAInstall";
 import { type QuizKey, type RawQuestion, type SubjectKey } from "./data/questions";
 import { resolveBotRoster } from "./lib/botSimulator";
+import type { BadgeDesignSpec } from "./lib/badgeCanvas";
 import {
   buildQuizSet,
   calculateQuizScore,
   getGuestUUID,
+  getTodayCutoffStatus,
   LEVELS,
   loadProfile,
   loadQueue,
@@ -28,10 +30,16 @@ import {
   todayIST,
   todayUTC,
   type ActiveQuizState,
+  type DailyBadgeRecord,
   type StudentProfile,
 } from "./lib/quizEngine";
 import { getCrossedXpMilestone, launchMilestoneConfetti } from "./lib/confetti";
-import { playMilestoneSound, playQuizCompleteSound, playSelectTapSound } from "./lib/soundEffects";
+import {
+  playMilestoneSound,
+  playQuizCompleteSound,
+  playSelectTapSound,
+  playUiTapSound,
+} from "./lib/soundEffects";
 import {
   fetchBotOverrides,
   fetchDynamicQuestions,
@@ -91,6 +99,7 @@ export default function App() {
 
   const [quiz, setQuiz] = useState<ActiveQuizState | null>(null);
   const [showBadgeModal, setShowBadgeModal] = useState(false);
+  const [selectedBadgeSpec, setSelectedBadgeSpec] = useState<BadgeDesignSpec | null>(null);
   const [showInstallModal, setShowInstallModal] = useState(false);
   const [allNotifications, setAllNotifications] = useState<AppNotification[]>(() => loadLocalNotifications());
   const [seenNotifIds, setSeenNotifIds] = useState<string[]>(() => {
@@ -192,6 +201,27 @@ export default function App() {
       window.removeEventListener("hashchange", onHashOrPop);
       window.removeEventListener("popstate", onHashOrPop);
     };
+  }, []);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const interactive = target.closest(
+        'button, a, [role="button"], select, summary, label[for]'
+      ) as HTMLElement | null;
+      if (!interactive) return;
+      if (
+        interactive.hasAttribute("disabled") ||
+        interactive.getAttribute("aria-disabled") === "true" ||
+        interactive.dataset.customSound === "1"
+      ) {
+        return;
+      }
+      playUiTapSound(interactive.classList.contains("amay-play-btn"));
+    };
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
   }, []);
 
   const recordTap = useCallback(
@@ -437,7 +467,7 @@ export default function App() {
       const prevXp = impersonated ? impersonated.profile.xp : loadProfile().xp;
       const nextXpEst = Math.max(0, prevXp + score.xp);
       const reachedMilestone = getCrossedXpMilestone(prevXp, nextXpEst);
-      const unlocked500 = prevXp < 500 && nextXpEst >= 500;
+      const unlockedFirstBadge = prevXp < 100 && nextXpEst >= 100;
 
       if (reachedMilestone !== null) {
         playMilestoneSound();
@@ -501,7 +531,7 @@ export default function App() {
         done: true,
         res: {
           ...score,
-          up: unlocked500,
+          up: unlockedFirstBadge,
           milestoneXp: reachedMilestone,
         },
       });
@@ -686,6 +716,64 @@ export default function App() {
     livePlayers,
   ]);
 
+  // Fire an exact tick right at 11:00 PM IST cutoff and 12:00 AM IST daily reset
+  useEffect(() => {
+    const status = getTodayCutoffStatus(botClockTick);
+    const targetSec = status.isLocked ? status.resetSeconds : status.remainingSeconds;
+    const delayMs = Math.max(1000, (targetSec + 1) * 1000);
+    if (delayMs > 43200000) return;
+    const timer = window.setTimeout(() => {
+      setBotClockTick(Date.now());
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [botClockTick]);
+
+  // Automatically award Today #1, #2, or #3 badge once 11:00 PM IST cutoff is reached
+  useEffect(() => {
+    if (impersonated || !profile.name) return;
+    const cutoff = getTodayCutoffStatus(botClockTick);
+    if (!cutoff.isLocked) return;
+
+    const myTodayEntry = todayEntries.find((e) => e.isMe);
+    const myTodayXp = myTodayEntry?.xp ?? 0;
+    if (myTodayXp <= 0) return;
+
+    const myTodayRank = 1 + todayEntries.filter((e) => !e.isMe && e.xp > myTodayXp).length;
+    if (myTodayRank !== 1 && myTodayRank !== 2 && myTodayRank !== 3) return;
+
+    const existing = profile.earnedDailyBadges ?? [];
+    if (existing.some((b) => b.date === cutoff.dateKey)) return;
+
+    const nextRecord: DailyBadgeRecord = {
+      date: cutoff.dateKey,
+      rank: myTodayRank as 1 | 2 | 3,
+      xp: myTodayXp,
+    };
+
+    setProfile((prev) => {
+      const prevList = prev.earnedDailyBadges ?? [];
+      if (prevList.some((b) => b.date === cutoff.dateKey)) return prev;
+      const updated: StudentProfile = {
+        ...prev,
+        earnedDailyBadges: [nextRecord, ...prevList].slice(0, 60),
+      };
+      saveProfile(updated);
+      return updated;
+    });
+
+    playMilestoneSound();
+    launchMilestoneConfetti(1000);
+  }, [botClockTick, impersonated, profile.earnedDailyBadges, profile.name, todayEntries]);
+
+  const openBadgeModal = useCallback(
+    (spec?: BadgeDesignSpec, source = "app") => {
+      recordTap("Open Badge", "Opened shareable badge", source);
+      setSelectedBadgeSpec(spec ?? null);
+      setShowBadgeModal(true);
+    },
+    [recordTap]
+  );
+
   const hideHeader = view === "quiz" || view === "admin";
   const hideNav = view === "quiz" || view === "gate" || view === "admin";
 
@@ -757,10 +845,7 @@ export default function App() {
               onStartNormalQuiz={() => openSubjectConfig("mix")}
               onOpenSubjects={() => navigate("subs")}
               onOpenRank={() => navigate("rank")}
-              onOpenBadge={() => {
-                recordTap("Open Badge", "Opened shareable badge", "home");
-                setShowBadgeModal(true);
-              }}
+              onOpenBadge={() => openBadgeModal(undefined, "home")}
             />
           )}
 
@@ -818,12 +903,16 @@ export default function App() {
               onRetry={() => startQuiz(quiz.k, quiz.L, quiz.N)}
               onChangeSetup={() => openSubjectConfig(quiz.k)}
               onOpenRank={() => navigate("rank")}
-              onOpenBadge={() => setShowBadgeModal(true)}
+              onOpenBadge={() => openBadgeModal(undefined, "quiz")}
             />
           )}
 
           {view === "rank" && (
-            <RankView allTimeEntries={allTimeEntries} todayEntries={todayEntries} />
+            <RankView
+              allTimeEntries={allTimeEntries}
+              todayEntries={todayEntries}
+              onStartQuiz={() => openSubjectConfig("mix")}
+            />
           )}
 
           {view === "me" && (
@@ -832,10 +921,7 @@ export default function App() {
               isDark={isDark}
               onToggleTheme={handleToggleTheme}
               onUpdateName={handleUpdateName}
-              onOpenBadge={() => {
-                recordTap("Open Badge", "Opened shareable badge", "me");
-                setShowBadgeModal(true);
-              }}
+              onOpenBadge={(spec) => openBadgeModal(spec, "me")}
             />
           )}
 
@@ -864,7 +950,12 @@ export default function App() {
         <BadgeModal
           xp={effectiveProfile.xp}
           name={effectiveProfile.name}
-          onClose={() => setShowBadgeModal(false)}
+          earnedDailyBadges={effectiveProfile.earnedDailyBadges}
+          initialSpec={selectedBadgeSpec}
+          onClose={() => {
+            setShowBadgeModal(false);
+            setSelectedBadgeSpec(null);
+          }}
         />
       )}
 

@@ -3,20 +3,23 @@ import confetti from "canvas-confetti";
 const BRAND_COLORS = ["#1457E0", "#38B0FF", "#F5B82E", "#12A150", "#FF3B4E"];
 
 /**
- * Returns the highest newly crossed celebratory XP milestone (500 XP badge milestone
- * or every 1,000 XP milestone: 1000, 2000, 3000, ...), or null if none crossed.
+ * Returns the highest newly crossed celebratory XP milestone (100 XP first badge,
+ * 1,000 / 10,000 / 100,000 badge milestones, or every 1,000 XP), or null if none crossed.
  */
 export function getCrossedXpMilestone(prevXp: number, nextXp: number): number | null {
   if (nextXp <= prevXp) return null;
+
+  const badgeMilestones = [100000, 10000, 1000, 100];
+  for (const m of badgeMilestones) {
+    if (prevXp < m && nextXp >= m) {
+      return m;
+    }
+  }
 
   const prevThousand = Math.floor(prevXp / 1000);
   const nextThousand = Math.floor(nextXp / 1000);
   if (nextThousand > prevThousand) {
     return nextThousand * 1000;
-  }
-
-  if (prevXp < 500 && nextXp >= 500) {
-    return 500;
   }
 
   return null;

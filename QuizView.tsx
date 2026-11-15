@@ -85,6 +85,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
           <div className="grid grid-cols-3 gap-2 pt-1 text-center text-xs">
             <button
               type="button"
+              data-custom-sound="1"
               onClick={() => playCorrectSound()}
               className="rounded-2xl bg-[#12A150]/10 dark:bg-[#3DD17F]/15 p-2.5 cursor-pointer active:scale-[0.98] transition"
             >
@@ -95,6 +96,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
             </button>
             <button
               type="button"
+              data-custom-sound="1"
               onClick={() => playIncorrectSound()}
               className="rounded-2xl bg-[#D92D3A]/10 dark:bg-[#FF6B76]/15 p-2.5 cursor-pointer active:scale-[0.98] transition"
             >
@@ -118,7 +120,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
           )}
         </div>
 
-        {milestoneXp && milestoneXp >= 1000 && (
+        {milestoneXp && milestoneXp >= 100 && (
           <div className="amay-card rounded-[28px] p-5 bg-gradient-to-r from-[#1457E0]/10 via-[#38B0FF]/10 to-[#F5B82E]/12 border border-[#1457E0]/20 dark:border-[#5AA2FF]/30 flex items-center justify-between gap-3">
             <div>
               <strong className="text-base font-extrabold text-[#0B1B4D] dark:text-white">
@@ -138,14 +140,14 @@ export const QuizView: React.FC<QuizViewProps> = ({
           </div>
         )}
 
-        {profile.xp >= 500 && (
+        {(profile.xp >= 100 || (profile.earnedDailyBadges?.length ?? 0) > 0) && (
           <div className="amay-card rounded-[28px] p-5 space-y-3">
             <div>
               <strong className="text-base font-extrabold text-[#0B1B4D] dark:text-white">
                 {up ? "🎉 Badge unlocked!" : "🏅 Your badge"}
               </strong>
               <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC] mt-1">
-                {up ? "You reached 500 XP. " : ""}Share your achievement with friends.
+                {up ? "You reached 100 Overall XP! " : ""}Share your achievement with friends.
               </p>
             </div>
             <button
@@ -256,6 +258,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
           </span>
           <button
             type="button"
+            data-custom-sound="1"
             onClick={toggleSound}
             aria-label={soundOn ? "Mute sound effects" : "Enable sound effects"}
             title={soundOn ? "Sound On" : "Sound Off"}
@@ -299,6 +302,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
             <button
               key={idx}
               type="button"
+              data-custom-sound="1"
               onClick={() => onSelectOption(active ? undefined : idx)}
               className={`w-full min-h-[54px] px-4 py-3.5 rounded-[18px] text-left font-semibold text-base flex items-center gap-3.5 transition-all cursor-pointer active:scale-[0.98] ${
                 active
@@ -329,6 +333,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
 
         <button
           type="button"
+          data-custom-sound={quiz.i === total - 1 ? "1" : undefined}
           onClick={() => (quiz.i < total - 1 ? onGoToQuestion(quiz.i + 1) : onFinish())}
           className="flex-1 h-13 rounded-[22px] amay-play-btn text-white font-bold text-base cursor-pointer"
         >

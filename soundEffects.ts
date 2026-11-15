@@ -70,6 +70,18 @@ function playTone(
   osc.stop(now + durationSec + 0.02);
 }
 
+/** Subtle soft tactile tap for UI buttons, tabs, and links */
+export function playUiTapSound(primary = false): void {
+  if (!isSoundEnabled()) return;
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (primary) {
+    playTone(ctx, 540, 680, 0, 0.04, 0.025, "sine");
+  } else {
+    playTone(ctx, 480, 380, 0, 0.028, 0.02, "sine");
+  }
+}
+
 /** Subtle neutral tactile click when selecting or clearing an option during timed quiz */
 export function playSelectTapSound(): void {
   if (!isSoundEnabled()) return;

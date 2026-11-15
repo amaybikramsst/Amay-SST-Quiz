@@ -1,14 +1,124 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Download, Share2, X } from "lucide-react";
-import { generateBadgePng } from "../lib/badgeCanvas";
+import { generateBadgePng, type BadgeDesignSpec } from "../lib/badgeCanvas";
+import {
+  getHighestOverallMilestone,
+  getUnlockedOverallMilestones,
+  type DailyBadgeRecord,
+} from "../lib/quizEngine";
 
 interface BadgeModalProps {
   xp: number;
   name: string;
+  earnedDailyBadges?: DailyBadgeRecord[];
+  initialSpec?: BadgeDesignSpec | null;
   onClose: () => void;
 }
 
-export const BadgeModal: React.FC<BadgeModalProps> = ({ xp, name, onClose }) => {
+interface BadgeChoice {
+  key: string;
+  label: string;
+  shareText: string;
+  spec: BadgeDesignSpec;
+}
+
+function formatBadgeDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (!y || !m || !d) return dateStr;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+export const BadgeModal: React.FC<BadgeModalProps> = ({
+  xp,
+  name,
+  earnedDailyBadges = [],
+  initialSpec = null,
+  onClose,
+}) => {
+  const choices = useMemo<BadgeChoice[]>(() => {
+    const overallUnlocked = getUnlockedOverallMilestones(xp);
+    const overallChoices: BadgeChoice[] = overallUnlocked.map((milestone) => ({
+      key: `overall-${milestone}`,
+      label: `${milestone.toLocaleString()} XP`,
+      shareText: `I reached ${milestone.toLocaleString()} Overall XP on AmaySST Quiz!`,
+      spec: { kind: "overall", milestone },
+    }));
+
+    const sortedDaily = [...earnedDailyBadges].sort((a, b) => b.date.localeCompare(a.date));
+    const dailyChoices: BadgeChoice[] = sortedDaily.map((d) => {
+      const dateLabel = formatBadgeDate(d.date);
+      return {
+        key: `daily-${d.date}-${d.rank}`,
+        label: `Today #${d.rank} · ${dateLabel}`,
+        shareText: `I ranked #${d.rank} Today (11 PM Cutoff, ${d.xp.toLocaleString()} XP) on AmaySST Quiz!`,
+        spec: {
+          kind: "daily",
+          rank: d.rank,
+          dateLabel,
+          xpToday: d.xp,
+        },
+      };
+    });
+
+    const combined = [...dailyChoices, ...overallChoices];
+    if (combined.length === 0) {
+      const fallbackMilestone = getHighestOverallMilestone(xp) ?? 100;
+      return [
+        {
+          key: `overall-${fallbackMilestone}`,
+          label: `${fallbackMilestone.toLocaleString()} XP`,
+          shareText: `I reached ${fallbackMilestone.toLocaleString()} Overall XP on AmaySST Quiz!`,
+          spec: { kind: "overall", milestone: fallbackMilestone },
+        },
+      ];
+    }
+    return combined;
+  }, [earnedDailyBadges, xp]);
+
+  const initialKey = useMemo(() => {
+    if (initialSpec?.kind === "overall") {
+      const match = choices.find(
+        (c) => c.spec.kind === "overall" && c.spec.milestone === initialSpec.milestone
+      );
+      if (match) return match.key;
+    }
+    if (initialSpec?.kind === "daily") {
+      const match = choices.find(
+        (c) =>
+          c.spec.kind === "daily" &&
+          c.spec.rank === initialSpec.rank &&
+          (!initialSpec.dateLabel ||
+            c.spec.dateLabel === initialSpec.dateLabel ||
+            c.key === `daily-${initialSpec.dateLabel}-${initialSpec.rank}`)
+      );
+      if (match) return match.key;
+    }
+    const highestOverall = getHighestOverallMilestone(xp);
+    if (highestOverall) {
+      const match = choices.find(
+        (c) => c.spec.kind === "overall" && c.spec.milestone === highestOverall
+      );
+      if (match) return match.key;
+    }
+    return choices[0].key;
+  }, [choices, initialSpec, xp]);
+
+  const [selectedKey, setSelectedKey] = useState<string>(initialKey);
+
+  useEffect(() => {
+    setSelectedKey(initialKey);
+  }, [initialKey]);
+
+  const activeChoice = useMemo(
+    () => choices.find((c) => c.key === selectedKey) ?? choices[0],
+    [choices, selectedKey]
+  );
+
   const [blob, setBlob] = useState<Blob | null>(null);
   const [url, setUrl] = useState<string>("");
   const [status, setStatus] = useState("Creating your badge…");
@@ -16,7 +126,8 @@ export const BadgeModal: React.FC<BadgeModalProps> = ({ xp, name, onClose }) => 
   useEffect(() => {
     let active = true;
     let objUrl = "";
-    generateBadgePng(xp, name)
+    setStatus("Creating your badge…");
+    generateBadgePng(xp, name, activeChoice.spec)
       .then((b) => {
         if (!active || !b) {
           if (active) setStatus("Could not generate the badge. Please try again.");
@@ -31,26 +142,29 @@ export const BadgeModal: React.FC<BadgeModalProps> = ({ xp, name, onClose }) => 
         if (active) setStatus("Could not generate the badge. Please try again.");
       });
 
+    return () => {
+      active = false;
+      if (objUrl) URL.revokeObjectURL(objUrl);
+    };
+  }, [xp, name, activeChoice]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
-    return () => {
-      active = false;
-      window.removeEventListener("keydown", onKey);
-      if (objUrl) URL.revokeObjectURL(objUrl);
-    };
-  }, [xp, name, onClose]);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   const handleShare = async () => {
     if (!blob) return;
-    const file = new File([blob], "amaysst-quiz-badge.png", { type: "image/png" });
+    const file = new File([blob], `amaysst-${activeChoice.key}.png`, { type: "image/png" });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({
           files: [file],
           title: "AmaySST Quiz",
-          text: `I reached ${Math.floor(xp / 100) * 100} XP on AmaySST Quiz!`,
+          text: activeChoice.shareText,
         });
         return;
       } catch (err) {
@@ -64,7 +178,7 @@ export const BadgeModal: React.FC<BadgeModalProps> = ({ xp, name, onClose }) => 
     if (!url) return;
     const a = document.createElement("a");
     a.href = url;
-    a.download = "amaysst-quiz-badge.png";
+    a.download = `amaysst-${activeChoice.key}.png`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -79,28 +193,53 @@ export const BadgeModal: React.FC<BadgeModalProps> = ({ xp, name, onClose }) => 
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md bg-white dark:bg-[#111A32] border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4"
+        className="w-full max-w-md bg-white dark:bg-[#0D1528] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-white">Achievement Badge</h2>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-extrabold tracking-tight text-[#0B1B4D] dark:text-white">
+              Achievement Badge
+            </h2>
+            <p className="text-xs text-[#5A6A92] dark:text-slate-400 mt-0.5">{status}</p>
+          </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-center text-[#5A6A92] hover:text-[#0B1B4D] dark:hover:text-white cursor-pointer"
+            className="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-center text-[#5A6A92] hover:text-[#0B1B4D] dark:hover:text-white cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <p className="text-xs text-[#5A6A92] dark:text-slate-400">{status}</p>
+        {choices.length > 1 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+            {choices.map((choice) => {
+              const active = choice.key === activeChoice.key;
+              return (
+                <button
+                  key={choice.key}
+                  type="button"
+                  onClick={() => setSelectedKey(choice.key)}
+                  className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                    active
+                      ? "bg-[#1457E0] border-[#1457E0] text-white"
+                      : "border-slate-200 dark:border-slate-700 text-[#0B1B4D] dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/70"
+                  }`}
+                >
+                  {choice.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {url && (
           <img
             src={url}
-            alt={`AmaySST Quiz badge for ${name}`}
-            className="w-full max-h-[55vh] object-contain rounded-2xl border border-slate-200 dark:border-slate-700"
+            alt={`AmaySST Quiz ${activeChoice.label} badge for ${name}`}
+            className="w-full max-h-[54vh] object-contain rounded-2xl shadow-[0_18px_40px_-14px_rgba(6,10,22,0.55)]"
           />
         )}
 
