@@ -237,12 +237,13 @@ export default function App() {
     setShowInstallModal(true);
   }, [canNativeInstall, install, recordTap, view]);
 
-  // Report each student's app install state to Supabase whenever it changes (so Admin sees Installed vs Not Installed)
+  // Report each student's app install state to Supabase (once installed, keep sticky so browser visits don't clear it)
   useEffect(() => {
     if (!profile.name || impersonated) return;
     const nextVal = isInstalled ? "1" : "0";
     try {
       const prevReported = localStorage.getItem("amaysst_reported_install");
+      if (prevReported === "1" && !isInstalled) return;
       if (prevReported === nextVal) return;
       localStorage.setItem("amaysst_reported_install", nextVal);
     } catch {

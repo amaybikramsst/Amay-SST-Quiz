@@ -119,8 +119,11 @@ as $$
 begin
   update public.candidates
   set
-    app_installed = p_installed,
-    app_installed_at = case when p_installed then coalesce(app_installed_at, now()) else null end,
+    app_installed = coalesce(app_installed, false) or coalesce(p_installed, false),
+    app_installed_at = case
+      when coalesce(p_installed, false) then coalesce(app_installed_at, now())
+      else app_installed_at
+    end,
     updated_at = now()
   where guest_uuid = p_guest;
 end;

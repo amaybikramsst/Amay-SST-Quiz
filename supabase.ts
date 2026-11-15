@@ -366,18 +366,21 @@ export async function reportAppInstallStatus(
 export async function adminLoadInstallStatusMap(): Promise<Record<string, boolean>> {
   const map: Record<string, boolean> = {};
   try {
+    // Query only "App Installed" events (up to 5000) so previous installs stay visible
+    // and are never overwritten by later browser-tab opens ("App Not Installed").
     const { data, error } = await supabase
       .from("candidate_events")
-      .select("guest_uuid, candidate_name, action, created_at")
-      .in("action", ["App Installed", "App Not Installed"])
+      .select("guest_uuid")
+      .eq("action", "App Installed")
       .order("created_at", { ascending: false })
-      .limit(1000);
+      .limit(5000);
 
     if (!error && Array.isArray(data)) {
       for (const row of data) {
         const key = String(row.guest_uuid || "");
-        if (!key || key in map) continue;
-        map[key] = row.action === "App Installed";
+        if (key) {
+          map[key] = true;
+        }
       }
     }
   } catch {
@@ -385,10 +388,8 @@ export async function adminLoadInstallStatusMap(): Promise<Record<string, boolea
   }
 
   for (const ev of getLocalTaps()) {
-    if (ev.action === "App Installed" || ev.action === "App Not Installed") {
-      if (!(ev.guest_uuid in map)) {
-        map[ev.guest_uuid] = ev.action === "App Installed";
-      }
+    if (ev.action === "App Installed" && ev.guest_uuid) {
+      map[ev.guest_uuid] = true;
     }
   }
 

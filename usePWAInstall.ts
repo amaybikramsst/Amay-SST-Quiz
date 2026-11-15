@@ -5,7 +5,12 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 }
 
+interface NavigatorWithRelatedApps extends Navigator {
+  getInstalledRelatedApps?: () => Promise<Array<{ id?: string; platform?: string; url?: string }>>;
+}
+
 const INSTALLED_STORAGE_KEY = "amaysst_pwa_installed";
+const REPORTED_INSTALL_KEY = "amaysst_reported_install";
 
 function checkStandalone(): boolean {
   if (typeof window === "undefined") return false;
@@ -16,55 +21,76 @@ function checkStandalone(): boolean {
   );
 }
 
+function hasSavedInstallFlag(): boolean {
+  try {
+    return (
+      localStorage.getItem(INSTALLED_STORAGE_KEY) === "1" ||
+      localStorage.getItem(REPORTED_INSTALL_KEY) === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function markInstalledInStorage(): void {
+  try {
+    localStorage.setItem(INSTALLED_STORAGE_KEY, "1");
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
-    if (checkStandalone()) return true;
-    try {
-      return localStorage.getItem(INSTALLED_STORAGE_KEY) === "1";
-    } catch {
-      return false;
-    }
+    return checkStandalone() || hasSavedInstallFlag();
   });
   const [isIOS, setIsIOS] = useState(false);
 
   useEffect(() => {
-    const standalone = checkStandalone();
-    if (standalone) {
+    if (checkStandalone() || hasSavedInstallFlag()) {
       setIsInstalled(true);
-      try {
-        localStorage.setItem(INSTALLED_STORAGE_KEY, "1");
-      } catch {
-        // ignore
+      if (checkStandalone()) {
+        markInstalledInStorage();
       }
     }
 
     const ua = window.navigator.userAgent.toLowerCase();
     setIsIOS(/iphone|ipad|ipod/.test(ua));
 
+    // On Android Chrome, detect if the PWA is already installed even if localStorage was cleared
+    const nav = window.navigator as NavigatorWithRelatedApps;
+    if (typeof nav.getInstalledRelatedApps === "function") {
+      nav
+        .getInstalledRelatedApps()
+        .then((apps) => {
+          if (Array.isArray(apps) && apps.length > 0) {
+            setIsInstalled(true);
+            setDeferredPrompt(null);
+            markInstalledInStorage();
+          }
+        })
+        .catch(() => {
+          // ignore browser API errors
+        });
+    }
+
     const onBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
-      setDeferredPrompt(e as BeforeInstallPromptEvent);
-      // If browser fires beforeinstallprompt and we aren't running standalone, it isn't installed right now
-      if (!checkStandalone()) {
-        setIsInstalled(false);
-        try {
-          localStorage.removeItem(INSTALLED_STORAGE_KEY);
-        } catch {
-          // ignore
-        }
+      // Never clear existing install state — prevents Install button re-emerging & creating a duplicate 2nd app
+      if (checkStandalone() || hasSavedInstallFlag()) {
+        setIsInstalled(true);
+        setDeferredPrompt(null);
+        return;
       }
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
     };
 
     const onAppInstalled = () => {
       setIsInstalled(true);
       setDeferredPrompt(null);
-      try {
-        localStorage.setItem(INSTALLED_STORAGE_KEY, "1");
-      } catch {
-        // ignore
-      }
+      markInstalledInStorage();
     };
 
     const mediaQuery = window.matchMedia("(display-mode: standalone)");
@@ -93,11 +119,7 @@ export function usePWAInstall() {
       if (outcome === "accepted") {
         setIsInstalled(true);
         setDeferredPrompt(null);
-        try {
-          localStorage.setItem(INSTALLED_STORAGE_KEY, "1");
-        } catch {
-          // ignore
-        }
+        markInstalledInStorage();
         return "accepted";
       }
       return "dismissed";

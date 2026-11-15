@@ -757,8 +757,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   };
 
   const isCandidateInstalled = (c: AdminCandidateRow): boolean => {
-    if (c.guest_uuid in installStatusMap) return installStatusMap[c.guest_uuid];
-    return Boolean(c.app_installed);
+    return Boolean(c.app_installed || c.app_installed_at || installStatusMap[c.guest_uuid]);
   };
 
   const installCounts = useMemo(() => {
