@@ -508,6 +508,10 @@ export interface BotOverride {
   name: string;
   xp: number;
   todayXp: number;
+  baseXp?: number;
+  xpOffset?: number;
+  manualTodayDate?: string;
+  manualTodayOffset?: number;
 }
 
 const BOT_OVERRIDES_KEY = "amaysst_bot_overrides";

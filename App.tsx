@@ -12,8 +12,8 @@ import { QuizView } from "./components/QuizView";
 import { RankView, type RankEntry } from "./components/RankView";
 import { SubjectConfigView, SubjectsGridView } from "./components/SubjectsView";
 import { usePWAInstall } from "./hooks/usePWAInstall";
-import { BENCHMARK_PLAYERS } from "./data/benchmarks";
 import { type QuizKey, type RawQuestion, type SubjectKey } from "./data/questions";
+import { resolveBotRoster } from "./lib/botSimulator";
 import {
   buildQuizSet,
   calculateQuizScore,
@@ -78,6 +78,7 @@ export default function App() {
   );
   const [livePlayers, setLivePlayers] = useState<LiveLeaderRow[]>([]);
   const [botOverrides, setBotOverrides] = useState<Record<string, BotOverride>>(() => loadBotOverrides());
+  const [botClockTick, setBotClockTick] = useState<number>(() => Date.now());
   const [latestVideo, setLatestVideo] = useState<LatestVideoConfig>(() => loadLocalLatestVideo());
   const [isOffline, setIsOffline] = useState(() => (typeof navigator !== "undefined" ? !navigator.onLine : false));
 
@@ -386,9 +387,16 @@ export default function App() {
     };
 
     const pollInterval = window.setInterval(refreshNotifs, 30000);
+    const botClockInterval = window.setInterval(() => setBotClockTick(Date.now()), 30000);
+
+    const onFocusSync = () => {
+      setBotClockTick(Date.now());
+      refreshNotifs();
+    };
 
     const onOnline = () => {
       setIsOffline(false);
+      setBotClockTick(Date.now());
       flushQueue();
       refreshDynamicQuestions();
       fetchLatestVideo().then((v) => setLatestVideo(v));
@@ -399,12 +407,13 @@ export default function App() {
 
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
-    window.addEventListener("focus", refreshNotifs);
+    window.addEventListener("focus", onFocusSync);
     return () => {
       window.clearInterval(pollInterval);
+      window.clearInterval(botClockInterval);
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
-      window.removeEventListener("focus", refreshNotifs);
+      window.removeEventListener("focus", onFocusSync);
       if (retryTimerRef.current) window.clearTimeout(retryTimerRef.current);
     };
   }, [applyCloudStats, flushQueue, guestId, refreshDynamicQuestions, refreshLeaderboard, syncIdentity]);
@@ -617,18 +626,13 @@ export default function App() {
     recordTap("Theme Toggle", `Switched to ${nextTheme}`, "me");
   };
 
-  // Unified All-Time & Today Leaderboards (150 Indian bots + live Supabase students, zero distinction)
+  // Unified All-Time & Today Leaderboards (150 daily-active bots + live Supabase students, zero distinction)
   const { allTimeEntries, todayEntries } = useMemo(() => {
     const myToday = effectiveProfile.td?.d === todayUTC(0) ? effectiveProfile.td.xp : 0;
+    const realTodayScores = [myToday, ...livePlayers.map((l) => l.today_xp || 0)];
 
-    const resolvedBots = BENCHMARK_PLAYERS.filter((b) => b.name !== impersonated?.botOriginalName).map((b) => {
-      const ov = botOverrides[b.name];
-      return {
-        name: ov?.name ?? b.name,
-        xp: ov?.xp ?? b.xp,
-        todayXp: ov?.todayXp ?? b.todayXp,
-      };
-    });
+    const { bots } = resolveBotRoster(botOverrides, realTodayScores, botClockTick);
+    const resolvedBots = bots.filter((b) => b.originalName !== impersonated?.botOriginalName);
 
     const allList: RankEntry[] = [
       ...resolvedBots.map((b) => ({ name: b.name, xp: b.xp, isMe: false })),
@@ -636,10 +640,10 @@ export default function App() {
       { name: effectiveProfile.name || "You", xp: effectiveProfile.xp, isMe: true },
     ].sort((a, b) => b.xp - a.xp);
 
+    // Pre-sort bots by overall XP so when everyone resets to 0 XP at 12:00 AM, tie ordering stays clean
+    const sortedBotsByToday = [...resolvedBots].sort((a, b) => b.todayXp - a.todayXp || b.xp - a.xp);
     const tdList: RankEntry[] = [
-      ...resolvedBots
-        .filter((b) => b.todayXp > 0)
-        .map((b) => ({ name: b.name, xp: b.todayXp, isMe: false })),
+      ...sortedBotsByToday.map((b) => ({ name: b.name, xp: b.todayXp, isMe: false })),
       ...livePlayers
         .filter((l) => (l.today_xp || 0) > 0)
         .map((l) => ({ name: l.name, xp: l.today_xp || 0, isMe: false })),
@@ -647,7 +651,15 @@ export default function App() {
     ].sort((a, b) => b.xp - a.xp);
 
     return { allTimeEntries: allList, todayEntries: tdList };
-  }, [botOverrides, effectiveProfile.name, effectiveProfile.td, effectiveProfile.xp, impersonated?.botOriginalName, livePlayers]);
+  }, [
+    botClockTick,
+    botOverrides,
+    effectiveProfile.name,
+    effectiveProfile.td,
+    effectiveProfile.xp,
+    impersonated?.botOriginalName,
+    livePlayers,
+  ]);
 
   const hideHeader = view === "quiz" || view === "admin";
   const hideNav = view === "quiz" || view === "gate" || view === "admin";

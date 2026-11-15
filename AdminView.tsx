@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { BENCHMARK_PLAYERS } from "../data/benchmarks";
 import type { SubjectKey } from "../data/questions";
+import { resolveBotRoster, type ResolvedBotPlayer } from "../lib/botSimulator";
 import { parseBulkQuestionFile, type ParsedBulkQuestion } from "../lib/questionParser";
 import {
   adminDeleteNotification,
@@ -169,8 +170,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
-  // Bot overrides state
+  // Bot overrides state + live 30s schedule tick
   const [botOverrides, setBotOverrides] = useState<Record<string, BotOverride>>(() => loadBotOverrides());
+  const [botClockTick, setBotClockTick] = useState<number>(() => Date.now());
   const [editingBotOriginalName, setEditingBotOriginalName] = useState<string | null>(null);
   const [botDraftName, setBotDraftName] = useState("");
   const [botDraftXp, setBotDraftXp] = useState(0);
@@ -253,6 +255,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
       }
       setCheckingAuth(false);
     });
+    const timer = window.setInterval(() => setBotClockTick(Date.now()), 30000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -336,19 +340,23 @@ export const AdminView: React.FC<AdminViewProps> = ({
     await loadAllAdminData();
   };
 
-  const handleSaveBotEdit = async (originalName: string, defaultXp: number, defaultTodayXp: number) => {
-    const cleaned = botDraftName.trim() || originalName;
-    const parsedXp = Number.isFinite(Number(botDraftXp)) ? Math.max(0, Math.round(Number(botDraftXp))) : defaultXp;
+  const handleSaveBotEdit = async (bot: ResolvedBotPlayer) => {
+    const cleaned = botDraftName.trim() || bot.originalName;
+    const parsedXp = Number.isFinite(Number(botDraftXp)) ? Math.max(0, Math.round(Number(botDraftXp))) : bot.xp;
     const parsedTodayXp = Number.isFinite(Number(botDraftTodayXp))
       ? Math.max(0, Math.round(Number(botDraftTodayXp)))
-      : defaultTodayXp;
+      : bot.todayXp;
 
     const next = {
       ...botOverrides,
-      [originalName]: {
+      [bot.originalName]: {
         name: cleaned,
         xp: parsedXp,
         todayXp: parsedTodayXp,
+        baseXp: bot.baseXp,
+        xpOffset: parsedXp - bot.unadjustedOverallXp,
+        manualTodayDate: botSchedule.clock.dateKey,
+        manualTodayOffset: parsedTodayXp - bot.unadjustedTodayXp,
       },
     };
     setBotOverrides(next);
@@ -772,20 +780,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
     });
   }, [candidates, installFilter, installStatusMap, searchQuery]);
 
+  const botSchedule = useMemo(() => {
+    const realTodayScores = candidates.filter((c) => !c.hidden).map((c) => c.today_xp || 0);
+    return resolveBotRoster(botOverrides, realTodayScores, botClockTick);
+  }, [botClockTick, botOverrides, candidates]);
+
   const filteredBots = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return BENCHMARK_PLAYERS.map((b) => {
-      const ov = botOverrides[b.name];
-      return {
-        originalName: b.name,
-        name: ov?.name ?? b.name,
-        xp: ov?.xp ?? b.xp,
-        todayXp: ov?.todayXp ?? b.todayXp,
-      };
-    })
+    return botSchedule.bots
       .filter((b) => !q || b.name.toLowerCase().includes(q))
       .sort((a, b) => b.xp - a.xp);
-  }, [botOverrides, searchQuery]);
+  }, [botSchedule.bots, searchQuery]);
 
   const filteredAttempts = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -1248,18 +1253,40 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </div>
               )}
 
-              <div className="amay-card rounded-[22px] p-3.5 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
-                  Showing all {filteredBots.length} bots sorted by Total XP. Click <strong>Sync Bot Edits to All Phones</strong> to push any saved changes to every student.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleSyncAllBotsToCloud}
-                  className="px-3.5 py-2 rounded-xl bg-[#1457E0] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Sync Bot Edits to All Phones</span>
-                </button>
+              <div className="amay-card rounded-[22px] p-3.5 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+                    Showing all {filteredBots.length} bots sorted by Total XP. Daily auto-XP adds from <strong>2:00 AM – 11:00 PM IST</strong> (<strong>500 – {botSchedule.competitionCeiling.toLocaleString()} XP</strong>, matching top real score {botSchedule.maxRealTodayXp.toLocaleString()} XP) into both Today &amp; Overall XP, and resets Today XP to <strong>0</strong> at <strong>12:00 AM IST</strong> daily.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleSyncAllBotsToCloud}
+                    className="px-3.5 py-2 rounded-xl bg-[#1457E0] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Sync Bot Edits to All Phones</span>
+                  </button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
+                  <span className="px-2.5 py-1 rounded-full bg-[#1457E0]/10 text-[#1457E0] dark:text-[#5AA2FF]">
+                    Clock: {botSchedule.clock.timeLabel}
+                  </span>
+                  <span
+                    className={`px-2.5 py-1 rounded-full ${
+                      botSchedule.clock.phase === "active"
+                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                        : botSchedule.clock.phase === "reset_wait"
+                        ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                        : "bg-slate-500/15 text-slate-600 dark:text-slate-300"
+                    }`}
+                  >
+                    {botSchedule.clock.phase === "active"
+                      ? "Active Window (2:00 AM – 11:00 PM)"
+                      : botSchedule.clock.phase === "reset_wait"
+                      ? "Midnight Reset (0 Today XP until 2:00 AM)"
+                      : "Daily Earning Done (Resets at 12:00 AM)"}
+                  </span>
+                </div>
               </div>
 
               <div className="amay-card rounded-[26px] overflow-x-auto">
@@ -1340,7 +1367,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                               <div className="inline-flex gap-1.5">
                                 <button
                                   type="button"
-                                  onClick={() => handleSaveBotEdit(b.originalName, b.xp, b.todayXp)}
+                                  onClick={() => handleSaveBotEdit(b)}
                                   className="px-2.5 py-1 rounded-lg bg-[#12A150] text-white text-xs font-bold cursor-pointer"
                                 >
                                   Save
