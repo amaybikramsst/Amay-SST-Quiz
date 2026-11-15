@@ -82,3 +82,28 @@ create policy "Allow authenticated delete dynamic_questions"
   for delete
   to authenticated
   using (true);
+
+-- 5. Create app_settings table so Admin can update Latest Video link & thumbnail for all students
+create table if not exists public.app_settings (
+  key text primary key,
+  value jsonb not null default '{}'::jsonb,
+  updated_at timestamptz default now()
+);
+
+alter table public.app_settings enable row level security;
+
+drop policy if exists "Allow public read app_settings" on public.app_settings;
+create policy "Allow public read app_settings"
+  on public.app_settings
+  for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "Allow authenticated write app_settings" on public.app_settings;
+create policy "Allow authenticated write app_settings"
+  on public.app_settings
+  for all
+  to authenticated
+  using (true)
+  with check (true);
+

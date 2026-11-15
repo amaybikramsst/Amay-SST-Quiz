@@ -2,12 +2,14 @@ import React, { useMemo, useState } from "react";
 import { ChevronRight, Play, Crown, Flame, Swords, Zap } from "lucide-react";
 import { SOCIAL_LINKS } from "../data/benchmarks";
 import { todayUTC, XP_PER_LEVEL, type StudentProfile } from "../lib/quizEngine";
+import { deriveYouTubeThumbnail, type LatestVideoConfig } from "../lib/supabase";
 import type { RankEntry } from "./RankView";
 
 interface HomeViewProps {
   profile: StudentProfile;
   allTimeEntries: RankEntry[];
   todayEntries: RankEntry[];
+  latestVideo: LatestVideoConfig;
   onStartNormalQuiz: () => void;
   onOpenSubjects: () => void;
   onOpenRank: () => void;
@@ -18,12 +20,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
   profile,
   allTimeEntries,
   todayEntries,
+  latestVideo,
   onStartNormalQuiz,
   onOpenSubjects,
   onOpenRank,
   onOpenBadge,
 }) => {
   const [raceMode, setRaceMode] = useState<"all" | "td">("all");
+  const [failedThumbSrc, setFailedThumbSrc] = useState<string | null>(null);
+
+  const candidateThumb = latestVideo.thumbnailUrl || deriveYouTubeThumbnail(latestVideo.url);
+  const resolvedThumb = failedThumbSrc !== candidateThumb ? candidateThumb : "";
 
   const myTodayXp = profile.td?.d === todayUTC(0) ? profile.td.xp : 0;
 
@@ -135,32 +142,32 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const tdRankNum = 1 + todayEntries.filter((e) => !e.isMe && e.xp > myTodayXp).length;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Greeting */}
-      <div className="pt-4 pb-1 px-1">
-        <h1 className="text-[36px] sm:text-[42px] leading-[1.1] font-extrabold tracking-tight text-[#0B1B4D] dark:text-[#EAF0FF] break-words">
+      <div className="pt-1 pb-0.5 px-1">
+        <h1 className="text-[30px] sm:text-[36px] leading-[1.1] font-extrabold tracking-tight text-[#0B1B4D] dark:text-[#EAF0FF] break-words">
           Hey, <span className="text-[#1457E0] dark:text-[#5AA2FF]">{profile.name}</span>{" "}
           <i className="animate-wave not-italic" aria-hidden="true">
             👋
           </i>
         </h1>
-        <p className="text-[18px] text-[#5A6A92] dark:text-[#93A3CC] mt-1.5">
+        <p className="text-[15px] text-[#5A6A92] dark:text-[#93A3CC] mt-1">
           Let&apos;s test your knowledge today
         </p>
       </div>
 
       {/* Thrilling Rank Race Card */}
-      <section className="amay-card rounded-[30px] p-5 space-y-4">
+      <section className="amay-card rounded-[28px] p-4 sm:p-5 space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-[22px] bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 border border-[#1846AA]/12 dark:border-white/10 text-xs sm:text-sm font-bold text-[#0B1B4D] dark:text-[#EAF0FF]">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-[22px] bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 border border-[#1846AA]/12 dark:border-white/10 text-xs font-bold text-[#0B1B4D] dark:text-[#EAF0FF]">
             {raceData.isSoleFirst ? (
               <>
-                <Crown className="w-4 h-4 text-[#D98A00] dark:text-[#FFC24D]" />
-                <span>#1 Leader · Defend the Crown</span>
+                <Crown className="w-3.5 h-3.5 text-[#D98A00] dark:text-[#FFC24D]" />
+                <span>#1 Leader · Defend Crown</span>
               </>
             ) : (
               <>
-                <Swords className="w-4 h-4 text-[#1457E0] dark:text-[#5AA2FF]" />
+                <Swords className="w-3.5 h-3.5 text-[#1457E0] dark:text-[#5AA2FF]" />
                 <span>
                   Rank #{raceData.myRank} → Jump to #{raceData.jumpToRank}
                 </span>
@@ -168,11 +175,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
             )}
           </div>
 
-          <div className="inline-flex p-1 rounded-full bg-[#1457E0]/10 dark:bg-white/10 text-xs font-bold shrink-0">
+          <div className="inline-flex p-0.5 rounded-full bg-[#1457E0]/10 dark:bg-white/10 text-xs font-bold shrink-0">
             <button
               type="button"
               onClick={() => setRaceMode("all")}
-              className={`px-3 py-1 rounded-full transition-colors cursor-pointer ${
+              className={`px-2.5 py-1 rounded-full transition-colors cursor-pointer ${
                 raceMode === "all"
                   ? "bg-[#1457E0] text-white"
                   : "text-[#5A6A92] dark:text-[#93A3CC]"
@@ -183,7 +190,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <button
               type="button"
               onClick={() => setRaceMode("td")}
-              className={`px-3 py-1 rounded-full transition-colors cursor-pointer ${
+              className={`px-2.5 py-1 rounded-full transition-colors cursor-pointer ${
                 raceMode === "td"
                   ? "bg-[#1457E0] text-white"
                   : "text-[#5A6A92] dark:text-[#93A3CC]"
@@ -197,39 +204,39 @@ export const HomeView: React.FC<HomeViewProps> = ({
         {/* Hero Big Number */}
         {raceData.isSoleFirst ? (
           <div>
-            <div className="flex items-baseline gap-2.5 flex-wrap">
-              <strong className="text-[56px] sm:text-[66px] leading-none font-extrabold tracking-tight text-[#0B1B4D] dark:text-white font-mono-nums">
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <strong className="text-[46px] sm:text-[54px] leading-none font-extrabold tracking-tight text-[#0B1B4D] dark:text-white font-mono-nums">
                 +{raceData.leadMargin.toLocaleString()}
               </strong>
-              <span className="text-[20px] font-bold text-[#12A150] dark:text-[#3DD17F]">
+              <span className="text-[17px] sm:text-[19px] font-bold text-[#12A150] dark:text-[#3DD17F]">
                 XP ahead of #2
               </span>
             </div>
-            <p className="text-sm font-semibold text-[#5A6A92] dark:text-[#93A3CC] mt-1.5">
+            <p className="text-xs sm:text-sm font-semibold text-[#5A6A92] dark:text-[#93A3CC] mt-1">
               {raceData.runnerBehind
                 ? `${raceData.runnerBehind.name} (${raceData.runnerBehind.xp.toLocaleString()} XP) is chasing you — widen the gap!`
                 : "You hold #1 outright! Keep playing to lock your lead."}
             </p>
           </div>
         ) : (
-          <div className="space-y-1">
-            <div className="flex items-baseline gap-2.5 flex-wrap">
-              <strong className="text-[56px] sm:text-[66px] leading-none font-extrabold tracking-tight text-[#0B1B4D] dark:text-white font-mono-nums">
+          <div className="space-y-0.5">
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <strong className="text-[46px] sm:text-[54px] leading-none font-extrabold tracking-tight text-[#0B1B4D] dark:text-white font-mono-nums">
                 +{raceData.xpToJump.toLocaleString()}
               </strong>
-              <span className="text-[20px] font-bold text-[#0B1B4D] dark:text-[#EAF0FF]">
+              <span className="text-[17px] sm:text-[19px] font-bold text-[#0B1B4D] dark:text-[#EAF0FF]">
                 XP to hit <span className="text-[#1457E0] dark:text-[#5AA2FF]">#{raceData.jumpToRank}</span>
               </span>
             </div>
-            <p className="text-sm font-semibold text-[#5A6A92] dark:text-[#93A3CC]">
+            <p className="text-xs sm:text-sm font-semibold text-[#5A6A92] dark:text-[#93A3CC]">
               {raceData.targetLabel}
             </p>
           </div>
         )}
 
         {/* Race Progress Bar */}
-        <div className="space-y-1.5">
-          <div className="h-3 rounded-lg bg-[#1457E0]/10 dark:bg-white/10 overflow-hidden">
+        <div className="space-y-1">
+          <div className="h-2.5 rounded-lg bg-[#1457E0]/10 dark:bg-white/10 overflow-hidden">
             <div
               className="h-full rounded-lg bg-gradient-to-r from-[#38B0FF] to-[#0B57DD] transition-all duration-500"
               style={{ width: `${raceData.raceProgress}%` }}
@@ -243,18 +250,60 @@ export const HomeView: React.FC<HomeViewProps> = ({
           )}
         </div>
 
-        {/* Live 3-Player Neighborhood Strip */}
+        {/* Overall & Today Ranks */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onOpenRank}
+            className="amay-card rounded-[20px] py-2 px-3 flex items-center justify-center gap-1.5 text-[14px] cursor-pointer"
+          >
+            <span>🏆 Rank</span>
+            <strong className="text-[17px] text-[#1457E0] dark:text-[#5AA2FF] font-mono-nums">
+              #{allRankNum}
+            </strong>
+            <small className="text-[#5A6A92] dark:text-[#93A3CC] text-[12px]">
+              of {allTimeEntries.length}
+            </small>
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenRank}
+            className="amay-card rounded-[20px] py-2 px-3 flex items-center justify-center gap-1.5 text-[14px] cursor-pointer"
+          >
+            <span>⚡ Today</span>
+            <strong className="text-[17px] text-[#1457E0] dark:text-[#5AA2FF] font-mono-nums">
+              #{tdRankNum}
+            </strong>
+            <small className="text-[#5A6A92] dark:text-[#93A3CC] text-[12px]">
+              of {todayEntries.length}
+            </small>
+          </button>
+        </div>
+
+        {/* Glowing Play Now CTA — right in front above the fold */}
+        <button
+          type="button"
+          onClick={onStartNormalQuiz}
+          className="w-full h-14 rounded-[30px] amay-play-btn text-white font-bold text-[19px] flex items-center justify-center gap-2.5 relative cursor-pointer active:scale-[0.98] transition-transform"
+        >
+          <Play className="w-5 h-5 fill-current" />
+          <span>Play now</span>
+          <ChevronRight className="w-5 h-5 absolute right-5" />
+        </button>
+
+        {/* Live 3-Player Neighborhood Strip & Rule Tip */}
         <div className="rounded-2xl bg-[#1457E0]/[0.05] dark:bg-white/[0.04] border border-[#1846AA]/10 dark:border-white/10 divide-y divide-[#1846AA]/10 dark:divide-white/10">
           {raceData.nearby.map((row) => (
             <div
               key={`${row.rank}-${row.name}`}
-              className={`px-3.5 py-2 flex items-center justify-between text-sm ${
+              className={`px-3.5 py-1.5 flex items-center justify-between text-[13px] ${
                 row.isMe
                   ? "bg-[#1457E0]/12 dark:bg-[#5AA2FF]/20 font-extrabold text-[#0B1B4D] dark:text-white"
                   : "font-semibold text-[#5A6A92] dark:text-[#93A3CC]"
               }`}
             >
-              <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
                 <span className="font-mono-nums w-8 text-xs">#{row.rank}</span>
                 <span className="truncate">
                   {row.name}
@@ -268,63 +317,19 @@ export const HomeView: React.FC<HomeViewProps> = ({
           ))}
         </div>
 
-        {/* Overall & Today Ranks */}
-        <div className="grid grid-cols-2 gap-2.5">
-          <button
-            type="button"
-            onClick={onOpenRank}
-            className="amay-card rounded-[22px] py-2.5 px-3 flex items-center justify-center gap-1.5 text-[15px] cursor-pointer"
-          >
-            <span>🏆 Rank</span>
-            <strong className="text-[18px] text-[#1457E0] dark:text-[#5AA2FF] font-mono-nums">
-              #{allRankNum}
-            </strong>
-            <small className="text-[#5A6A92] dark:text-[#93A3CC] text-[13px]">
-              of {allTimeEntries.length}
-            </small>
-          </button>
-
-          <button
-            type="button"
-            onClick={onOpenRank}
-            className="amay-card rounded-[22px] py-2.5 px-3 flex items-center justify-center gap-1.5 text-[15px] cursor-pointer"
-          >
-            <span>⚡ Today</span>
-            <strong className="text-[18px] text-[#1457E0] dark:text-[#5AA2FF] font-mono-nums">
-              #{tdRankNum}
-            </strong>
-            <small className="text-[#5A6A92] dark:text-[#93A3CC] text-[13px]">
-              of {todayEntries.length}
-            </small>
-          </button>
-        </div>
-
-        <hr className="border-t border-[#1846AA]/12 dark:border-white/10" />
-
-        <div className="flex items-start gap-3">
-          <Flame className="w-6 h-6 text-amber-500 shrink-0 mt-0.5" />
-          <p className="text-[15px] text-[#5A6A92] dark:text-[#93A3CC] leading-snug">
-            1/4 negative marking is active — skip questions you&apos;re unsure about to protect your rank!
+        <div className="flex items-center gap-2 text-xs font-medium text-[#5A6A92] dark:text-[#93A3CC]">
+          <Flame className="w-4 h-4 text-amber-500 shrink-0" />
+          <span>
+            1/4 negative marking active · skip unsure questions
             {profile.streak > 0 ? ` · ${profile.streak}-day streak` : ""}
-          </p>
+          </span>
         </div>
-
-        {/* Glowing Play Now CTA */}
-        <button
-          type="button"
-          onClick={onStartNormalQuiz}
-          className="w-full h-16 rounded-[34px] amay-play-btn text-white font-bold text-[21px] flex items-center justify-center gap-3 relative cursor-pointer active:scale-[0.98] transition-transform"
-        >
-          <Play className="w-6 h-6 fill-current" />
-          <span>Play now</span>
-          <ChevronRight className="w-6 h-6 absolute right-5" />
-        </button>
 
         {profile.xp >= 500 && (
           <button
             type="button"
             onClick={onOpenBadge}
-            className="w-full py-3.5 rounded-[22px] amay-card text-[#1457E0] dark:text-[#5AA2FF] font-bold text-base text-center cursor-pointer"
+            className="w-full py-3 rounded-[20px] amay-card text-[#1457E0] dark:text-[#5AA2FF] font-bold text-[15px] text-center cursor-pointer"
           >
             🏅 Share my badge
           </button>
@@ -348,22 +353,40 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
       {/* Latest Video */}
       <a
-        href={SOCIAL_LINKS.youtubeShort}
+        href={latestVideo.url || SOCIAL_LINKS.youtubeShort}
         target="_blank"
         rel="noopener noreferrer"
-        className="amay-card rounded-[30px] p-4 flex items-center gap-4 hover:-translate-y-0.5 transition-transform"
+        className="amay-card rounded-[30px] p-3.5 sm:p-4 flex items-center gap-3.5 sm:gap-4 hover:-translate-y-0.5 transition-transform"
       >
-        <div className="w-16 h-16 rounded-[18px] bg-gradient-to-br from-[#2B9BF6] to-[#0B57DD] flex items-center justify-center text-white shrink-0">
-          <span className="text-xl ml-0.5">▶</span>
+        <div className="w-24 h-16 rounded-[16px] bg-gradient-to-br from-[#2B9BF6] to-[#0B57DD] flex items-center justify-center text-white shrink-0 relative overflow-hidden shadow-sm">
+          {resolvedThumb ? (
+            <>
+              <img
+                src={resolvedThumb}
+                alt={latestVideo.title || "Latest video thumbnail"}
+                referrerPolicy="no-referrer"
+                onError={() => setFailedThumbSrc(candidateThumb)}
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
+                <span className="w-8 h-8 rounded-full bg-black/65 backdrop-blur-xs flex items-center justify-center text-white text-xs pl-0.5 shadow">
+                  ▶
+                </span>
+              </div>
+            </>
+          ) : (
+            <span className="text-xl ml-0.5">▶</span>
+          )}
         </div>
-        <div className="min-w-0">
-          <strong className="block text-[17px] font-bold text-[#0B1B4D] dark:text-[#EAF0FF]">
-            Latest video
+        <div className="min-w-0 flex-1">
+          <strong className="block text-[17px] font-bold text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
+            {latestVideo.title || "Latest video"}
           </strong>
-          <span className="text-sm text-[#5A6A92] dark:text-[#93A3CC]">
-            Watch my latest Short · opens on YouTube
+          <span className="block text-sm text-[#5A6A92] dark:text-[#93A3CC] line-clamp-2">
+            {latestVideo.subtitle || "Watch my latest Short · opens on YouTube"}
           </span>
         </div>
+        <ChevronRight className="w-5 h-5 text-[#5A6A92] dark:text-[#93A3CC] shrink-0" />
       </a>
 
       {/* Socials */}

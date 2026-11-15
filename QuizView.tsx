@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { X, ChevronLeft } from "lucide-react";
+import { X, ChevronLeft, Volume2, VolumeX } from "lucide-react";
 import {
   formatTime,
   formatXpValue,
@@ -9,6 +9,14 @@ import {
   type ActiveQuizState,
   type StudentProfile,
 } from "../lib/quizEngine";
+import { launchMilestoneConfetti } from "../lib/confetti";
+import {
+  isSoundEnabled,
+  playCorrectSound,
+  playIncorrectSound,
+  playSelectTapSound,
+  setSoundEnabled,
+} from "../lib/soundEffects";
 
 interface QuizViewProps {
   quiz: ActiveQuizState;
@@ -36,9 +44,17 @@ export const QuizView: React.FC<QuizViewProps> = ({
   onOpenBadge,
 }) => {
   const [confirmQuit, setConfirmQuit] = useState(false);
+  const [soundOn, setSoundOn] = useState<boolean>(() => isSoundEnabled());
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    setSoundEnabled(next);
+    if (next) playSelectTapSound();
+  };
 
   if (quiz.done && quiz.res) {
-    const { c, w, sk, n, posXp, negXp, bonusXp, xp, up } = quiz.res;
+    const { c, w, sk, n, posXp, negXp, bonusXp, xp, up, milestoneXp } = quiz.res;
     const accuracy = n > 0 ? Math.round((c / n) * 100) : 0;
 
     return (
@@ -67,18 +83,26 @@ export const QuizView: React.FC<QuizViewProps> = ({
 
           {/* 1/4 Negative Marking Breakdown */}
           <div className="grid grid-cols-3 gap-2 pt-1 text-center text-xs">
-            <div className="rounded-2xl bg-[#12A150]/10 dark:bg-[#3DD17F]/15 p-2.5">
+            <button
+              type="button"
+              onClick={() => playCorrectSound()}
+              className="rounded-2xl bg-[#12A150]/10 dark:bg-[#3DD17F]/15 p-2.5 cursor-pointer active:scale-[0.98] transition"
+            >
               <strong className="block text-base font-extrabold text-[#12A150] dark:text-[#3DD17F] font-mono-nums">
                 {c} (+{formatXpValue(posXp)})
               </strong>
               <span className="text-[#5A6A92] dark:text-[#93A3CC]">Correct</span>
-            </div>
-            <div className="rounded-2xl bg-[#D92D3A]/10 dark:bg-[#FF6B76]/15 p-2.5">
+            </button>
+            <button
+              type="button"
+              onClick={() => playIncorrectSound()}
+              className="rounded-2xl bg-[#D92D3A]/10 dark:bg-[#FF6B76]/15 p-2.5 cursor-pointer active:scale-[0.98] transition"
+            >
               <strong className="block text-base font-extrabold text-[#D92D3A] dark:text-[#FF6B76] font-mono-nums">
                 {w} (−{formatXpValue(negXp)})
               </strong>
               <span className="text-[#5A6A92] dark:text-[#93A3CC]">Wrong (1/4)</span>
-            </div>
+            </button>
             <div className="rounded-2xl bg-[#1457E0]/10 dark:bg-white/10 p-2.5">
               <strong className="block text-base font-extrabold text-[#0B1B4D] dark:text-white font-mono-nums">
                 {sk} (0)
@@ -93,6 +117,26 @@ export const QuizView: React.FC<QuizViewProps> = ({
             </p>
           )}
         </div>
+
+        {milestoneXp && milestoneXp >= 1000 && (
+          <div className="amay-card rounded-[28px] p-5 bg-gradient-to-r from-[#1457E0]/10 via-[#38B0FF]/10 to-[#F5B82E]/12 border border-[#1457E0]/20 dark:border-[#5AA2FF]/30 flex items-center justify-between gap-3">
+            <div>
+              <strong className="text-base font-extrabold text-[#0B1B4D] dark:text-white">
+                🏆 {milestoneXp.toLocaleString()} XP Milestone!
+              </strong>
+              <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC] mt-0.5">
+                Amazing progress! Keep climbing the leaderboard.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => launchMilestoneConfetti(milestoneXp)}
+              className="shrink-0 px-3.5 py-2 rounded-[16px] bg-white/85 dark:bg-white/10 text-xs font-extrabold text-[#1457E0] dark:text-[#5AA2FF] shadow-sm cursor-pointer active:scale-95 transition"
+            >
+              🎉 Celebrate
+            </button>
+          </div>
+        )}
 
         {profile.xp >= 500 && (
           <div className="amay-card rounded-[28px] p-5 space-y-3">
@@ -146,7 +190,15 @@ export const QuizView: React.FC<QuizViewProps> = ({
               const ok = sel === q[2];
               const skipped = sel === undefined;
               return (
-                <div key={idx} className="py-3.5 first:pt-0 last:pb-0 space-y-1 text-sm">
+                <div
+                  key={idx}
+                  onClick={() => {
+                    if (skipped) playSelectTapSound();
+                    else if (ok) playCorrectSound();
+                    else playIncorrectSound();
+                  }}
+                  className="py-3.5 first:pt-0 last:pb-0 space-y-1 text-sm cursor-pointer"
+                >
                   <p className="font-bold text-[#0B1B4D] dark:text-white">
                     {idx + 1}. {q[0]}
                   </p>
@@ -180,7 +232,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-2">
         <button
           type="button"
           onClick={() => setConfirmQuit(true)}
@@ -198,9 +250,20 @@ export const QuizView: React.FC<QuizViewProps> = ({
           {formatTime(quiz.t)}
         </strong>
 
-        <span className="text-[15px] font-semibold text-[#5A6A92] dark:text-[#93A3CC] tabular-nums">
-          {LEVELS[quiz.L]} · {quiz.i + 1}/{total}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[14px] sm:text-[15px] font-semibold text-[#5A6A92] dark:text-[#93A3CC] tabular-nums">
+            {LEVELS[quiz.L]} · {quiz.i + 1}/{total}
+          </span>
+          <button
+            type="button"
+            onClick={toggleSound}
+            aria-label={soundOn ? "Mute sound effects" : "Enable sound effects"}
+            title={soundOn ? "Sound On" : "Sound Off"}
+            className="amay-card rounded-[14px] p-2 text-[#1457E0] dark:text-[#5AA2FF] cursor-pointer"
+          >
+            {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 opacity-60" />}
+          </button>
+        </div>
       </div>
 
       <div className="h-2.5 rounded-full bg-[#1457E0]/10 dark:bg-white/10 overflow-hidden">

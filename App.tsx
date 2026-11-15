@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AdminView, loadBotOverrides, type BotOverride } from "./components/AdminView";
+import { AdminView } from "./components/AdminView";
 import { BadgeModal } from "./components/BadgeModal";
 import { BottomNav } from "./components/BottomNav";
 import { GateView } from "./components/GateView";
 import { Header, type AppRoute } from "./components/Header";
 import { HomeView } from "./components/HomeView";
 import { ProfileView } from "./components/ProfileView";
+import { PWAInstallModal } from "./components/PWAInstallModal";
 import { QuizView } from "./components/QuizView";
 import { RankView, type RankEntry } from "./components/RankView";
 import { SubjectConfigView, SubjectsGridView } from "./components/SubjectsView";
+import { usePWAInstall } from "./hooks/usePWAInstall";
 import { BENCHMARK_PLAYERS } from "./data/benchmarks";
 import { type QuizKey, type RawQuestion, type SubjectKey } from "./data/questions";
 import {
@@ -26,14 +28,22 @@ import {
   type ActiveQuizState,
   type StudentProfile,
 } from "./lib/quizEngine";
+import { getCrossedXpMilestone, launchMilestoneConfetti } from "./lib/confetti";
+import { playMilestoneSound, playQuizCompleteSound, playSelectTapSound } from "./lib/soundEffects";
 import {
+  fetchBotOverrides,
   fetchDynamicQuestions,
+  fetchLatestVideo,
   getLeaderboard,
   getMyStats,
+  loadBotOverrides,
+  loadLocalLatestVideo,
   logCandidateTap,
   registerPlayer,
   submitQuizAttempt,
+  type BotOverride,
   type CloudStats,
+  type LatestVideoConfig,
   type LiveLeaderRow,
 } from "./lib/supabase";
 
@@ -62,6 +72,7 @@ export default function App() {
   );
   const [livePlayers, setLivePlayers] = useState<LiveLeaderRow[]>([]);
   const [botOverrides, setBotOverrides] = useState<Record<string, BotOverride>>(() => loadBotOverrides());
+  const [latestVideo, setLatestVideo] = useState<LatestVideoConfig>(() => loadLocalLatestVideo());
   const [isOffline, setIsOffline] = useState(() => (typeof navigator !== "undefined" ? !navigator.onLine : false));
 
   const [configKey, setConfigKey] = useState<QuizKey>("mix");
@@ -70,6 +81,16 @@ export default function App() {
 
   const [quiz, setQuiz] = useState<ActiveQuizState | null>(null);
   const [showBadgeModal, setShowBadgeModal] = useState(false);
+  const [showInstallModal, setShowInstallModal] = useState(false);
+  const [impersonated, setImpersonated] = useState<{
+    guestUuid: string;
+    profile: StudentProfile;
+    botOriginalName?: string;
+  } | null>(null);
+  const { canNativeInstall, isInstalled, isIOS, install } = usePWAInstall();
+
+  const effectiveProfile = impersonated ? impersonated.profile : profile;
+  const effectiveGuestId = impersonated ? impersonated.guestUuid : guestId;
 
   const flushingRef = useRef(false);
   const lastSyncedNameRef = useRef("");
@@ -102,17 +123,63 @@ export default function App() {
 
   const recordTap = useCallback(
     (action: string, detail: string, screen: string) => {
+      if (impersonated) return;
       const name = loadProfile().name;
       if (!name) return;
       logCandidateTap(guestId, name, action, detail, screen);
     },
-    [guestId]
+    [guestId, impersonated]
   );
+
+  // Show install popup within the first 30 seconds to anyone who hasn't installed the app yet
+  useEffect(() => {
+    if (isInstalled || view === "admin" || view === "quiz") return;
+    try {
+      if (sessionStorage.getItem("amaysst_install_prompted") === "1") return;
+    } catch {
+      // ignore storage errors
+    }
+
+    const timer = window.setTimeout(() => {
+      try {
+        sessionStorage.setItem("amaysst_install_prompted", "1");
+      } catch {
+        // ignore
+      }
+      setShowInstallModal(true);
+    }, 6000);
+
+    return () => window.clearTimeout(timer);
+  }, [isInstalled, view]);
+
+  const handleInstallClick = useCallback(async () => {
+    recordTap("Install App", "Tapped Install App button", view);
+    if (canNativeInstall) {
+      const outcome = await install();
+      if (outcome === "accepted") {
+        setShowInstallModal(false);
+        return;
+      }
+    }
+    setShowInstallModal(true);
+  }, [canNativeInstall, install, recordTap, view]);
 
   // Sync cloud stats without overwriting client-side 1/4 negative-marked XP,
   // while still honoring admin manual XP edits from Supabase!
   const applyCloudStats = useCallback((stats: CloudStats, fromAdminCheck = false) => {
     if (loadQueue().length > 0) return;
+    const current = loadProfile();
+    const beforeXp = current.xp;
+    let computedAfterXp = beforeXp;
+    if (fromAdminCheck) {
+      if (current.lastCloudXp === undefined) {
+        computedAfterXp = Math.max(current.xp, stats.xp);
+      } else if (stats.xp !== current.lastCloudXp) {
+        const delta = stats.xp - current.lastCloudXp;
+        computedAfterXp = Math.max(0, current.xp + delta);
+      }
+    }
+
     setProfile((prev) => {
       let nextXp = prev.xp;
       let nextTodayXp = prev.td?.d === todayUTC(0) ? prev.td.xp : 0;
@@ -140,6 +207,13 @@ export default function App() {
       saveProfile(next);
       return next;
     });
+
+    if (fromAdminCheck) {
+      const crossed = getCrossedXpMilestone(beforeXp, computedAfterXp);
+      if (crossed !== null) {
+        launchMilestoneConfetti(crossed);
+      }
+    }
   }, []);
 
   const refreshDynamicQuestions = useCallback(async () => {
@@ -148,15 +222,15 @@ export default function App() {
   }, []);
 
   const refreshLeaderboard = useCallback(
-    async (force = false) => {
+    async (force = false, guestOverride?: string) => {
       if (!force && Date.now() - lastLeaderboardFetchRef.current < 15000) return;
       lastLeaderboardFetchRef.current = Date.now();
-      const rows = await getLeaderboard(guestId);
+      const rows = await getLeaderboard(guestOverride ?? effectiveGuestId);
       if (rows) {
         setLivePlayers(rows);
       }
     },
-    [guestId]
+    [effectiveGuestId]
   );
 
   const syncIdentity = useCallback(
@@ -207,6 +281,8 @@ export default function App() {
 
   useEffect(() => {
     refreshDynamicQuestions();
+    fetchLatestVideo().then((v) => setLatestVideo(v));
+    fetchBotOverrides().then((ov) => setBotOverrides(ov));
 
     const initCloud = async () => {
       const current = loadProfile();
@@ -225,6 +301,8 @@ export default function App() {
       setIsOffline(false);
       flushQueue();
       refreshDynamicQuestions();
+      fetchLatestVideo().then((v) => setLatestVideo(v));
+      fetchBotOverrides().then((ov) => setBotOverrides(ov));
     };
     const onOffline = () => setIsOffline(true);
 
@@ -242,6 +320,17 @@ export default function App() {
       if (active.done) return;
 
       const score = calculateQuizScore(active.qs, active.sel, active.L);
+      const prevXp = impersonated ? impersonated.profile.xp : loadProfile().xp;
+      const nextXpEst = Math.max(0, prevXp + score.xp);
+      const reachedMilestone = getCrossedXpMilestone(prevXp, nextXpEst);
+      const unlocked500 = prevXp < 500 && nextXpEst >= 500;
+
+      if (reachedMilestone !== null) {
+        playMilestoneSound();
+        launchMilestoneConfetti(reachedMilestone);
+      } else {
+        playQuizCompleteSound(score.c, score.w);
+      }
 
       recordTap(
         "Finish Quiz",
@@ -249,33 +338,49 @@ export default function App() {
         "quiz"
       );
 
-      let unlocked500 = false;
-      setProfile((prev) => {
-        const today = todayUTC(0);
-        const yesterday = todayUTC(1);
-        const nextStreak = prev.last === today ? prev.streak : prev.last === yesterday ? prev.streak + 1 : 1;
-        const prevTodayXp = prev.td?.d === today ? prev.td.xp : 0;
-        const nextXp = Math.max(0, prev.xp + score.xp);
-        const nextTodayXp = Math.max(0, prevTodayXp + score.xp);
-        unlocked500 = prev.xp < 500 && nextXp >= 500;
+      if (impersonated) {
+        setImpersonated((prev) => {
+          if (!prev) return prev;
+          const today = todayUTC(0);
+          const prevTodayXp = prev.profile.td?.d === today ? prev.profile.td.xp : 0;
+          return {
+            ...prev,
+            profile: {
+              ...prev.profile,
+              xp: Math.max(0, prev.profile.xp + score.xp),
+              quizzes: prev.profile.quizzes + 1,
+              perfect: prev.profile.perfect + (score.c === score.n ? 1 : 0),
+              td: { d: today, xp: Math.max(0, prevTodayXp + score.xp) },
+            },
+          };
+        });
+      } else {
+        setProfile((prev) => {
+          const today = todayUTC(0);
+          const yesterday = todayUTC(1);
+          const nextStreak = prev.last === today ? prev.streak : prev.last === yesterday ? prev.streak + 1 : 1;
+          const prevTodayXp = prev.td?.d === today ? prev.td.xp : 0;
+          const nextXp = Math.max(0, prev.xp + score.xp);
+          const nextTodayXp = Math.max(0, prevTodayXp + score.xp);
 
-        const updated: StudentProfile = {
-          ...prev,
-          xp: nextXp,
-          streak: nextStreak,
-          last: today,
-          quizzes: prev.quizzes + 1,
-          perfect: prev.perfect + (score.c === score.n ? 1 : 0),
-          td: { d: today, xp: nextTodayXp },
-        };
-        saveProfile(updated);
-        return updated;
-      });
+          const updated: StudentProfile = {
+            ...prev,
+            xp: nextXp,
+            streak: nextStreak,
+            last: today,
+            quizzes: prev.quizzes + 1,
+            perfect: prev.perfect + (score.c === score.n ? 1 : 0),
+            td: { d: today, xp: nextTodayXp },
+          };
+          saveProfile(updated);
+          return updated;
+        });
 
-      const queue = loadQueue();
-      queue.push({ k: active.k, L: active.L, t: score.n, c: score.c });
-      saveQueue(queue);
-      flushQueue();
+        const queue = loadQueue();
+        queue.push({ k: active.k, L: active.L, t: score.n, c: score.c });
+        saveQueue(queue);
+        flushQueue();
+      }
 
       setQuiz({
         ...active,
@@ -283,11 +388,12 @@ export default function App() {
         res: {
           ...score,
           up: unlocked500,
+          milestoneXp: reachedMilestone,
         },
       });
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
-    [flushQueue, recordTap]
+    [flushQueue, impersonated, recordTap]
   );
 
   useEffect(() => {
@@ -307,7 +413,7 @@ export default function App() {
   }, [view, quiz?.done, finishQuiz]);
 
   const navigate = (nextView: AppRoute) => {
-    if (!profile.name && nextView !== "admin") {
+    if (!effectiveProfile.name && nextView !== "admin") {
       setView("gate");
       return;
     }
@@ -359,7 +465,45 @@ export default function App() {
     setView("home");
   };
 
+  const handleOpenCandidateId = useCallback(
+    (target: {
+      guestUuid: string;
+      name: string;
+      xp: number;
+      todayXp: number;
+      streak: number;
+      quizzes: number;
+      perfect: number;
+      botOriginalName?: string;
+    }) => {
+      const previewProfile: StudentProfile = {
+        name: target.name,
+        xp: target.xp,
+        streak: target.streak,
+        last: todayUTC(0),
+        quizzes: target.quizzes,
+        perfect: target.perfect,
+        theme: profile.theme,
+        td: { d: todayUTC(0), xp: target.todayXp },
+      };
+      setImpersonated({
+        guestUuid: target.guestUuid,
+        profile: previewProfile,
+        botOriginalName: target.botOriginalName,
+      });
+      setQuiz(null);
+      setView("home");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      refreshLeaderboard(true, target.guestUuid);
+    },
+    [profile.theme, refreshLeaderboard]
+  );
+
   const handleUpdateName = (name: string) => {
+    if (impersonated) {
+      setImpersonated((prev) => (prev ? { ...prev, profile: { ...prev.profile, name } } : prev));
+      return;
+    }
     const next: StudentProfile = {
       ...profile,
       name,
@@ -381,9 +525,9 @@ export default function App() {
 
   // Unified All-Time & Today Leaderboards (150 Indian bots + live Supabase students, zero distinction)
   const { allTimeEntries, todayEntries } = useMemo(() => {
-    const myToday = profile.td?.d === todayUTC(0) ? profile.td.xp : 0;
+    const myToday = effectiveProfile.td?.d === todayUTC(0) ? effectiveProfile.td.xp : 0;
 
-    const resolvedBots = BENCHMARK_PLAYERS.map((b) => {
+    const resolvedBots = BENCHMARK_PLAYERS.filter((b) => b.name !== impersonated?.botOriginalName).map((b) => {
       const ov = botOverrides[b.name];
       return {
         name: ov?.name ?? b.name,
@@ -395,7 +539,7 @@ export default function App() {
     const allList: RankEntry[] = [
       ...resolvedBots.map((b) => ({ name: b.name, xp: b.xp, isMe: false })),
       ...livePlayers.map((l) => ({ name: l.name, xp: l.xp || 0, isMe: false })),
-      { name: profile.name || "You", xp: profile.xp, isMe: true },
+      { name: effectiveProfile.name || "You", xp: effectiveProfile.xp, isMe: true },
     ].sort((a, b) => b.xp - a.xp);
 
     const tdList: RankEntry[] = [
@@ -405,11 +549,11 @@ export default function App() {
       ...livePlayers
         .filter((l) => (l.today_xp || 0) > 0)
         .map((l) => ({ name: l.name, xp: l.today_xp || 0, isMe: false })),
-      { name: profile.name || "You", xp: myToday, isMe: true },
+      { name: effectiveProfile.name || "You", xp: myToday, isMe: true },
     ].sort((a, b) => b.xp - a.xp);
 
     return { allTimeEntries: allList, todayEntries: tdList };
-  }, [botOverrides, livePlayers, profile.name, profile.td, profile.xp]);
+  }, [botOverrides, effectiveProfile.name, effectiveProfile.td, effectiveProfile.xp, impersonated?.botOriginalName, livePlayers]);
 
   const hideHeader = view === "quiz" || view === "admin";
   const hideNav = view === "quiz" || view === "gate" || view === "admin";
@@ -419,13 +563,40 @@ export default function App() {
       <div className="amay-bg-mesh" aria-hidden="true" />
 
       <div className="relative z-10 flex-1 flex flex-col">
+        {impersonated && view !== "admin" && (
+          <div className="sticky top-0 z-40 bg-[#0B1B4D] text-white text-xs font-bold px-4 py-2 flex items-center justify-between gap-2 shadow-md">
+            <span className="truncate">
+              Viewing ID: <strong>{impersonated.profile.name}</strong> ({impersonated.profile.xp.toLocaleString()} XP)
+              {impersonated.botOriginalName ? " · Roster" : ""}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setImpersonated(null);
+                setQuiz(null);
+                setView("admin");
+                refreshLeaderboard(true, guestId);
+              }}
+              className="shrink-0 px-3 py-1 rounded-lg bg-white text-[#0B1B4D] font-extrabold text-[11px] cursor-pointer"
+            >
+              ← Back to Admin
+            </button>
+          </div>
+        )}
+
         {isOffline && (
           <div className="bg-amber-500 text-slate-950 text-xs font-bold text-center py-1.5 px-4">
             Offline mode · Quizzes work offline and XP syncs automatically when reconnected.
           </div>
         )}
 
-        {!hideHeader && <Header onNavigateHome={() => navigate("home")} />}
+        {!hideHeader && (
+          <Header
+            onNavigateHome={() => navigate("home")}
+            showInstallButton={!isInstalled}
+            onInstallClick={handleInstallClick}
+          />
+        )}
 
         <main
           className={`w-full mx-auto px-4 pt-4 ${
@@ -436,9 +607,10 @@ export default function App() {
 
           {view === "home" && (
             <HomeView
-              profile={profile}
+              profile={effectiveProfile}
               allTimeEntries={allTimeEntries}
               todayEntries={todayEntries}
+              latestVideo={latestVideo}
               onStartNormalQuiz={() => openSubjectConfig("mix")}
               onOpenSubjects={() => navigate("subs")}
               onOpenRank={() => navigate("rank")}
@@ -473,8 +645,9 @@ export default function App() {
           {view === "quiz" && quiz && (
             <QuizView
               quiz={quiz}
-              profile={profile}
+              profile={effectiveProfile}
               onSelectOption={(optIdx) => {
+                playSelectTapSound();
                 recordTap(
                   "Answer Tap",
                   optIdx === undefined ? `Q${quiz.i + 1}: cleared choice` : `Q${quiz.i + 1}: tapped ${"ABCD"[optIdx]}`,
@@ -512,7 +685,7 @@ export default function App() {
 
           {view === "me" && (
             <ProfileView
-              profile={profile}
+              profile={effectiveProfile}
               isDark={isDark}
               onToggleTheme={handleToggleTheme}
               onUpdateName={handleUpdateName}
@@ -529,10 +702,13 @@ export default function App() {
                 if (window.location.hash === "#admin") {
                   window.history.replaceState(null, "", window.location.pathname);
                 }
+                setImpersonated(null);
                 setView(profile.name ? "home" : "gate");
               }}
               onQuestionsChanged={refreshDynamicQuestions}
-              onBotsChanged={() => setBotOverrides(loadBotOverrides())}
+              onBotsChanged={(ov) => setBotOverrides(ov)}
+              onLatestVideoChanged={(v) => setLatestVideo(v)}
+              onOpenCandidateId={handleOpenCandidateId}
             />
           )}
         </main>
@@ -542,9 +718,23 @@ export default function App() {
 
       {showBadgeModal && (
         <BadgeModal
-          xp={profile.xp}
-          name={profile.name}
+          xp={effectiveProfile.xp}
+          name={effectiveProfile.name}
           onClose={() => setShowBadgeModal(false)}
+        />
+      )}
+
+      {showInstallModal && !isInstalled && (
+        <PWAInstallModal
+          canNativeInstall={canNativeInstall}
+          isIOS={isIOS}
+          onInstall={async () => {
+            const outcome = await install();
+            if (outcome === "accepted") {
+              setShowInstallModal(false);
+            }
+          }}
+          onClose={() => setShowInstallModal(false)}
         />
       )}
     </div>

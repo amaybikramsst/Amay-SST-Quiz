@@ -1,4 +1,5 @@
 import React, { useRef, useState } from "react";
+import { RankBadge } from "./RankBadge";
 
 export interface RankEntry {
   name: string;
@@ -16,12 +17,31 @@ export const RankView: React.FC<RankViewProps> = ({ allTimeEntries, todayEntries
   const myRowRef = useRef<HTMLDivElement | null>(null);
 
   const list = period === "all" ? allTimeEntries : todayEntries;
-  const myRank = list.findIndex((e) => e.isMe) + 1;
+  const myEntry = list.find((e) => e.isMe);
+  const myXp = myEntry ? myEntry.xp : 0;
+  const myRank = 1 + list.filter((e) => !e.isMe && e.xp > myXp).length;
+
+  const first = list[0];
+  const second = list[1];
+  const third = list[2];
+  const rest = list.slice(3);
 
   const jumpToMe = (e: React.MouseEvent) => {
     e.preventDefault();
     myRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
+
+  // Left-to-right podium order: 1st (left, tallest), 2nd (center), 3rd (right)
+  const podiumSlots: Array<{
+    rank: 1 | 2 | 3;
+    entry?: RankEntry;
+    badgeSize: "lg" | "md" | "sm";
+    cardPadding: string;
+  }> = [
+    { rank: 1, entry: first, badgeSize: "lg", cardPadding: "pt-3.5 pb-4" },
+    { rank: 2, entry: second, badgeSize: "md", cardPadding: "pt-2.5 pb-3" },
+    { rank: 3, entry: third, badgeSize: "sm", cardPadding: "pt-2 pb-2.5" },
+  ];
 
   return (
     <div className="space-y-4">
@@ -29,7 +49,7 @@ export const RankView: React.FC<RankViewProps> = ({ allTimeEntries, todayEntries
         Leaderboard
       </h1>
 
-      {/* All time / Today segmented pill */}
+      {/* Overall / Today segmented pill */}
       <div className="amay-card rounded-[30px] p-1.5 flex gap-1">
         <button
           type="button"
@@ -40,7 +60,7 @@ export const RankView: React.FC<RankViewProps> = ({ allTimeEntries, todayEntries
               : "text-[#5A6A92] dark:text-[#93A3CC]"
           }`}
         >
-          All time
+          Overall
         </button>
         <button
           type="button"
@@ -56,7 +76,7 @@ export const RankView: React.FC<RankViewProps> = ({ allTimeEntries, todayEntries
       </div>
 
       <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC] px-1">
-        You are #{myRank} of {list.length} ·{" "}
+        You are <strong className="text-[#0B1B4D] dark:text-white">#{myRank}</strong> of {list.length} ·{" "}
         <a
           href="#mine"
           onClick={jumpToMe}
@@ -66,33 +86,75 @@ export const RankView: React.FC<RankViewProps> = ({ allTimeEntries, todayEntries
         </a>
       </p>
 
-      {/* Unified Leaderboard — zero visual difference between any players */}
-      <div className="amay-card rounded-[30px] px-4 py-2 divide-y divide-[#1846AA]/10 dark:divide-white/10">
-        {list.map((entry, idx) => {
-          const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : String(idx + 1);
-          return (
-            <div
-              key={`${entry.name}-${idx}-${entry.isMe ? "me" : "p"}`}
-              ref={entry.isMe ? myRowRef : undefined}
-              className={`py-3 px-2 -mx-2 rounded-2xl flex items-center justify-between gap-3 ${
-                entry.isMe ? "bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 font-bold" : ""
-              }`}
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <strong className="w-8 text-center text-base font-extrabold text-[#0B1B4D] dark:text-white font-mono-nums shrink-0">
-                  {medal}
+      {/* Top 3 Crown & Ribbon Podium */}
+      {list.length > 0 && (
+        <section className="amay-card rounded-[30px] px-3 pt-4 pb-5">
+          <div className="grid grid-cols-3 gap-2 items-end">
+            {podiumSlots.map(({ rank, entry, badgeSize, cardPadding }) => {
+              if (!entry) {
+                return <div key={rank} />;
+              }
+              const isMe = entry.isMe;
+              return (
+                <div
+                  key={`${period}-podium-${rank}`}
+                  ref={isMe ? myRowRef : undefined}
+                  className={`flex flex-col items-center text-center rounded-[22px] px-1.5 ${cardPadding} transition-all ${
+                    isMe
+                      ? "bg-[#1457E0]/12 dark:bg-[#5AA2FF]/20 ring-2 ring-[#1457E0] dark:ring-[#5AA2FF]"
+                      : "bg-[#1457E0]/[0.04] dark:bg-white/[0.04]"
+                  }`}
+                >
+                  <RankBadge rank={rank} size={badgeSize} />
+                  <div className="mt-1.5 w-full h-[34px] flex items-center justify-center">
+                    <strong
+                      title={entry.name}
+                      className="w-full text-[13px] sm:text-[14px] font-extrabold text-[#0B1B4D] dark:text-white leading-tight line-clamp-2 break-words"
+                    >
+                      {entry.name}
+                      {isMe ? " (You)" : ""}
+                    </strong>
+                  </div>
+                  <span className="mt-1 inline-block px-2 py-0.5 rounded-full bg-white/80 dark:bg-white/10 text-[11px] sm:text-xs font-extrabold text-[#1457E0] dark:text-[#5AA2FF] font-mono-nums">
+                    {entry.xp.toLocaleString()} XP
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Ranks #4 onwards — unified style */}
+      {rest.length > 0 && (
+        <div className="amay-card rounded-[30px] px-4 py-2 divide-y divide-[#1846AA]/10 dark:divide-white/10">
+          {rest.map((entry, offset) => {
+            const actualRank = offset + 4;
+            return (
+              <div
+                key={`${entry.name}-${actualRank}-${entry.isMe ? "me" : "p"}`}
+                ref={entry.isMe ? myRowRef : undefined}
+                className={`py-3 px-2 -mx-2 rounded-2xl flex items-center justify-between gap-3 ${
+                  entry.isMe ? "bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 font-bold" : ""
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <strong className="w-9 text-center text-sm font-extrabold text-[#5A6A92] dark:text-[#93A3CC] font-mono-nums shrink-0">
+                    #{actualRank}
+                  </strong>
+                  <span className="text-base text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
+                    {entry.name}
+                    {entry.isMe ? " (You)" : ""}
+                  </span>
+                </div>
+                <strong className="font-mono-nums text-base font-extrabold text-[#1457E0] dark:text-[#5AA2FF] shrink-0">
+                  {entry.xp.toLocaleString()} XP
                 </strong>
-                <span className="text-base text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
-                  {entry.name}
-                </span>
               </div>
-              <strong className="font-mono-nums text-base font-extrabold text-[#1457E0] dark:text-[#5AA2FF] shrink-0">
-                {entry.xp} XP
-              </strong>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

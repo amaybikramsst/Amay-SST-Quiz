@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { getBadges, getMilestones, type StudentProfile } from "../lib/quizEngine";
+import { isSoundEnabled, playCorrectSound, setSoundEnabled } from "../lib/soundEffects";
 
 interface ProfileViewProps {
   profile: StudentProfile;
@@ -19,6 +20,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(profile.name);
   const [error, setError] = useState("");
+  const [soundOn, setSoundOn] = useState<boolean>(() => isSoundEnabled());
 
   const msLeft = Math.max(0, (profile.nameAt || 0) + 864e5 - Date.now());
   const formatWait = (ms: number) => {
@@ -149,14 +151,26 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         )}
       </div>
 
-      {/* Theme Toggle */}
-      <div className="amay-card rounded-[30px] p-4">
+      {/* Theme & Sound Settings */}
+      <div className="amay-card rounded-[30px] p-4 divide-y divide-[#1846AA]/10 dark:divide-white/10">
         <button
           type="button"
           onClick={onToggleTheme}
           className="w-full py-2.5 text-base font-bold text-[#1457E0] dark:text-[#5AA2FF] cursor-pointer text-center"
         >
           {isDark ? "Switch to light mode" : "Switch to dark mode"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const next = !soundOn;
+            setSoundOn(next);
+            setSoundEnabled(next);
+            if (next) playCorrectSound();
+          }}
+          className="w-full py-2.5 text-base font-bold text-[#1457E0] dark:text-[#5AA2FF] cursor-pointer text-center"
+        >
+          Quiz sound effects: {soundOn ? "On" : "Off"}
         </button>
       </div>
 

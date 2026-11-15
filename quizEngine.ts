@@ -41,6 +41,7 @@ export interface QuizResultSummary {
   bonusXp: number;
   xp: number;
   up: boolean;
+  milestoneXp?: number | null;
 }
 
 export interface ActiveQuizState {

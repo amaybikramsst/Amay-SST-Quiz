@@ -14,6 +14,9 @@ import {
   Upload,
   FileText,
   Download,
+  Video,
+  Image as ImageIcon,
+  ExternalLink,
 } from "lucide-react";
 import { BENCHMARK_PLAYERS } from "../data/benchmarks";
 import type { SubjectKey } from "../data/questions";
@@ -26,45 +29,44 @@ import {
   adminLoadCandidates,
   adminLoadCandidateTaps,
   adminLoadStats,
+  adminSaveBotOverrides,
+  adminSaveLatestVideo,
   adminSignIn,
   adminSignOut,
   adminUpdateCandidate,
+  DEFAULT_LATEST_VIDEO,
+  deriveYouTubeThumbnail,
+  fetchBotOverrides,
   fetchDynamicQuestions,
+  fetchLatestVideo,
+  loadBotOverrides,
+  saveBotOverrides,
   supabase,
   type AdminAttemptRow,
   type AdminCandidateRow,
+  type BotOverride,
   type CandidateTapEvent,
   type DynamicQuestionRow,
+  type LatestVideoConfig,
 } from "../lib/supabase";
 
-export interface BotOverride {
+export interface OpenCandidateIdPayload {
+  guestUuid: string;
   name: string;
   xp: number;
   todayXp: number;
-}
-
-const BOT_OVERRIDES_KEY = "amaysst_bot_overrides";
-
-export function loadBotOverrides(): Record<string, BotOverride> {
-  try {
-    return JSON.parse(localStorage.getItem(BOT_OVERRIDES_KEY) || "{}") || {};
-  } catch {
-    return {};
-  }
-}
-
-export function saveBotOverrides(map: Record<string, BotOverride>) {
-  try {
-    localStorage.setItem(BOT_OVERRIDES_KEY, JSON.stringify(map));
-  } catch {
-    // ignore
-  }
+  streak: number;
+  quizzes: number;
+  perfect: number;
+  botOriginalName?: string;
 }
 
 interface AdminViewProps {
   onBack: () => void;
   onQuestionsChanged: () => void;
-  onBotsChanged: () => void;
+  onBotsChanged: (overrides: Record<string, BotOverride>) => void;
+  onLatestVideoChanged: (video: LatestVideoConfig) => void;
+  onOpenCandidateId: (target: OpenCandidateIdPayload) => void;
 }
 
 const TAP_SQL = `create table if not exists public.candidate_events (
@@ -80,10 +82,23 @@ alter table public.candidate_events enable row level security;
 create policy "Allow public insert taps" on public.candidate_events for insert to anon, authenticated with check (true);
 create policy "Allow authenticated read taps" on public.candidate_events for select to authenticated using (true);`;
 
+const SETTINGS_SQL = `create table if not exists public.app_settings (
+  key text primary key,
+  value jsonb not null default '{}'::jsonb,
+  updated_at timestamptz default now()
+);
+alter table public.app_settings enable row level security;
+drop policy if exists "Allow public read app_settings" on public.app_settings;
+create policy "Allow public read app_settings" on public.app_settings for select to anon, authenticated using (true);
+drop policy if exists "Allow authenticated write app_settings" on public.app_settings;
+create policy "Allow authenticated write app_settings" on public.app_settings for all to authenticated using (true) with check (true);`;
+
 export const AdminView: React.FC<AdminViewProps> = ({
   onBack,
   onQuestionsChanged,
   onBotsChanged,
+  onLatestVideoChanged,
+  onOpenCandidateId,
 }) => {
   const [adminEmail, setAdminEmail] = useState<string | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -93,7 +108,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [loginError, setLoginError] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
 
-  const [tab, setTab] = useState<"candidates" | "attempts" | "taps" | "questions">("candidates");
+  const [tab, setTab] = useState<"candidates" | "attempts" | "taps" | "questions" | "video">("candidates");
   const [candidateFilter, setCandidateFilter] = useState<"students" | "bots">("students");
   const [stats, setStats] = useState({ users: 0, tests: 0, questions: 0, totalXp: 0 });
   const [dynamicQuestions, setDynamicQuestions] = useState<DynamicQuestionRow[]>([]);
@@ -102,6 +117,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [taps, setTaps] = useState<CandidateTapEvent[]>([]);
   const [needsTapTable, setNeedsTapTable] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
+
+  // Latest video editor state
+  const [videoUrl, setVideoUrl] = useState(DEFAULT_LATEST_VIDEO.url);
+  const [videoTitle, setVideoTitle] = useState(DEFAULT_LATEST_VIDEO.title);
+  const [videoSubtitle, setVideoSubtitle] = useState(DEFAULT_LATEST_VIDEO.subtitle);
+  const [videoThumb, setVideoThumb] = useState(DEFAULT_LATEST_VIDEO.thumbnailUrl);
+  const [savingVideo, setSavingVideo] = useState(false);
+  const [needsVideoTable, setNeedsVideoTable] = useState(false);
+  const [copiedVideoSql, setCopiedVideoSql] = useState(false);
 
   const [feedback, setFeedback] = useState<{ text: string; ok: boolean } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -115,9 +139,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [editingBotOriginalName, setEditingBotOriginalName] = useState<string | null>(null);
   const [botDraftName, setBotDraftName] = useState("");
   const [botDraftXp, setBotDraftXp] = useState(0);
+  const [botDraftTodayXp, setBotDraftTodayXp] = useState(0);
+  const [needsBotTable, setNeedsBotTable] = useState(false);
+  const [copiedBotSql, setCopiedBotSql] = useState(false);
 
   // Candidate XP & Stats Editor + Inspector Modal
   const [selectedCandidate, setSelectedCandidate] = useState<AdminCandidateRow | null>(null);
+  const [copiedCandidateId, setCopiedCandidateId] = useState(false);
   const [editName, setEditName] = useState("");
   const [editXp, setEditXp] = useState(0);
   const [editTodayXp, setEditTodayXp] = useState(0);
@@ -149,19 +177,30 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [rawExtractPreview, setRawExtractPreview] = useState("");
 
   const loadAllAdminData = async () => {
-    const [st, dqs, cands, atts, tapRes] = await Promise.all([
+    const localBots = loadBotOverrides();
+    const [st, dqs, cands, atts, tapRes, vid, cloudBots] = await Promise.all([
       adminLoadStats(),
       fetchDynamicQuestions(),
       adminLoadCandidates(),
       adminLoadAttempts(),
       adminLoadCandidateTaps(),
+      fetchLatestVideo(),
+      fetchBotOverrides(),
     ]);
+    const mergedBots = { ...cloudBots, ...localBots };
     setStats(st);
     setDynamicQuestions(dqs);
     setCandidates(cands);
     setAttempts(atts);
     setTaps(tapRes.events);
     setNeedsTapTable(tapRes.needsTableSetup);
+    setVideoUrl(vid.url);
+    setVideoTitle(vid.title);
+    setVideoSubtitle(vid.subtitle);
+    setVideoThumb(vid.thumbnailUrl);
+    setBotOverrides(mergedBots);
+    saveBotOverrides(mergedBots);
+    onBotsChanged(mergedBots);
   };
 
   useEffect(() => {
@@ -196,12 +235,47 @@ export const AdminView: React.FC<AdminViewProps> = ({
   };
 
   const openCandidateEditor = (cand: AdminCandidateRow) => {
+    setCopiedCandidateId(false);
     setSelectedCandidate(cand);
     setEditName(cand.display_name || "");
     setEditXp(cand.xp || 0);
     setEditTodayXp(cand.today_xp || 0);
     setEditStreak(cand.streak || 0);
     setEditQuizzes(cand.quizzes_count || 0);
+  };
+
+  const openInspectorByIdentity = (guestUuid?: string, candidateName?: string) => {
+    const match =
+      (guestUuid && candidates.find((c) => c.guest_uuid === guestUuid)) ||
+      (candidateName &&
+        candidates.find((c) => c.display_name.toLowerCase() === candidateName.trim().toLowerCase()));
+    if (match) {
+      openCandidateEditor(match);
+      return;
+    }
+    if (!candidateName && !guestUuid) return;
+    openCandidateEditor({
+      guest_uuid: guestUuid || `lookup_${candidateName || "candidate"}`,
+      display_name: candidateName || "Candidate",
+      xp: 0,
+      today_xp: 0,
+      streak: 0,
+      quizzes_count: 0,
+      perfect_count: 0,
+    });
+  };
+
+  const launchCandidateIdView = (cand: AdminCandidateRow) => {
+    setSelectedCandidate(null);
+    onOpenCandidateId({
+      guestUuid: cand.guest_uuid,
+      name: cand.display_name,
+      xp: cand.xp || 0,
+      todayXp: cand.today_xp || 0,
+      streak: cand.streak || 0,
+      quizzes: cand.quizzes_count || 0,
+      perfect: cand.perfect_count || 0,
+    });
   };
 
   const handleQuickRename = async (cand: AdminCandidateRow) => {
@@ -220,21 +294,58 @@ export const AdminView: React.FC<AdminViewProps> = ({
     await loadAllAdminData();
   };
 
-  const handleSaveBotEdit = (originalName: string, defaultXp: number, defaultTodayXp: number) => {
+  const handleSaveBotEdit = async (originalName: string, defaultXp: number, defaultTodayXp: number) => {
     const cleaned = botDraftName.trim() || originalName;
+    const parsedXp = Number.isFinite(Number(botDraftXp)) ? Math.max(0, Math.round(Number(botDraftXp))) : defaultXp;
+    const parsedTodayXp = Number.isFinite(Number(botDraftTodayXp))
+      ? Math.max(0, Math.round(Number(botDraftTodayXp)))
+      : defaultTodayXp;
+
     const next = {
       ...botOverrides,
       [originalName]: {
         name: cleaned,
-        xp: Math.max(0, Math.round(Number(botDraftXp) || defaultXp)),
-        todayXp: defaultTodayXp,
+        xp: parsedXp,
+        todayXp: parsedTodayXp,
       },
     };
     setBotOverrides(next);
-    saveBotOverrides(next);
     setEditingBotOriginalName(null);
-    setFeedback({ text: `Updated "${cleaned}".`, ok: true });
-    onBotsChanged();
+    onBotsChanged(next);
+
+    const res = await adminSaveBotOverrides(next);
+    if (res.ok) {
+      setNeedsBotTable(false);
+      setFeedback({ text: `Updated "${cleaned}" (${parsedXp} XP · ${parsedTodayXp} Today) for all candidates!`, ok: true });
+    } else if (res.needsTableSetup) {
+      setNeedsBotTable(true);
+      setFeedback({
+        text: "Updated locally, but run the 1-time SQL below in Supabase so all students see updated bot XP.",
+        ok: false,
+      });
+    } else {
+      setFeedback({
+        text: `Updated locally, cloud sync failed: ${res.errorMessage || "Unknown error"}`,
+        ok: false,
+      });
+    }
+  };
+
+  const handleSyncAllBotsToCloud = async () => {
+    const res = await adminSaveBotOverrides(botOverrides);
+    if (res.ok) {
+      setNeedsBotTable(false);
+      onBotsChanged(botOverrides);
+      setFeedback({ text: "Synced all bot XP & name updates to all candidates!", ok: true });
+    } else if (res.needsTableSetup) {
+      setNeedsBotTable(true);
+      setFeedback({
+        text: "Run the 1-time SQL below in Supabase → SQL Editor first so all students see updated bot XP.",
+        ok: false,
+      });
+    } else {
+      setFeedback({ text: `Sync failed: ${res.errorMessage || "Unknown error"}`, ok: false });
+    }
   };
 
   const handleSaveCandidateEdits = async (e: React.FormEvent) => {
@@ -407,10 +518,88 @@ export const AdminView: React.FC<AdminViewProps> = ({
     onQuestionsChanged();
   };
 
+  const handleVideoUrlChange = (nextUrl: string) => {
+    const prevAutoThumb = deriveYouTubeThumbnail(videoUrl);
+    const nextAutoThumb = deriveYouTubeThumbnail(nextUrl);
+    setVideoUrl(nextUrl);
+    // Automatically update thumbnail if it's currently empty or was previously auto-derived from YouTube
+    if (nextAutoThumb && (!videoThumb || videoThumb === prevAutoThumb)) {
+      setVideoThumb(nextAutoThumb);
+    }
+  };
+
+  const handleThumbnailUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 640;
+        const scale = img.width > maxW ? maxW / img.width : 1;
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          const compressed = canvas.toDataURL("image/jpeg", 0.82);
+          setVideoThumb(compressed);
+          setFeedback({ text: "Custom thumbnail loaded. Click Save Latest Video to publish it!", ok: true });
+        }
+      };
+      img.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const handleSaveLatestVideo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanedUrl = videoUrl.trim();
+    if (!cleanedUrl) {
+      setFeedback({ text: "Please enter a video link URL.", ok: false });
+      return;
+    }
+    setSavingVideo(true);
+    setFeedback(null);
+
+    const payload: LatestVideoConfig = {
+      url: cleanedUrl,
+      title: videoTitle.trim() || "Latest video",
+      subtitle: videoSubtitle.trim() || "Watch my latest Short · opens on YouTube",
+      thumbnailUrl: videoThumb.trim() || deriveYouTubeThumbnail(cleanedUrl),
+    };
+
+    const res = await adminSaveLatestVideo(payload);
+    setSavingVideo(false);
+    onLatestVideoChanged(payload);
+
+    if (res.ok) {
+      setNeedsVideoTable(false);
+      setFeedback({ text: "Latest video & thumbnail updated for all candidates!", ok: true });
+    } else if (res.needsTableSetup) {
+      setNeedsVideoTable(true);
+      setFeedback({
+        text: "Preview saved locally, but run the 1-time SQL below in Supabase so all students see it across phones.",
+        ok: false,
+      });
+    } else {
+      setFeedback({
+        text: `Saved locally, cloud update failed: ${res.errorMessage || "Unknown error"}`,
+        ok: false,
+      });
+    }
+  };
+
   const filteredCandidates = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return candidates;
-    return candidates.filter((c) => c.display_name.toLowerCase().includes(q));
+    return candidates.filter(
+      (c) => c.display_name.toLowerCase().includes(q) || c.guest_uuid.toLowerCase().includes(q)
+    );
   }, [candidates, searchQuery]);
 
   const filteredBots = useMemo(() => {
@@ -602,6 +791,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               ["attempts", "Every Result"],
               ["taps", "Every Tap"],
               ["questions", "Questions & Bulk Upload"],
+              ["video", "Latest Video"],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -622,14 +812,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
           ))}
         </div>
 
-        {tab !== "questions" && (
+        {tab !== "questions" && tab !== "video" && (
           <div className="relative sm:w-64">
             <Search className="w-4 h-4 text-[#5A6A92] absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search name or subject…"
+              placeholder="Search name, ID, or subject…"
               className="w-full h-10 pl-9 pr-3.5 rounded-xl amay-card text-sm focus:outline-none"
             />
           </div>
@@ -723,10 +913,20 @@ export const AdminView: React.FC<AdminViewProps> = ({
                               </button>
                             </div>
                           ) : (
-                            <span>
-                              {c.display_name}
-                              {c.hidden ? " (Hidden)" : ""}
-                            </span>
+                            <button
+                              type="button"
+                              onClick={() => openCandidateEditor(c)}
+                              className="text-left group cursor-pointer"
+                              title="Click to inspect or open this candidate's ID"
+                            >
+                              <span className="block text-[#0B1B4D] dark:text-white group-hover:text-[#1457E0] dark:group-hover:text-[#5AA2FF] group-hover:underline">
+                                {c.display_name}
+                                {c.hidden ? " (Hidden)" : ""}
+                              </span>
+                              <span className="block text-[11px] font-mono-nums font-medium text-[#5A6A92] dark:text-[#93A3CC]">
+                                ID: {c.guest_uuid.slice(0, 14)}{c.guest_uuid.length > 14 ? "…" : ""}
+                              </span>
+                            </button>
                           )}
                         </td>
                         <td className="py-3 px-4 font-mono-nums font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
@@ -737,6 +937,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         <td className="py-3 px-4 font-mono-nums">{c.quizzes_count}</td>
                         <td className="py-3 px-4">
                           <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => launchCandidateIdView(c)}
+                              className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                              title="Open app logged in as this candidate's ID"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              <span>Open ID</span>
+                            </button>
                             <button
                               type="button"
                               onClick={() => {
@@ -753,7 +962,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                               className="px-2.5 py-1.5 rounded-lg bg-[#1457E0] text-white text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
-                              <span>Edit XP / Inspect</span>
+                              <span>Edit / Inspect</span>
                             </button>
                             <button
                               type="button"
@@ -773,86 +982,184 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </table>
             </div>
           ) : (
-            <div className="amay-card rounded-[26px] overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-[#1846AA]/12 dark:border-white/10 text-xs text-[#5A6A92] dark:text-[#93A3CC]">
-                  <tr>
-                    <th className="py-3.5 px-4">Rank</th>
-                    <th className="py-3.5 px-4">Name</th>
-                    <th className="py-3.5 px-4">Total XP</th>
-                    <th className="py-3.5 px-4">Today XP</th>
-                    <th className="py-3.5 px-4 text-right">Edit</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#1846AA]/10 dark:divide-white/10">
-                  {filteredBots.map((b, idx) => {
-                    const isEditing = editingBotOriginalName === b.originalName;
-                    return (
-                      <tr key={b.originalName}>
-                        <td className="py-3 px-4 font-mono-nums font-bold">#{idx + 1}</td>
-                        <td className="py-3 px-4 font-bold">
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              value={botDraftName}
-                              onChange={(e) => setBotDraftName(e.target.value)}
-                              className="h-8 px-2.5 rounded-lg bg-white dark:bg-[#0B1224] border border-[#1457E0] text-xs font-bold"
-                            />
-                          ) : (
-                            b.name
-                          )}
-                        </td>
-                        <td className="py-3 px-4 font-mono-nums font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
-                          {isEditing ? (
-                            <input
-                              type="number"
-                              min={0}
-                              value={botDraftXp}
-                              onChange={(e) => setBotDraftXp(Number(e.target.value))}
-                              className="w-24 h-8 px-2.5 rounded-lg bg-white dark:bg-[#0B1224] border border-[#1457E0] text-xs font-mono-nums font-bold"
-                            />
-                          ) : (
-                            `${b.xp} XP`
-                          )}
-                        </td>
-                        <td className="py-3 px-4 font-mono-nums">{b.todayXp}</td>
-                        <td className="py-3 px-4 text-right">
-                          {isEditing ? (
-                            <div className="inline-flex gap-1.5">
+            <div className="space-y-4">
+              {needsBotTable && (
+                <div className="amay-card rounded-[24px] p-5 border-2 border-amber-400/60 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-extrabold text-amber-800 dark:text-amber-300">
+                        One-time Supabase setup needed so ALL students see updated Bot XP
+                      </h3>
+                      <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+                        Run this SQL once in Supabase → SQL Editor, then click Sync Bot Edits to All Phones.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(SETTINGS_SQL);
+                        setCopiedBotSql(true);
+                        setTimeout(() => setCopiedBotSql(false), 2000);
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      {copiedBotSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedBotSql ? "Copied SQL" : "Copy SQL"}</span>
+                    </button>
+                  </div>
+                  <pre className="p-3 rounded-xl bg-slate-950 text-slate-100 text-[11px] overflow-x-auto font-mono">
+                    {SETTINGS_SQL}
+                  </pre>
+                </div>
+              )}
+
+              <div className="amay-card rounded-[22px] p-3.5 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+                  Showing all {filteredBots.length} bots sorted by Total XP. Click <strong>Sync Bot Edits to All Phones</strong> to push any saved changes to every student.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleSyncAllBotsToCloud}
+                  className="px-3.5 py-2 rounded-xl bg-[#1457E0] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Sync Bot Edits to All Phones</span>
+                </button>
+              </div>
+
+              <div className="amay-card rounded-[26px] overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-[#1846AA]/12 dark:border-white/10 text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+                    <tr>
+                      <th className="py-3.5 px-4">Rank</th>
+                      <th className="py-3.5 px-4">Name</th>
+                      <th className="py-3.5 px-4">Total XP</th>
+                      <th className="py-3.5 px-4">Today XP</th>
+                      <th className="py-3.5 px-4 text-right">Edit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#1846AA]/10 dark:divide-white/10">
+                    {filteredBots.map((b, idx) => {
+                      const isEditing = editingBotOriginalName === b.originalName;
+                      return (
+                        <tr key={b.originalName}>
+                          <td className="py-3 px-4 font-mono-nums font-bold">#{idx + 1}</td>
+                          <td className="py-3 px-4 font-bold">
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={botDraftName}
+                                onChange={(e) => setBotDraftName(e.target.value)}
+                                className="h-8 px-2.5 rounded-lg bg-white dark:bg-[#0B1224] border border-[#1457E0] text-xs font-bold"
+                              />
+                            ) : (
                               <button
                                 type="button"
-                                onClick={() => handleSaveBotEdit(b.originalName, b.xp, b.todayXp)}
-                                className="px-2.5 py-1 rounded-lg bg-[#12A150] text-white text-xs font-bold cursor-pointer"
+                                onClick={() =>
+                                  onOpenCandidateId({
+                                    guestUuid: `bot_${b.originalName}`,
+                                    name: b.name,
+                                    xp: b.xp,
+                                    todayXp: b.todayXp,
+                                    streak: 3,
+                                    quizzes: Math.max(1, Math.floor(b.xp / 120)),
+                                    perfect: 0,
+                                    botOriginalName: b.originalName,
+                                  })
+                                }
+                                className="text-left hover:text-[#1457E0] dark:hover:text-[#5AA2FF] hover:underline cursor-pointer"
+                                title="Click to open app view for this ID"
                               >
-                                Save
+                                {b.name}
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => setEditingBotOriginalName(null)}
-                                className="px-2.5 py-1 rounded-lg amay-card text-xs cursor-pointer"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingBotOriginalName(b.originalName);
-                                setBotDraftName(b.name);
-                                setBotDraftXp(b.xp);
-                              }}
-                              className="px-2.5 py-1.5 rounded-lg bg-[#1457E0] text-white text-xs font-bold cursor-pointer"
-                            >
-                              Rename / Edit XP
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 font-mono-nums font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
+                            {isEditing ? (
+                              <input
+                                type="number"
+                                min={0}
+                                value={botDraftXp}
+                                onChange={(e) => setBotDraftXp(Number(e.target.value))}
+                                className="w-24 h-8 px-2.5 rounded-lg bg-white dark:bg-[#0B1224] border border-[#1457E0] text-xs font-mono-nums font-bold"
+                              />
+                            ) : (
+                              `${b.xp} XP`
+                            )}
+                          </td>
+                          <td className="py-3 px-4 font-mono-nums">
+                            {isEditing ? (
+                              <input
+                                type="number"
+                                min={0}
+                                value={botDraftTodayXp}
+                                onChange={(e) => setBotDraftTodayXp(Number(e.target.value))}
+                                className="w-20 h-8 px-2.5 rounded-lg bg-white dark:bg-[#0B1224] border border-[#1457E0] text-xs font-mono-nums font-bold"
+                              />
+                            ) : (
+                              `${b.todayXp} XP`
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {isEditing ? (
+                              <div className="inline-flex gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveBotEdit(b.originalName, b.xp, b.todayXp)}
+                                  className="px-2.5 py-1 rounded-lg bg-[#12A150] text-white text-xs font-bold cursor-pointer"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingBotOriginalName(null)}
+                                  className="px-2.5 py-1 rounded-lg amay-card text-xs cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onOpenCandidateId({
+                                      guestUuid: `bot_${b.originalName}`,
+                                      name: b.name,
+                                      xp: b.xp,
+                                      todayXp: b.todayXp,
+                                      streak: 3,
+                                      quizzes: Math.max(1, Math.floor(b.xp / 120)),
+                                      perfect: 0,
+                                      botOriginalName: b.originalName,
+                                    })
+                                  }
+                                  className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                  <span>Open ID</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingBotOriginalName(b.originalName);
+                                    setBotDraftName(b.name);
+                                    setBotDraftXp(b.xp);
+                                    setBotDraftTodayXp(b.todayXp);
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg bg-[#1457E0] text-white text-xs font-bold cursor-pointer"
+                                >
+                                  Rename / Edit XP
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
@@ -885,7 +1192,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         minute: "2-digit",
                       })}
                     </td>
-                    <td className="py-3 px-4 font-bold">{a.candidate_name}</td>
+                    <td className="py-3 px-4 font-bold">
+                      <button
+                        type="button"
+                        onClick={() => openInspectorByIdentity(a.guest_uuid, a.candidate_name)}
+                        className="text-left text-[#1457E0] dark:text-[#5AA2FF] hover:underline cursor-pointer"
+                        title="Click to open this candidate's ID"
+                      >
+                        {a.candidate_name}
+                      </button>
+                    </td>
                     <td className="py-3 px-4 font-semibold">{String(a.subject || "").toUpperCase()}</td>
                     <td className="py-3 px-4 font-mono-nums font-bold">
                       {a.score} / {a.total}
@@ -963,7 +1279,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
                           second: "2-digit",
                         })}
                       </td>
-                      <td className="py-3 px-4 font-bold">{t.candidate_name}</td>
+                      <td className="py-3 px-4 font-bold">
+                        <button
+                          type="button"
+                          onClick={() => openInspectorByIdentity(t.guest_uuid, t.candidate_name)}
+                          className="text-left text-[#1457E0] dark:text-[#5AA2FF] hover:underline cursor-pointer"
+                          title="Click to open this candidate's ID"
+                        >
+                          {t.candidate_name}
+                        </button>
+                      </td>
                       <td className="py-3 px-4 font-semibold text-[#1457E0] dark:text-[#5AA2FF]">
                         {t.action}
                       </td>
@@ -1329,6 +1654,199 @@ export const AdminView: React.FC<AdminViewProps> = ({
         </div>
       )}
 
+      {/* TAB 5: LATEST VIDEO & THUMBNAIL */}
+      {tab === "video" && (
+        <div className="space-y-4">
+          {needsVideoTable && (
+            <div className="amay-card rounded-[24px] p-5 border-2 border-amber-400/60 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-extrabold text-amber-800 dark:text-amber-300">
+                    One-time Supabase setup needed to sync Latest Video to all phones
+                  </h3>
+                  <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+                    Run this SQL once in Supabase → SQL Editor, then click Save Latest Video again.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(SETTINGS_SQL);
+                    setCopiedVideoSql(true);
+                    setTimeout(() => setCopiedVideoSql(false), 2000);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  {copiedVideoSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedVideoSql ? "Copied SQL" : "Copy SQL"}</span>
+                </button>
+              </div>
+              <pre className="p-3 rounded-xl bg-slate-950 text-slate-100 text-[11px] overflow-x-auto font-mono">
+                {SETTINGS_SQL}
+              </pre>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+            <form
+              onSubmit={handleSaveLatestVideo}
+              className="lg:col-span-7 amay-card rounded-[28px] p-5 sm:p-6 space-y-4"
+            >
+              <div className="flex items-center gap-2">
+                <Video className="w-5 h-5 text-[#1457E0] dark:text-[#5AA2FF]" />
+                <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-white">
+                  Update Latest Video & Thumbnail
+                </h2>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC] mb-1">
+                  Video Link (YouTube Short, YouTube Video, or any URL)
+                </label>
+                <input
+                  type="url"
+                  required
+                  value={videoUrl}
+                  onChange={(e) => handleVideoUrlChange(e.target.value)}
+                  placeholder="https://youtube.com/shorts/..."
+                  className="w-full h-11 px-3.5 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm focus:outline-none focus:border-[#1457E0]"
+                />
+                {deriveYouTubeThumbnail(videoUrl) && (
+                  <button
+                    type="button"
+                    onClick={() => setVideoThumb(deriveYouTubeThumbnail(videoUrl))}
+                    className="mt-1.5 text-xs font-bold text-[#1457E0] dark:text-[#5AA2FF] hover:underline cursor-pointer"
+                  >
+                    Auto-fill thumbnail from YouTube link
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC] mb-1">
+                    Card Title
+                  </label>
+                  <input
+                    type="text"
+                    value={videoTitle}
+                    onChange={(e) => setVideoTitle(e.target.value)}
+                    placeholder="Latest video"
+                    className="w-full h-11 px-3.5 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm focus:outline-none focus:border-[#1457E0]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC] mb-1">
+                    Card Subtitle
+                  </label>
+                  <input
+                    type="text"
+                    value={videoSubtitle}
+                    onChange={(e) => setVideoSubtitle(e.target.value)}
+                    placeholder="Watch my latest Short · opens on YouTube"
+                    className="w-full h-11 px-3.5 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm focus:outline-none focus:border-[#1457E0]"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC]">
+                  Thumbnail Image (paste URL or upload image from your device)
+                </label>
+                <input
+                  type="text"
+                  value={videoThumb}
+                  onChange={(e) => setVideoThumb(e.target.value)}
+                  placeholder="https://i.ytimg.com/vi/.../hqdefault.jpg"
+                  className="w-full h-11 px-3.5 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm focus:outline-none focus:border-[#1457E0]"
+                />
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <label className="px-3.5 py-2 rounded-xl amay-card text-xs font-bold text-[#1457E0] dark:text-[#5AA2FF] inline-flex items-center gap-1.5 cursor-pointer hover:bg-[#1457E0]/10">
+                    <ImageIcon className="w-4 h-4" />
+                    <span>Upload Thumbnail Image</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleThumbnailUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  {videoThumb && (
+                    <button
+                      type="button"
+                      onClick={() => setVideoThumb("")}
+                      className="px-3 py-2 rounded-xl amay-card text-xs font-bold text-[#5A6A92] hover:text-[#D92D3A] cursor-pointer"
+                    >
+                      Clear Thumbnail
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={savingVideo}
+                className="w-full h-12 rounded-2xl amay-play-btn text-white font-bold text-sm cursor-pointer disabled:opacity-60"
+              >
+                {savingVideo ? "Saving…" : "Save Latest Video & Thumbnail"}
+              </button>
+            </form>
+
+            {/* Live Candidate View Preview */}
+            <div className="lg:col-span-5 amay-card rounded-[28px] p-5 sm:p-6 space-y-4">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-extrabold text-[#0B1B4D] dark:text-white">
+                  Candidate Home Preview
+                </h3>
+                <a
+                  href={videoUrl || "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-bold text-[#1457E0] dark:text-[#5AA2FF] inline-flex items-center gap-1"
+                >
+                  <span>Test link</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+
+              <div className="amay-card rounded-[26px] p-3.5 flex items-center gap-3.5">
+                <div className="w-24 h-16 rounded-[16px] bg-gradient-to-br from-[#2B9BF6] to-[#0B57DD] flex items-center justify-center text-white shrink-0 relative overflow-hidden shadow-sm">
+                  {videoThumb || deriveYouTubeThumbnail(videoUrl) ? (
+                    <>
+                      <img
+                        src={videoThumb || deriveYouTubeThumbnail(videoUrl)}
+                        alt="Video thumbnail preview"
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
+                        <span className="w-8 h-8 rounded-full bg-black/65 flex items-center justify-center text-white text-xs pl-0.5">
+                          ▶
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <span className="text-xl ml-0.5">▶</span>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <strong className="block text-[16px] font-bold text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
+                    {videoTitle || "Latest video"}
+                  </strong>
+                  <span className="block text-xs text-[#5A6A92] dark:text-[#93A3CC] line-clamp-2 mt-0.5">
+                    {videoSubtitle || "Watch my latest Short · opens on YouTube"}
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] leading-relaxed">
+                Whenever you upload a new YouTube Short or video, just paste the new link here — its thumbnail fills in automatically, or you can upload any custom thumbnail image.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* CANDIDATE EDITOR & INSPECTOR MODAL */}
       {selectedCandidate && (
         <div
@@ -1341,23 +1859,47 @@ export const AdminView: React.FC<AdminViewProps> = ({
             className="w-full max-w-2xl max-h-[90vh] overflow-y-auto amay-card rounded-[30px] p-6 space-y-5"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between gap-3">
-              <div>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
                 <h2 className="text-xl font-extrabold text-[#0B1B4D] dark:text-white flex items-center gap-2">
-                  <Eye className="w-5 h-5 text-[#1457E0]" />
-                  <span>{selectedCandidate.display_name}</span>
+                  <Eye className="w-5 h-5 text-[#1457E0] shrink-0" />
+                  <span className="truncate">{selectedCandidate.display_name}</span>
                 </h2>
-                <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] font-mono-nums">
-                  ID: {selectedCandidate.guest_uuid}
-                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] font-mono-nums break-all">
+                    ID: {selectedCandidate.guest_uuid}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(selectedCandidate.guest_uuid);
+                      setCopiedCandidateId(true);
+                      setTimeout(() => setCopiedCandidateId(false), 1800);
+                    }}
+                    className="px-2 py-0.5 rounded-md amay-card text-[11px] font-bold text-[#1457E0] dark:text-[#5AA2FF] inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    {copiedCandidateId ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedCandidateId ? "Copied" : "Copy ID"}</span>
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedCandidate(null)}
-                className="w-9 h-9 rounded-xl amay-card flex items-center justify-center cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => launchCandidateIdView(selectedCandidate)}
+                  className="h-9 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open ID in App</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCandidate(null)}
+                  className="w-9 h-9 rounded-xl amay-card flex items-center justify-center cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             <form onSubmit={handleSaveCandidateEdits} className="space-y-4 border-t border-[#1846AA]/10 dark:border-white/10 pt-4">
