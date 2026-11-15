@@ -35,6 +35,7 @@ import {
   adminLoadCandidates,
   adminLoadCandidateTaps,
   adminLoadInstallStatusMap,
+  adminLoadNotificationSeenMap,
   adminLoadStats,
   adminSaveBotOverrides,
   adminSaveLatestVideo,
@@ -137,11 +138,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   // Manual Notifications state
   const [notificationsList, setNotificationsList] = useState<AppNotification[]>([]);
+  const [notifSeenMap, setNotifSeenMap] = useState<Record<string, { count: number; names: string[] }>>({});
+  const [expandedSeenNotifId, setExpandedSeenNotifId] = useState<string | null>(null);
   const [notifTarget, setNotifTarget] = useState<"all" | "candidate">("all");
   const [notifTargetGuestUuid, setNotifTargetGuestUuid] = useState("");
   const [notifCandidateSearch, setNotifCandidateSearch] = useState("");
   const [notifTitle, setNotifTitle] = useState("");
   const [notifMessage, setNotifMessage] = useState("");
+  const [notifImageUrl, setNotifImageUrl] = useState("");
   const [notifActionType, setNotifActionType] = useState<NotificationActionType>("none");
   const [notifActionLabel, setNotifActionLabel] = useState("");
   const [notifActionUrl, setNotifActionUrl] = useState("");
@@ -209,7 +213,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const loadAllAdminData = async () => {
     const localBots = loadBotOverrides();
-    const [st, dqs, cands, atts, tapRes, vid, cloudBots, installMap, notifs] = await Promise.all([
+    const [st, dqs, cands, atts, tapRes, vid, cloudBots, installMap, notifs, seenMap] = await Promise.all([
       adminLoadStats(),
       fetchDynamicQuestions(),
       adminLoadCandidates(),
@@ -219,6 +223,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       fetchBotOverrides(),
       adminLoadInstallStatusMap(),
       fetchNotifications(),
+      adminLoadNotificationSeenMap(),
     ]);
     const mergedBots = { ...cloudBots, ...localBots };
     setStats(st);
@@ -233,6 +238,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setVideoSubtitle(vid.subtitle);
     setVideoThumb(vid.thumbnailUrl);
     setNotificationsList(notifs);
+    setNotifSeenMap(seenMap);
     onNotificationsChanged(notifs);
     setBotOverrides(mergedBots);
     saveBotOverrides(mergedBots);
@@ -639,6 +645,34 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setFeedback(null);
   };
 
+  const handleNotifImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 720;
+        const scale = img.width > maxW ? maxW / img.width : 1;
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          const compressed = canvas.toDataURL("image/jpeg", 0.8);
+          setNotifImageUrl(compressed);
+          setFeedback({ text: "Picture attached! Ready to send.", ok: true });
+        }
+      };
+      img.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
   const handleSendNotification = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanTitle = notifTitle.trim();
@@ -666,6 +700,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       targetName,
       title: cleanTitle,
       message: cleanMessage,
+      imageUrl: notifImageUrl.trim() || undefined,
       actionType: notifActionType,
       actionLabel: notifActionLabel.trim() || undefined,
       actionUrl: notifActionType === "link" ? notifActionUrl.trim() || undefined : undefined,
@@ -678,6 +713,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       setNeedsNotifTable(false);
       setNotifTitle("");
       setNotifMessage("");
+      setNotifImageUrl("");
       setNotifActionLabel("");
       setNotifActionUrl("");
       setFeedback({
@@ -2208,6 +2244,50 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 />
               </div>
 
+              {/* Attach Picture (Optional) */}
+              <div className="space-y-2 rounded-2xl bg-[#1457E0]/[0.04] dark:bg-white/[0.04] p-3.5 border border-[#1846AA]/12 dark:border-white/10">
+                <label className="block text-xs font-bold text-[#0B1B4D] dark:text-white">
+                  Picture / Poster (Optional)
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="px-3.5 py-2 rounded-xl amay-card text-xs font-bold text-[#1457E0] dark:text-[#5AA2FF] inline-flex items-center gap-1.5 cursor-pointer hover:bg-[#1457E0]/10">
+                    <ImageIcon className="w-4 h-4" />
+                    <span>Upload Picture</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleNotifImageUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  <input
+                    type="text"
+                    value={notifImageUrl.startsWith("data:") ? "" : notifImageUrl}
+                    onChange={(e) => setNotifImageUrl(e.target.value)}
+                    placeholder="Or paste image URL…"
+                    className="flex-1 min-w-[160px] h-9 px-3 rounded-xl bg-white/90 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-xs focus:outline-none focus:border-[#1457E0]"
+                  />
+                  {notifImageUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setNotifImageUrl("")}
+                      className="px-2.5 py-1.5 rounded-xl amay-card text-xs font-bold text-[#D92D3A] cursor-pointer"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                {notifImageUrl && (
+                  <div className="overflow-hidden rounded-xl border border-[#1846AA]/15 dark:border-white/10 max-w-xs">
+                    <img
+                      src={notifImageUrl}
+                      alt="Notification attachment preview"
+                      className="w-full max-h-40 object-cover block"
+                    />
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC] mb-1">
@@ -2278,12 +2358,23 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </button>
             </form>
 
-            {/* Sent Notifications History */}
+            {/* Sent Notifications History + Live Seen Count */}
             <div className="lg:col-span-5 amay-card rounded-[28px] p-5 sm:p-6 space-y-4">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-extrabold text-[#0B1B4D] dark:text-white">
                   Sent Notifications ({notificationsList.length})
                 </h3>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const seenMap = await adminLoadNotificationSeenMap();
+                    setNotifSeenMap(seenMap);
+                  }}
+                  className="px-2.5 py-1 rounded-lg amay-card text-[11px] font-bold text-[#1457E0] dark:text-[#5AA2FF] inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Refresh Views</span>
+                </button>
               </div>
 
               {notificationsList.length === 0 ? (
@@ -2291,43 +2382,87 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   No notifications sent yet. Send one on the left!
                 </p>
               ) : (
-                <div className="max-h-[460px] overflow-y-auto space-y-3 pr-1">
-                  {notificationsList.map((n) => (
-                    <div
-                      key={n.id}
-                      className="rounded-2xl p-3.5 bg-[#1457E0]/[0.04] dark:bg-white/[0.04] border border-[#1846AA]/10 dark:border-white/10 space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                            n.target === "all"
-                              ? "bg-[#1457E0]/12 text-[#1457E0] dark:text-[#5AA2FF]"
-                              : "bg-amber-500/15 text-amber-800 dark:text-amber-300"
-                          }`}
-                        >
-                          {n.target === "all" ? <Users className="w-3 h-3" /> : <User className="w-3 h-3" />}
-                          <span>{n.target === "all" ? "Everyone" : `To: ${n.targetName || "Candidate"}`}</span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteNotification(n.id)}
-                          aria-label="Delete notification"
-                          className="text-[#5A6A92] hover:text-[#D92D3A] p-1 cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                <div className="max-h-[520px] overflow-y-auto space-y-3 pr-1">
+                  {notificationsList.map((n) => {
+                    const seen = notifSeenMap[n.id] || { count: 0, names: [] };
+                    const isExpanded = expandedSeenNotifId === n.id;
+                    return (
+                      <div
+                        key={n.id}
+                        className="rounded-2xl p-3.5 bg-[#1457E0]/[0.04] dark:bg-white/[0.04] border border-[#1846AA]/10 dark:border-white/10 space-y-2"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                              n.target === "all"
+                                ? "bg-[#1457E0]/12 text-[#1457E0] dark:text-[#5AA2FF]"
+                                : "bg-amber-500/15 text-amber-800 dark:text-amber-300"
+                            }`}
+                          >
+                            {n.target === "all" ? <Users className="w-3 h-3" /> : <User className="w-3 h-3" />}
+                            <span>{n.target === "all" ? "Everyone" : `To: ${n.targetName || "Candidate"}`}</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteNotification(n.id)}
+                            aria-label="Delete notification"
+                            className="text-[#5A6A92] hover:text-[#D92D3A] p-1 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <strong className="block text-sm font-extrabold text-[#0B1B4D] dark:text-white">
+                          {n.title}
+                        </strong>
+                        <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] whitespace-pre-line">
+                          {n.message}
+                        </p>
+
+                        {n.imageUrl && (
+                          <div className="overflow-hidden rounded-xl border border-[#1846AA]/10 dark:border-white/10">
+                            <img
+                              src={n.imageUrl}
+                              alt={n.title}
+                              referrerPolicy="no-referrer"
+                              className="w-full max-h-32 object-cover block"
+                            />
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedSeenNotifId(isExpanded ? null : n.id)
+                            }
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 cursor-pointer"
+                          >
+                            <Eye className="w-3 h-3" />
+                            <span>
+                              Seen by {seen.count} {seen.count === 1 ? "person" : "people"}
+                            </span>
+                          </button>
+
+                          <span className="text-[10px] text-[#5A6A92] dark:text-[#93A3CC] font-mono-nums">
+                            {new Date(n.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+
+                        {isExpanded && (
+                          <div className="text-[11px] text-[#5A6A92] dark:text-[#93A3CC] bg-white/70 dark:bg-black/20 rounded-xl p-2">
+                            {seen.names.length > 0 ? (
+                              <span>
+                                <strong>Seen by:</strong> {seen.names.join(", ")}
+                              </span>
+                            ) : (
+                              <span>No one has opened this message yet.</span>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <strong className="block text-sm font-extrabold text-[#0B1B4D] dark:text-white">
-                        {n.title}
-                      </strong>
-                      <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] whitespace-pre-line">
-                        {n.message}
-                      </p>
-                      <div className="text-[10px] text-[#5A6A92] dark:text-[#93A3CC] font-mono-nums">
-                        {new Date(n.createdAt).toLocaleString()}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

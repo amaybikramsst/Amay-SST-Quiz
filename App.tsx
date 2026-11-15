@@ -44,6 +44,7 @@ import {
   logCandidateTap,
   registerPlayer,
   reportAppInstallStatus,
+  reportNotificationsSeen,
   submitQuizAttempt,
   type AppNotification,
   type BotOverride,
@@ -135,18 +136,30 @@ export default function App() {
     return myNotifications.find((n) => !seenNotifIds.includes(n.id)) || null;
   }, [impersonated, myNotifications, seenNotifIds, showBadgeModal, showInstallModal, showNotifInbox, view]);
 
-  const markNotifsSeen = useCallback((ids: string[]) => {
-    if (ids.length === 0) return;
-    setSeenNotifIds((prev) => {
-      const next = Array.from(new Set([...ids, ...prev])).slice(0, 100);
-      try {
-        localStorage.setItem("amaysst_seen_notifs", JSON.stringify(next));
-      } catch {
-        // ignore storage errors
+  const markNotifsSeen = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return;
+      setSeenNotifIds((prev) => {
+        const next = Array.from(new Set([...ids, ...prev])).slice(0, 100);
+        try {
+          localStorage.setItem("amaysst_seen_notifs", JSON.stringify(next));
+        } catch {
+          // ignore storage errors
+        }
+        return next;
+      });
+      if (!impersonated && profile.name) {
+        reportNotificationsSeen(guestId, profile.name, ids);
       }
-      return next;
-    });
-  }, []);
+    },
+    [guestId, impersonated, profile.name]
+  );
+
+  // Immediately log view receipt when a student sees the notification popup on screen
+  useEffect(() => {
+    if (!activePopupNotif || impersonated || !profile.name) return;
+    reportNotificationsSeen(guestId, profile.name, [activePopupNotif.id]);
+  }, [activePopupNotif, guestId, impersonated, profile.name]);
 
   const flushingRef = useRef(false);
   const lastSyncedNameRef = useRef("");

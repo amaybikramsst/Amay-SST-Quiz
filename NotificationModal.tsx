@@ -1,5 +1,5 @@
 import React from "react";
-import { Bell, ExternalLink, Sparkles, User, Users, X } from "lucide-react";
+import { Bell, ExternalLink, X } from "lucide-react";
 import type { AppNotification } from "../lib/supabase";
 
 interface ActionProps {
@@ -92,8 +92,6 @@ export const NotificationPopupModal: React.FC<PopupProps> = ({
   onOpenRanks,
   onDismiss,
 }) => {
-  const isPersonal = notification.target === "candidate";
-
   return (
     <div
       className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
@@ -102,7 +100,7 @@ export const NotificationPopupModal: React.FC<PopupProps> = ({
       onClick={onDismiss}
     >
       <div
-        className="w-full max-w-sm amay-card rounded-[30px] p-6 space-y-4 text-center relative"
+        className="w-full max-w-sm max-h-[88vh] overflow-y-auto amay-card rounded-[30px] p-6 space-y-4 text-center relative"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -122,20 +120,9 @@ export const NotificationPopupModal: React.FC<PopupProps> = ({
               className="w-16 h-16 rounded-full object-cover border-[3px] border-[#1457E0] shadow-md"
             />
             <span className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-[#1457E0] text-white flex items-center justify-center shadow">
-              {isPersonal ? <Sparkles className="w-3.5 h-3.5" /> : <Bell className="w-3.5 h-3.5" />}
+              <Bell className="w-3.5 h-3.5" />
             </span>
           </div>
-
-          <span
-            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${
-              isPersonal
-                ? "bg-amber-500/15 text-amber-800 dark:text-amber-300"
-                : "bg-[#1457E0]/12 text-[#1457E0] dark:text-[#5AA2FF]"
-            }`}
-          >
-            {isPersonal ? <User className="w-3 h-3" /> : <Users className="w-3 h-3" />}
-            <span>{isPersonal ? "Personal Message for You" : "Announcement from Amay"}</span>
-          </span>
         </div>
 
         <div className="space-y-1.5">
@@ -146,6 +133,17 @@ export const NotificationPopupModal: React.FC<PopupProps> = ({
             {notification.message}
           </p>
         </div>
+
+        {notification.imageUrl && (
+          <div className="overflow-hidden rounded-2xl border border-[#1846AA]/12 dark:border-white/10 bg-black/5">
+            <img
+              src={notification.imageUrl}
+              alt={notification.title}
+              referrerPolicy="no-referrer"
+              className="w-full max-h-56 object-cover block"
+            />
+          </div>
+        )}
 
         <div className="space-y-2 pt-1">
           <NotificationActionButton
@@ -199,14 +197,9 @@ export const NotificationInboxModal: React.FC<InboxProps> = ({
             <span className="w-9 h-9 rounded-full bg-[#1457E0]/12 text-[#1457E0] dark:text-[#5AA2FF] flex items-center justify-center">
               <Bell className="w-4 h-4" />
             </span>
-            <div>
-              <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-white leading-tight">
-                Notifications
-              </h2>
-              <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
-                Updates & personal messages
-              </p>
-            </div>
+            <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-white leading-tight">
+              Notifications
+            </h2>
           </div>
           <button
             type="button"
@@ -227,57 +220,40 @@ export const NotificationInboxModal: React.FC<InboxProps> = ({
               </p>
             </div>
           ) : (
-            notifications.map((n) => {
-              const isPersonal = n.target === "candidate";
-              return (
-                <div
-                  key={n.id}
-                  className={`rounded-[22px] p-4 space-y-2.5 border ${
-                    isPersonal
-                      ? "bg-amber-500/8 border-amber-500/25"
-                      : "bg-[#1457E0]/[0.05] dark:bg-white/[0.04] border-[#1846AA]/12 dark:border-white/10"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2 text-[11px]">
-                    <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-extrabold ${
-                        isPersonal
-                          ? "bg-amber-500/15 text-amber-800 dark:text-amber-300"
-                          : "bg-[#1457E0]/12 text-[#1457E0] dark:text-[#5AA2FF]"
-                      }`}
-                    >
-                      {isPersonal ? <User className="w-3 h-3" /> : <Users className="w-3 h-3" />}
-                      <span>{isPersonal ? "Personal" : "Everyone"}</span>
-                    </span>
-                    <span className="text-[#5A6A92] dark:text-[#93A3CC] font-mono-nums">
-                      {new Date(n.createdAt).toLocaleString([], {
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </div>
-
-                  <div>
-                    <strong className="block text-[15px] font-extrabold text-[#0B1B4D] dark:text-white">
-                      {n.title}
-                    </strong>
-                    <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC] mt-1 whitespace-pre-line">
-                      {n.message}
-                    </p>
-                  </div>
-
-                  <NotificationActionButton
-                    notif={n}
-                    latestVideoUrl={latestVideoUrl}
-                    onPlayNow={onPlayNow}
-                    onOpenRanks={onOpenRanks}
-                    onClose={onClose}
-                  />
+            notifications.map((n) => (
+              <div
+                key={n.id}
+                className="rounded-[22px] p-4 space-y-2.5 border bg-[#1457E0]/[0.05] dark:bg-white/[0.04] border-[#1846AA]/12 dark:border-white/10"
+              >
+                <div>
+                  <strong className="block text-[15px] font-extrabold text-[#0B1B4D] dark:text-white">
+                    {n.title}
+                  </strong>
+                  <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC] mt-1 whitespace-pre-line">
+                    {n.message}
+                  </p>
                 </div>
-              );
-            })
+
+                {n.imageUrl && (
+                  <div className="overflow-hidden rounded-xl border border-[#1846AA]/12 dark:border-white/10 bg-black/5">
+                    <img
+                      src={n.imageUrl}
+                      alt={n.title}
+                      referrerPolicy="no-referrer"
+                      className="w-full max-h-52 object-cover block"
+                    />
+                  </div>
+                )}
+
+                <NotificationActionButton
+                  notif={n}
+                  latestVideoUrl={latestVideoUrl}
+                  onPlayNow={onPlayNow}
+                  onOpenRanks={onOpenRanks}
+                  onClose={onClose}
+                />
+              </div>
+            ))
           )}
         </div>
       </div>

@@ -591,6 +591,7 @@ export interface AppNotification {
   targetName?: string;
   title: string;
   message: string;
+  imageUrl?: string;
   actionType?: NotificationActionType;
   actionLabel?: string;
   actionUrl?: string;
@@ -598,6 +599,7 @@ export interface AppNotification {
 }
 
 const LOCAL_NOTIFS_KEY = "amaysst_notifications";
+const ACKED_NOTIFS_KEY = "amaysst_acked_notifs";
 
 export function loadLocalNotifications(): AppNotification[] {
   try {
@@ -697,6 +699,94 @@ export async function adminDeleteNotification(id: string): Promise<{
   const res = await persistNotificationsList(nextList);
   return { ...res, list: nextList };
 }
+
+export async function reportNotificationsSeen(
+  guestId: string,
+  candidateName: string,
+  notifIds: string[]
+): Promise<void> {
+  if (!guestId || !candidateName || notifIds.length === 0) return;
+
+  let acked: string[] = [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ACKED_NOTIFS_KEY) || "[]");
+    if (Array.isArray(parsed)) acked = parsed as string[];
+  } catch {
+    acked = [];
+  }
+
+  const ackSet = new Set(acked);
+  const toReport = notifIds.filter((id) => id && !ackSet.has(id));
+  if (toReport.length === 0) return;
+
+  for (const id of toReport) {
+    ackSet.add(id);
+  }
+  try {
+    localStorage.setItem(ACKED_NOTIFS_KEY, JSON.stringify(Array.from(ackSet).slice(-150)));
+  } catch {
+    // ignore storage errors
+  }
+
+  for (const id of toReport) {
+    await logCandidateTap(guestId, candidateName, "Notification Seen", id, "notif");
+  }
+}
+
+export async function adminLoadNotificationSeenMap(): Promise<
+  Record<string, { count: number; names: string[] }>
+> {
+  const viewersByNotif = new Map<string, Map<string, string>>();
+
+  const addRecord = (notifId: string, guestUuid: string, name: string) => {
+    if (!notifId || !guestUuid) return;
+    let map = viewersByNotif.get(notifId);
+    if (!map) {
+      map = new Map<string, string>();
+      viewersByNotif.set(notifId, map);
+    }
+    if (!map.has(guestUuid)) {
+      map.set(guestUuid, name || "Student");
+    }
+  };
+
+  try {
+    const { data, error } = await supabase
+      .from("candidate_events")
+      .select("guest_uuid, candidate_name, detail")
+      .eq("action", "Notification Seen")
+      .order("created_at", { ascending: false })
+      .limit(5000);
+
+    if (!error && Array.isArray(data)) {
+      for (const row of data) {
+        addRecord(
+          String(row.detail || ""),
+          String(row.guest_uuid || ""),
+          String(row.candidate_name || "Student")
+        );
+      }
+    }
+  } catch {
+    // fallback to local events below
+  }
+
+  for (const ev of getLocalTaps()) {
+    if (ev.action === "Notification Seen") {
+      addRecord(ev.detail, ev.guest_uuid, ev.candidate_name);
+    }
+  }
+
+  const out: Record<string, { count: number; names: string[] }> = {};
+  for (const [notifId, viewers] of viewersByNotif.entries()) {
+    out[notifId] = {
+      count: viewers.size,
+      names: Array.from(viewers.values()),
+    };
+  }
+  return out;
+}
+
 
 
 
