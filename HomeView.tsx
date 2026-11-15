@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { ChevronRight, Play, Crown, Flame, Swords, Zap } from "lucide-react";
 import { SOCIAL_LINKS } from "../data/benchmarks";
-import { todayUTC, XP_PER_LEVEL, type StudentProfile } from "../lib/quizEngine";
+import { todayIST, XP_PER_LEVEL, type StudentProfile } from "../lib/quizEngine";
 import { deriveYouTubeThumbnail, type LatestVideoConfig } from "../lib/supabase";
 import type { RankEntry } from "./RankView";
 
@@ -26,13 +26,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onOpenRank,
   onOpenBadge,
 }) => {
-  const [raceMode, setRaceMode] = useState<"all" | "td">("all");
+  const [raceMode, setRaceMode] = useState<"td" | "all">("td");
   const [failedThumbSrc, setFailedThumbSrc] = useState<string | null>(null);
 
   const candidateThumb = latestVideo.thumbnailUrl || deriveYouTubeThumbnail(latestVideo.url);
   const resolvedThumb = failedThumbSrc !== candidateThumb ? candidateThumb : "";
 
-  const myTodayXp = profile.td?.d === todayUTC(0) ? profile.td.xp : 0;
+  const myTodayXp = profile.td?.d === todayIST(0) ? profile.td.xp : 0;
 
   const raceData = useMemo(() => {
     const list = raceMode === "all" ? allTimeEntries : todayEntries;
@@ -178,17 +178,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="inline-flex p-0.5 rounded-full bg-[#1457E0]/10 dark:bg-white/10 text-xs font-bold shrink-0">
             <button
               type="button"
-              onClick={() => setRaceMode("all")}
-              className={`px-2.5 py-1 rounded-full transition-colors cursor-pointer ${
-                raceMode === "all"
-                  ? "bg-[#1457E0] text-white"
-                  : "text-[#5A6A92] dark:text-[#93A3CC]"
-              }`}
-            >
-              Overall
-            </button>
-            <button
-              type="button"
               onClick={() => setRaceMode("td")}
               className={`px-2.5 py-1 rounded-full transition-colors cursor-pointer ${
                 raceMode === "td"
@@ -197,6 +186,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
               }`}
             >
               Today
+            </button>
+            <button
+              type="button"
+              onClick={() => setRaceMode("all")}
+              className={`px-2.5 py-1 rounded-full transition-colors cursor-pointer ${
+                raceMode === "all"
+                  ? "bg-[#1457E0] text-white"
+                  : "text-[#5A6A92] dark:text-[#93A3CC]"
+              }`}
+            >
+              Overall
             </button>
           </div>
         </div>

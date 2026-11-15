@@ -125,11 +125,38 @@ export async function submitQuizAttempt(
   }
 }
 
-export async function getLeaderboard(guestId: string): Promise<LiveLeaderRow[] | null> {
+export interface LeaderboardFetchResult {
+  rows: LiveLeaderRow[];
+  isIstSynced: boolean;
+}
+
+export async function getMyTodayIST(guestId: string): Promise<number | null> {
+  try {
+    const { data, error } = await supabase.rpc("get_my_today_ist", { p_guest: guestId });
+    if (error || data === null || data === undefined) return null;
+    const num = Number(data);
+    return Number.isFinite(num) ? Math.max(0, num) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getLeaderboard(guestId: string): Promise<LeaderboardFetchResult | null> {
+  try {
+    const { data: istData, error: istErr } = await supabase.rpc("get_leaderboard_ist", {
+      p_guest: guestId,
+    });
+    if (!istErr && Array.isArray(istData)) {
+      return { rows: istData as LiveLeaderRow[], isIstSynced: true };
+    }
+  } catch {
+    // Fallback to legacy get_leaderboard below
+  }
+
   try {
     const { data, error } = await supabase.rpc("get_leaderboard", { p_guest: guestId });
     if (error || !Array.isArray(data)) return null;
-    return data as LiveLeaderRow[];
+    return { rows: data as LiveLeaderRow[], isIstSynced: false };
   } catch {
     return null;
   }

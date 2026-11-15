@@ -93,6 +93,12 @@ export function calculateQuizScore(
   return { c, w, sk, n, posXp, negXp, bonusXp, xp };
 }
 
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+export function todayIST(offsetDays = 0): string {
+  return new Date(Date.now() + IST_OFFSET_MS - offsetDays * 864e5).toISOString().slice(0, 10);
+}
+
 export function todayUTC(offsetDays = 0): string {
   return new Date(Date.now() - offsetDays * 864e5).toISOString().slice(0, 10);
 }

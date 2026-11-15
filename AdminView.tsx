@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { BENCHMARK_PLAYERS } from "../data/benchmarks";
 import type { SubjectKey } from "../data/questions";
-import { resolveBotRoster, type ResolvedBotPlayer } from "../lib/botSimulator";
+import { getIstClock, resolveBotRoster, type ResolvedBotPlayer } from "../lib/botSimulator";
 import { parseBulkQuestionFile, type ParsedBulkQuestion } from "../lib/questionParser";
 import {
   adminDeleteNotification,
@@ -285,7 +285,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setSelectedCandidate(cand);
     setEditName(cand.display_name || "");
     setEditXp(cand.xp || 0);
-    setEditTodayXp(cand.today_xp || 0);
+    setEditTodayXp(getCandidateTodayIstXp(cand));
     setEditStreak(cand.streak || 0);
     setEditQuizzes(cand.quizzes_count || 0);
   };
@@ -317,7 +317,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       guestUuid: cand.guest_uuid,
       name: cand.display_name,
       xp: cand.xp || 0,
-      todayXp: cand.today_xp || 0,
+      todayXp: getCandidateTodayIstXp(cand),
       streak: cand.streak || 0,
       quizzes: cand.quizzes_count || 0,
       perfect: cand.perfect_count || 0,
@@ -780,10 +780,33 @@ export const AdminView: React.FC<AdminViewProps> = ({
     });
   }, [candidates, installFilter, installStatusMap, searchQuery]);
 
+  const istTodayXpMap = useMemo(() => {
+    const todayKey = getIstClock(botClockTick).dateKey;
+    const byGuest = new Map<string, number>();
+    const byName = new Map<string, number>();
+    for (const a of attempts) {
+      const ms = Date.parse(a.created_at);
+      if (!Number.isFinite(ms)) continue;
+      if (getIstClock(ms).dateKey !== todayKey) continue;
+      const earned = Number(a.xp_earned) || 0;
+      if (a.guest_uuid) {
+        byGuest.set(a.guest_uuid, (byGuest.get(a.guest_uuid) || 0) + earned);
+      } else if (a.candidate_name) {
+        byName.set(a.candidate_name, (byName.get(a.candidate_name) || 0) + earned);
+      }
+    }
+    return { byGuest, byName };
+  }, [attempts, botClockTick]);
+
+  const getCandidateTodayIstXp = (c: AdminCandidateRow): number => {
+    const val = istTodayXpMap.byGuest.get(c.guest_uuid) ?? istTodayXpMap.byName.get(c.display_name) ?? 0;
+    return Math.max(0, val);
+  };
+
   const botSchedule = useMemo(() => {
-    const realTodayScores = candidates.filter((c) => !c.hidden).map((c) => c.today_xp || 0);
+    const realTodayScores = candidates.filter((c) => !c.hidden).map((c) => getCandidateTodayIstXp(c));
     return resolveBotRoster(botOverrides, realTodayScores, botClockTick);
-  }, [botClockTick, botOverrides, candidates]);
+  }, [botClockTick, botOverrides, candidates, istTodayXpMap]);
 
   const filteredBots = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -1163,7 +1186,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         <td className="py-3 px-4 font-mono-nums font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
                           {c.xp} XP
                         </td>
-                        <td className="py-3 px-4 font-mono-nums">{c.today_xp || 0}</td>
+                        <td className="py-3 px-4 font-mono-nums">{getCandidateTodayIstXp(c)}</td>
                         <td className="py-3 px-4 font-mono-nums">{c.streak}🔥</td>
                         <td className="py-3 px-4 font-mono-nums">{c.quizzes_count}</td>
                         <td className="py-3 px-4">

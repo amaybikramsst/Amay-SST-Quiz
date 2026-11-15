@@ -25,6 +25,7 @@ import {
   QUIZ_LENGTHS,
   saveProfile,
   saveQueue,
+  todayIST,
   todayUTC,
   type ActiveQuizState,
   type StudentProfile,
@@ -38,6 +39,7 @@ import {
   fetchNotifications,
   getLeaderboard,
   getMyStats,
+  getMyTodayIST,
   loadBotOverrides,
   loadLocalLatestVideo,
   loadLocalNotifications,
@@ -77,6 +79,7 @@ export default function App() {
     mergeDynamicQuestions([])
   );
   const [livePlayers, setLivePlayers] = useState<LiveLeaderRow[]>([]);
+  const [liveLeaderboardIstSynced, setLiveLeaderboardIstSynced] = useState(false);
   const [botOverrides, setBotOverrides] = useState<Record<string, BotOverride>>(() => loadBotOverrides());
   const [botClockTick, setBotClockTick] = useState<number>(() => Date.now());
   const [latestVideo, setLatestVideo] = useState<LatestVideoConfig>(() => loadLocalLatestVideo());
@@ -249,56 +252,62 @@ export default function App() {
   }, [guestId, impersonated, isInstalled, profile.name]);
 
   // Sync cloud stats without overwriting client-side 1/4 negative-marked XP,
-  // while still honoring admin manual XP edits from Supabase!
-  const applyCloudStats = useCallback((stats: CloudStats, fromAdminCheck = false) => {
-    if (loadQueue().length > 0) return;
-    const current = loadProfile();
-    const beforeXp = current.xp;
-    let computedAfterXp = beforeXp;
-    if (fromAdminCheck) {
-      if (current.lastCloudXp === undefined) {
-        computedAfterXp = Math.max(current.xp, stats.xp);
-      } else if (stats.xp !== current.lastCloudXp) {
-        const delta = stats.xp - current.lastCloudXp;
-        computedAfterXp = Math.max(0, current.xp + delta);
-      }
-    }
-
-    setProfile((prev) => {
-      let nextXp = prev.xp;
-      let nextTodayXp = prev.td?.d === todayUTC(0) ? prev.td.xp : 0;
-
+  // while honoring admin manual XP edits and strictly resetting Today XP at 12:00 AM IST!
+  const applyCloudStats = useCallback(
+    (stats: CloudStats, fromAdminCheck = false, cloudTodayIst: number | null = null) => {
+      if (loadQueue().length > 0) return;
+      const current = loadProfile();
+      const beforeXp = current.xp;
+      let computedAfterXp = beforeXp;
       if (fromAdminCheck) {
-        if (prev.lastCloudXp === undefined) {
-          nextXp = Math.max(prev.xp, stats.xp);
-          nextTodayXp = Math.max(nextTodayXp, stats.today_xp || 0);
-        } else if (stats.xp !== prev.lastCloudXp) {
-          // Admin edited XP directly in Supabase
-          const delta = stats.xp - prev.lastCloudXp;
-          nextXp = Math.max(0, prev.xp + delta);
+        if (current.lastCloudXp === undefined) {
+          computedAfterXp = Math.max(current.xp, stats.xp);
+        } else if (stats.xp !== current.lastCloudXp) {
+          const delta = stats.xp - current.lastCloudXp;
+          computedAfterXp = Math.max(0, current.xp + delta);
         }
       }
 
-      const next: StudentProfile = {
-        ...prev,
-        xp: nextXp,
-        streak: Math.max(prev.streak, stats.streak),
-        quizzes: Math.max(prev.quizzes, stats.quizzes),
-        perfect: Math.max(prev.perfect, stats.perfect),
-        td: { d: todayUTC(0), xp: nextTodayXp },
-        lastCloudXp: stats.xp,
-      };
-      saveProfile(next);
-      return next;
-    });
+      const todayKey = todayIST(0);
+      setProfile((prev) => {
+        let nextXp = prev.xp;
+        let nextTodayXp = prev.td?.d === todayKey ? prev.td.xp : 0;
 
-    if (fromAdminCheck) {
-      const crossed = getCrossedXpMilestone(beforeXp, computedAfterXp);
-      if (crossed !== null) {
-        launchMilestoneConfetti(crossed);
+        if (fromAdminCheck) {
+          if (prev.lastCloudXp === undefined) {
+            nextXp = Math.max(prev.xp, stats.xp);
+          } else if (stats.xp !== prev.lastCloudXp) {
+            // Admin edited XP directly in Supabase
+            const delta = stats.xp - prev.lastCloudXp;
+            nextXp = Math.max(0, prev.xp + delta);
+          }
+          if (cloudTodayIst !== null) {
+            nextTodayXp = Math.max(nextTodayXp, cloudTodayIst);
+          }
+        }
+
+        const next: StudentProfile = {
+          ...prev,
+          xp: nextXp,
+          streak: Math.max(prev.streak, stats.streak),
+          quizzes: Math.max(prev.quizzes, stats.quizzes),
+          perfect: Math.max(prev.perfect, stats.perfect),
+          td: { d: todayKey, xp: nextTodayXp },
+          lastCloudXp: stats.xp,
+        };
+        saveProfile(next);
+        return next;
+      });
+
+      if (fromAdminCheck) {
+        const crossed = getCrossedXpMilestone(beforeXp, computedAfterXp);
+        if (crossed !== null) {
+          launchMilestoneConfetti(crossed);
+        }
       }
-    }
-  }, []);
+    },
+    []
+  );
 
   const refreshDynamicQuestions = useCallback(async () => {
     const rows = await fetchDynamicQuestions();
@@ -309,9 +318,10 @@ export default function App() {
     async (force = false, guestOverride?: string) => {
       if (!force && Date.now() - lastLeaderboardFetchRef.current < 15000) return;
       lastLeaderboardFetchRef.current = Date.now();
-      const rows = await getLeaderboard(guestOverride ?? effectiveGuestId);
-      if (rows) {
-        setLivePlayers(rows);
+      const res = await getLeaderboard(guestOverride ?? effectiveGuestId);
+      if (res) {
+        setLivePlayers(res.rows);
+        setLiveLeaderboardIstSynced(res.isIstSynced);
       }
     },
     [effectiveGuestId]
@@ -373,8 +383,8 @@ export default function App() {
       const current = loadProfile();
       await syncIdentity(current);
       if (loadQueue().length === 0 && current.name) {
-        const stats = await getMyStats(guestId);
-        if (stats) applyCloudStats(stats, true);
+        const [stats, todayIst] = await Promise.all([getMyStats(guestId), getMyTodayIST(guestId)]);
+        if (stats) applyCloudStats(stats, true, todayIst);
       }
       await flushQueue();
       await refreshLeaderboard(true);
@@ -444,7 +454,7 @@ export default function App() {
       if (impersonated) {
         setImpersonated((prev) => {
           if (!prev) return prev;
-          const today = todayUTC(0);
+          const today = todayIST(0);
           const prevTodayXp = prev.profile.td?.d === today ? prev.profile.td.xp : 0;
           return {
             ...prev,
@@ -459,8 +469,8 @@ export default function App() {
         });
       } else {
         setProfile((prev) => {
-          const today = todayUTC(0);
-          const yesterday = todayUTC(1);
+          const today = todayIST(0);
+          const yesterday = todayIST(1);
           const nextStreak = prev.last === today ? prev.streak : prev.last === yesterday ? prev.streak + 1 : 1;
           const prevTodayXp = prev.td?.d === today ? prev.td.xp : 0;
           const nextXp = Math.max(0, prev.xp + score.xp);
@@ -583,11 +593,11 @@ export default function App() {
         name: target.name,
         xp: target.xp,
         streak: target.streak,
-        last: todayUTC(0),
+        last: todayIST(0),
         quizzes: target.quizzes,
         perfect: target.perfect,
         theme: profile.theme,
-        td: { d: todayUTC(0), xp: target.todayXp },
+        td: { d: todayIST(0), xp: target.todayXp },
       };
       setImpersonated({
         guestUuid: target.guestUuid,
@@ -626,29 +636,42 @@ export default function App() {
     recordTap("Theme Toggle", `Switched to ${nextTheme}`, "me");
   };
 
-  // Unified All-Time & Today Leaderboards (150 daily-active bots + live Supabase students, zero distinction)
+  // Unified Overall & Today Leaderboards (all players reset Today XP to 0 at 12:00 AM IST)
   const { allTimeEntries, todayEntries } = useMemo(() => {
-    const myToday = effectiveProfile.td?.d === todayUTC(0) ? effectiveProfile.td.xp : 0;
-    const realTodayScores = [myToday, ...livePlayers.map((l) => l.today_xp || 0)];
+    void botClockTick;
+    const todayKeyIst = todayIST(0);
+    const myToday = effectiveProfile.td?.d === todayKeyIst ? effectiveProfile.td.xp : 0;
 
+    // Prevent stale UTC today_xp (12:00 AM - 5:29 AM IST) if legacy get_leaderboard fallback was used
+    const isUtcMismatchWindow = !liveLeaderboardIstSynced && todayKeyIst !== todayUTC(0);
+    const resolvedLivePlayers = livePlayers.map((l) => ({
+      name: l.name,
+      xp: l.xp || 0,
+      todayXp: isUtcMismatchWindow ? 0 : Math.max(0, l.today_xp || 0),
+    }));
+
+    const realTodayScores = [myToday, ...resolvedLivePlayers.map((l) => l.todayXp)];
     const { bots } = resolveBotRoster(botOverrides, realTodayScores, botClockTick);
     const resolvedBots = bots.filter((b) => b.originalName !== impersonated?.botOriginalName);
 
+    const sortWithMePriority = (a: RankEntry, b: RankEntry) => {
+      if (b.xp !== a.xp) return b.xp - a.xp;
+      if (a.isMe !== b.isMe) return a.isMe ? -1 : 1;
+      return 0;
+    };
+
     const allList: RankEntry[] = [
       ...resolvedBots.map((b) => ({ name: b.name, xp: b.xp, isMe: false })),
-      ...livePlayers.map((l) => ({ name: l.name, xp: l.xp || 0, isMe: false })),
+      ...resolvedLivePlayers.map((l) => ({ name: l.name, xp: l.xp, isMe: false })),
       { name: effectiveProfile.name || "You", xp: effectiveProfile.xp, isMe: true },
-    ].sort((a, b) => b.xp - a.xp);
+    ].sort(sortWithMePriority);
 
-    // Pre-sort bots by overall XP so when everyone resets to 0 XP at 12:00 AM, tie ordering stays clean
     const sortedBotsByToday = [...resolvedBots].sort((a, b) => b.todayXp - a.todayXp || b.xp - a.xp);
     const tdList: RankEntry[] = [
       ...sortedBotsByToday.map((b) => ({ name: b.name, xp: b.todayXp, isMe: false })),
-      ...livePlayers
-        .filter((l) => (l.today_xp || 0) > 0)
-        .map((l) => ({ name: l.name, xp: l.today_xp || 0, isMe: false })),
+      ...resolvedLivePlayers.map((l) => ({ name: l.name, xp: l.todayXp, isMe: false })),
       { name: effectiveProfile.name || "You", xp: myToday, isMe: true },
-    ].sort((a, b) => b.xp - a.xp);
+    ].sort(sortWithMePriority);
 
     return { allTimeEntries: allList, todayEntries: tdList };
   }, [
@@ -658,6 +681,7 @@ export default function App() {
     effectiveProfile.td,
     effectiveProfile.xp,
     impersonated?.botOriginalName,
+    liveLeaderboardIstSynced,
     livePlayers,
   ]);
 

@@ -13,18 +13,21 @@ interface RankViewProps {
 }
 
 export const RankView: React.FC<RankViewProps> = ({ allTimeEntries, todayEntries }) => {
-  const [period, setPeriod] = useState<"all" | "td">("all");
+  const [period, setPeriod] = useState<"td" | "all">("td");
   const myRowRef = useRef<HTMLDivElement | null>(null);
 
-  const list = period === "all" ? allTimeEntries : todayEntries;
+  const list = period === "td" ? todayEntries : allTimeEntries;
   const myEntry = list.find((e) => e.isMe);
   const myXp = myEntry ? myEntry.xp : 0;
   const myRank = 1 + list.filter((e) => !e.isMe && e.xp > myXp).length;
 
-  const first = list[0];
-  const second = list[1];
-  const third = list[2];
-  const rest = list.slice(3);
+  const top20 = list.slice(0, 20);
+  const isMeInTop20 = top20.some((e) => e.isMe);
+
+  const first = top20[0];
+  const second = top20[1];
+  const third = top20[2];
+  const rest = top20.slice(3);
 
   const jumpToMe = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -49,19 +52,8 @@ export const RankView: React.FC<RankViewProps> = ({ allTimeEntries, todayEntries
         Leaderboard
       </h1>
 
-      {/* Overall / Today segmented pill */}
+      {/* Today (left, default) / Overall (right) segmented pill */}
       <div className="amay-card rounded-[30px] p-1.5 flex gap-1">
-        <button
-          type="button"
-          onClick={() => setPeriod("all")}
-          className={`flex-1 py-2.5 rounded-[24px] text-sm font-bold transition-all cursor-pointer ${
-            period === "all"
-              ? "bg-gradient-to-r from-[#2B9BF6] to-[#0B57DD] text-white shadow-[0_8px_16px_-10px_rgba(11,87,221,0.8)]"
-              : "text-[#5A6A92] dark:text-[#93A3CC]"
-          }`}
-        >
-          Overall
-        </button>
         <button
           type="button"
           onClick={() => setPeriod("td")}
@@ -73,10 +65,21 @@ export const RankView: React.FC<RankViewProps> = ({ allTimeEntries, todayEntries
         >
           Today
         </button>
+        <button
+          type="button"
+          onClick={() => setPeriod("all")}
+          className={`flex-1 py-2.5 rounded-[24px] text-sm font-bold transition-all cursor-pointer ${
+            period === "all"
+              ? "bg-gradient-to-r from-[#2B9BF6] to-[#0B57DD] text-white shadow-[0_8px_16px_-10px_rgba(11,87,221,0.8)]"
+              : "text-[#5A6A92] dark:text-[#93A3CC]"
+          }`}
+        >
+          Overall
+        </button>
       </div>
 
       <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC] px-1">
-        You are <strong className="text-[#0B1B4D] dark:text-white">#{myRank}</strong> of {list.length} ·{" "}
+        Showing Top 20 · You are <strong className="text-[#0B1B4D] dark:text-white">#{myRank}</strong> of {list.length} ·{" "}
         <a
           href="#mine"
           onClick={jumpToMe}
@@ -87,7 +90,7 @@ export const RankView: React.FC<RankViewProps> = ({ allTimeEntries, todayEntries
       </p>
 
       {/* Top 3 Crown & Ribbon Podium */}
-      {list.length > 0 && (
+      {top20.length > 0 && (
         <section className="amay-card rounded-[30px] px-3 pt-4 pb-5">
           <div className="grid grid-cols-3 gap-2 items-end">
             {podiumSlots.map(({ rank, entry, badgeSize, cardPadding }) => {
@@ -125,7 +128,7 @@ export const RankView: React.FC<RankViewProps> = ({ allTimeEntries, todayEntries
         </section>
       )}
 
-      {/* Ranks #4 onwards — unified style */}
+      {/* Ranks #4 to #20 */}
       {rest.length > 0 && (
         <div className="amay-card rounded-[30px] px-4 py-2 divide-y divide-[#1846AA]/10 dark:divide-white/10">
           {rest.map((entry, offset) => {
@@ -153,6 +156,36 @@ export const RankView: React.FC<RankViewProps> = ({ allTimeEntries, todayEntries
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Pinned Your Rank card at bottom when candidate is below Top 20 */}
+      {!isMeInTop20 && myEntry && (
+        <div className="space-y-2">
+          <div className="text-center text-xs font-bold tracking-widest text-[#5A6A92] dark:text-[#93A3CC]">
+            • • •
+          </div>
+          <div
+            ref={myRowRef}
+            className="amay-card rounded-[26px] px-4 py-3.5 ring-2 ring-[#1457E0] dark:ring-[#5AA2FF] bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 flex items-center justify-between gap-3"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <strong className="px-2.5 py-1 rounded-xl bg-[#1457E0] text-white text-sm font-extrabold font-mono-nums shrink-0">
+                #{myRank}
+              </strong>
+              <div className="min-w-0">
+                <span className="block text-[11px] font-bold uppercase tracking-wide text-[#1457E0] dark:text-[#5AA2FF]">
+                  Your Rank
+                </span>
+                <span className="block text-base font-extrabold text-[#0B1B4D] dark:text-white truncate">
+                  {myEntry.name} (You)
+                </span>
+              </div>
+            </div>
+            <strong className="font-mono-nums text-base font-extrabold text-[#1457E0] dark:text-[#5AA2FF] shrink-0">
+              {myEntry.xp.toLocaleString()} XP
+            </strong>
+          </div>
         </div>
       )}
     </div>

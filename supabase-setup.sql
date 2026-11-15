@@ -107,3 +107,83 @@ create policy "Allow authenticated write app_settings"
   using (true)
   with check (true);
 
+-- 6. Track which candidates have installed the PWA app to their home screen
+alter table public.candidates add column if not exists app_installed boolean default false;
+alter table public.candidates add column if not exists app_installed_at timestamptz;
+
+create or replace function public.report_app_install(p_guest text, p_installed boolean)
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  update public.candidates
+  set
+    app_installed = p_installed,
+    app_installed_at = case when p_installed then coalesce(app_installed_at, now()) else null end,
+    updated_at = now()
+  where guest_uuid = p_guest;
+end;
+$$;
+
+grant execute on function public.report_app_install(text, boolean) to anon, authenticated;
+
+-- 7. Accurate 12:00 AM IST Today XP calculation from quiz_attempts (resets to 0 at midnight IST daily)
+alter table public.quiz_attempts add column if not exists guest_uuid text;
+
+create or replace function public.get_leaderboard_ist(p_guest text)
+returns table (
+  name text,
+  xp bigint,
+  today_xp bigint
+)
+language sql
+security definer
+set search_path = public
+as $$
+  with ist_today as (
+    select (now() at time zone 'Asia/Kolkata')::date as d
+  ),
+  today_scores as (
+    select
+      c.guest_uuid,
+      greatest(0, coalesce(sum(qa.xp_earned), 0))::bigint as earned_today
+    from public.candidates c
+    join public.quiz_attempts qa
+      on (
+        (qa.guest_uuid is not null and qa.guest_uuid = c.guest_uuid)
+        or (qa.guest_uuid is null and qa.candidate_name = c.display_name)
+      )
+    cross join ist_today
+    where (qa.created_at at time zone 'Asia/Kolkata')::date = ist_today.d
+    group by c.guest_uuid
+  )
+  select
+    c.display_name::text as name,
+    coalesce(c.xp, 0)::bigint as xp,
+    coalesce(ts.earned_today, 0)::bigint as today_xp
+  from public.candidates c
+  left join today_scores ts on ts.guest_uuid = c.guest_uuid
+  where coalesce(c.hidden, false) = false
+    and c.guest_uuid <> p_guest;
+$$;
+
+grant execute on function public.get_leaderboard_ist(text) to anon, authenticated;
+
+create or replace function public.get_my_today_ist(p_guest text)
+returns bigint
+language sql
+security definer
+set search_path = public
+as $$
+  select greatest(0, coalesce(sum(qa.xp_earned), 0))::bigint
+  from public.quiz_attempts qa
+  left join public.candidates c on c.guest_uuid = p_guest
+  where (
+    (qa.guest_uuid is not null and qa.guest_uuid = p_guest)
+    or (qa.guest_uuid is null and c.display_name is not null and qa.candidate_name = c.display_name)
+  )
+    and (qa.created_at at time zone 'Asia/Kolkata')::date = (now() at time zone 'Asia/Kolkata')::date;
+$$;
+
+grant execute on function public.get_my_today_ist(text) to anon, authenticated;
