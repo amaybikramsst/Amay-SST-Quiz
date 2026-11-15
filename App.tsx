@@ -40,6 +40,7 @@ import {
   loadLocalLatestVideo,
   logCandidateTap,
   registerPlayer,
+  reportAppInstallStatus,
   submitQuizAttempt,
   type BotOverride,
   type CloudStats,
@@ -163,6 +164,20 @@ export default function App() {
     }
     setShowInstallModal(true);
   }, [canNativeInstall, install, recordTap, view]);
+
+  // Report each student's app install state to Supabase whenever it changes (so Admin sees Installed vs Not Installed)
+  useEffect(() => {
+    if (!profile.name || impersonated) return;
+    const nextVal = isInstalled ? "1" : "0";
+    try {
+      const prevReported = localStorage.getItem("amaysst_reported_install");
+      if (prevReported === nextVal) return;
+      localStorage.setItem("amaysst_reported_install", nextVal);
+    } catch {
+      // continue reporting even if localStorage is blocked
+    }
+    reportAppInstallStatus(guestId, profile.name, isInstalled);
+  }, [guestId, impersonated, isInstalled, profile.name]);
 
   // Sync cloud stats without overwriting client-side 1/4 negative-marked XP,
   // while still honoring admin manual XP edits from Supabase!

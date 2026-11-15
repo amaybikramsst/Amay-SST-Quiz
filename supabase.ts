@@ -46,6 +46,8 @@ export interface AdminCandidateRow {
   last_active_date?: string;
   updated_at?: string;
   hidden?: boolean;
+  app_installed?: boolean;
+  app_installed_at?: string;
 }
 
 export interface AdminAttemptRow {
@@ -296,6 +298,74 @@ export async function adminLoadCandidateTaps(): Promise<{
   } catch {
     return { events: getLocalTaps(), needsTableSetup: false };
   }
+}
+
+export async function reportAppInstallStatus(
+  guestId: string,
+  candidateName: string,
+  installed: boolean
+): Promise<boolean> {
+  if (!guestId || !candidateName) return false;
+  let ok = false;
+
+  // 1. Update candidates.app_installed via RPC if present
+  try {
+    const { error } = await supabase.rpc("report_app_install", {
+      p_guest: guestId,
+      p_installed: installed,
+    });
+    if (!error) ok = true;
+  } catch {
+    // RPC may not be added yet; fallback to candidate_events works immediately
+  }
+
+  // 2. Also record latest install state in candidate_events (works immediately with existing table)
+  try {
+    await logCandidateTap(
+      guestId,
+      candidateName,
+      installed ? "App Installed" : "App Not Installed",
+      installed ? "Running or installed PWA app" : "Opened in browser (not installed)",
+      "pwa"
+    );
+    ok = true;
+  } catch {
+    // ignore offline errors
+  }
+
+  return ok;
+}
+
+export async function adminLoadInstallStatusMap(): Promise<Record<string, boolean>> {
+  const map: Record<string, boolean> = {};
+  try {
+    const { data, error } = await supabase
+      .from("candidate_events")
+      .select("guest_uuid, candidate_name, action, created_at")
+      .in("action", ["App Installed", "App Not Installed"])
+      .order("created_at", { ascending: false })
+      .limit(1000);
+
+    if (!error && Array.isArray(data)) {
+      for (const row of data) {
+        const key = String(row.guest_uuid || "");
+        if (!key || key in map) continue;
+        map[key] = row.action === "App Installed";
+      }
+    }
+  } catch {
+    // ignore errors and fallback to local taps
+  }
+
+  for (const ev of getLocalTaps()) {
+    if (ev.action === "App Installed" || ev.action === "App Not Installed") {
+      if (!(ev.guest_uuid in map)) {
+        map[ev.guest_uuid] = ev.action === "App Installed";
+      }
+    }
+  }
+
+  return map;
 }
 
 // ============================================================

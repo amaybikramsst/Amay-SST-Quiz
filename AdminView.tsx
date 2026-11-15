@@ -17,6 +17,7 @@ import {
   Video,
   Image as ImageIcon,
   ExternalLink,
+  Smartphone,
 } from "lucide-react";
 import { BENCHMARK_PLAYERS } from "../data/benchmarks";
 import type { SubjectKey } from "../data/questions";
@@ -28,6 +29,7 @@ import {
   adminLoadAttempts,
   adminLoadCandidates,
   adminLoadCandidateTaps,
+  adminLoadInstallStatusMap,
   adminLoadStats,
   adminSaveBotOverrides,
   adminSaveLatestVideo,
@@ -110,9 +112,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const [tab, setTab] = useState<"candidates" | "attempts" | "taps" | "questions" | "video">("candidates");
   const [candidateFilter, setCandidateFilter] = useState<"students" | "bots">("students");
+  const [installFilter, setInstallFilter] = useState<"all" | "installed" | "not_installed">("all");
   const [stats, setStats] = useState({ users: 0, tests: 0, questions: 0, totalXp: 0 });
   const [dynamicQuestions, setDynamicQuestions] = useState<DynamicQuestionRow[]>([]);
   const [candidates, setCandidates] = useState<AdminCandidateRow[]>([]);
+  const [installStatusMap, setInstallStatusMap] = useState<Record<string, boolean>>({});
   const [attempts, setAttempts] = useState<AdminAttemptRow[]>([]);
   const [taps, setTaps] = useState<CandidateTapEvent[]>([]);
   const [needsTapTable, setNeedsTapTable] = useState(false);
@@ -178,7 +182,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const loadAllAdminData = async () => {
     const localBots = loadBotOverrides();
-    const [st, dqs, cands, atts, tapRes, vid, cloudBots] = await Promise.all([
+    const [st, dqs, cands, atts, tapRes, vid, cloudBots, installMap] = await Promise.all([
       adminLoadStats(),
       fetchDynamicQuestions(),
       adminLoadCandidates(),
@@ -186,11 +190,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
       adminLoadCandidateTaps(),
       fetchLatestVideo(),
       fetchBotOverrides(),
+      adminLoadInstallStatusMap(),
     ]);
     const mergedBots = { ...cloudBots, ...localBots };
     setStats(st);
     setDynamicQuestions(dqs);
     setCandidates(cands);
+    setInstallStatusMap(installMap);
     setAttempts(atts);
     setTaps(tapRes.events);
     setNeedsTapTable(tapRes.needsTableSetup);
@@ -594,13 +600,29 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
+  const isCandidateInstalled = (c: AdminCandidateRow): boolean => {
+    if (c.guest_uuid in installStatusMap) return installStatusMap[c.guest_uuid];
+    return Boolean(c.app_installed);
+  };
+
+  const installCounts = useMemo(() => {
+    let installed = 0;
+    for (const c of candidates) {
+      if (isCandidateInstalled(c)) installed++;
+    }
+    return { installed, notInstalled: Math.max(0, candidates.length - installed) };
+  }, [candidates, installStatusMap]);
+
   const filteredCandidates = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return candidates;
-    return candidates.filter(
-      (c) => c.display_name.toLowerCase().includes(q) || c.guest_uuid.toLowerCase().includes(q)
-    );
-  }, [candidates, searchQuery]);
+    return candidates.filter((c) => {
+      const installed = isCandidateInstalled(c);
+      if (installFilter === "installed" && !installed) return false;
+      if (installFilter === "not_installed" && installed) return false;
+      if (!q) return true;
+      return c.display_name.toLowerCase().includes(q) || c.guest_uuid.toLowerCase().includes(q);
+    });
+  }, [candidates, installFilter, installStatusMap, searchQuery]);
 
   const filteredBots = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -841,29 +863,70 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {/* TAB 1: EVERYONE (CANDIDATES + BOTS) & XP / RENAME CONTROL */}
       {tab === "candidates" && (
         <div className="space-y-3">
-          <div className="inline-flex p-1 rounded-xl amay-card gap-1">
-            <button
-              type="button"
-              onClick={() => setCandidateFilter("students")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
-                candidateFilter === "students"
-                  ? "bg-[#0B1B4D] dark:bg-[#1457E0] text-white"
-                  : "text-[#5A6A92] dark:text-[#93A3CC]"
-              }`}
-            >
-              Registered Candidates ({candidates.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setCandidateFilter("bots")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
-                candidateFilter === "bots"
-                  ? "bg-[#0B1B4D] dark:bg-[#1457E0] text-white"
-                  : "text-[#5A6A92] dark:text-[#93A3CC]"
-              }`}
-            >
-              Bot Roster ({BENCHMARK_PLAYERS.length})
-            </button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="inline-flex p-1 rounded-xl amay-card gap-1">
+              <button
+                type="button"
+                onClick={() => setCandidateFilter("students")}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
+                  candidateFilter === "students"
+                    ? "bg-[#0B1B4D] dark:bg-[#1457E0] text-white"
+                    : "text-[#5A6A92] dark:text-[#93A3CC]"
+                }`}
+              >
+                Registered Candidates ({candidates.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setCandidateFilter("bots")}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
+                  candidateFilter === "bots"
+                    ? "bg-[#0B1B4D] dark:bg-[#1457E0] text-white"
+                    : "text-[#5A6A92] dark:text-[#93A3CC]"
+                }`}
+              >
+                Bot Roster ({BENCHMARK_PLAYERS.length})
+              </button>
+            </div>
+
+            {candidateFilter === "students" && (
+              <div className="inline-flex flex-wrap p-1 rounded-xl amay-card gap-1">
+                <button
+                  type="button"
+                  onClick={() => setInstallFilter("all")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
+                    installFilter === "all"
+                      ? "bg-[#1457E0] text-white"
+                      : "text-[#5A6A92] dark:text-[#93A3CC]"
+                  }`}
+                >
+                  All ({candidates.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInstallFilter("installed")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer ${
+                    installFilter === "installed"
+                      ? "bg-emerald-600 text-white"
+                      : "text-emerald-700 dark:text-emerald-300"
+                  }`}
+                >
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>Installed ({installCounts.installed})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInstallFilter("not_installed")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
+                    installFilter === "not_installed"
+                      ? "bg-amber-600 text-white"
+                      : "text-amber-700 dark:text-amber-300"
+                  }`}
+                >
+                  Not Installed ({installCounts.notInstalled})
+                </button>
+              </div>
+            )}
           </div>
 
           {candidateFilter === "students" ? (
@@ -873,6 +936,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   <tr>
                     <th className="py-3.5 px-4">Rank</th>
                     <th className="py-3.5 px-4">Name</th>
+                    <th className="py-3.5 px-4">App Status</th>
                     <th className="py-3.5 px-4">Total XP</th>
                     <th className="py-3.5 px-4">Today XP</th>
                     <th className="py-3.5 px-4">Streak</th>
@@ -883,6 +947,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 <tbody className="divide-y divide-[#1846AA]/10 dark:divide-white/10">
                   {filteredCandidates.map((c, idx) => {
                     const isRenaming = renamingId === c.guest_uuid;
+                    const installed = isCandidateInstalled(c);
                     return (
                       <tr key={c.guest_uuid} className={c.hidden ? "opacity-50" : ""}>
                         <td className="py-3 px-4 font-mono-nums font-bold">#{idx + 1}</td>
@@ -927,6 +992,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
                                 ID: {c.guest_uuid.slice(0, 14)}{c.guest_uuid.length > 14 ? "…" : ""}
                               </span>
                             </button>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          {installed ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                              <Smartphone className="w-3 h-3" />
+                              <span>Installed</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/12 text-amber-800 dark:text-amber-300 border border-amber-500/25">
+                              Not Installed
+                            </span>
                           )}
                         </td>
                         <td className="py-3 px-4 font-mono-nums font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
@@ -1881,6 +1958,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     {copiedCandidateId ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                     <span>{copiedCandidateId ? "Copied" : "Copy ID"}</span>
                   </button>
+                  {isCandidateInstalled(selectedCandidate) ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                      <Smartphone className="w-3 h-3" />
+                      <span>App Installed</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/12 text-amber-800 dark:text-amber-300 border border-amber-500/25">
+                      App Not Installed
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
