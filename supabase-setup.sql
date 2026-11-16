@@ -515,6 +515,8 @@ declare
   v_body text := btrim(coalesce(p_body, ''));
   v_sender_name text;
   v_recipient_name text;
+  v_bot_overrides jsonb := '{}'::jsonb;
+  v_bot_key text;
   v_inserted public.chat_messages%rowtype;
 begin
   if v_body = '' or length(v_body) > 1000 then
@@ -524,15 +526,39 @@ begin
     return jsonb_build_object('ok', false, 'error', 'Cannot send a message to yourself.');
   end if;
 
-  select display_name into v_sender_name from public.candidates where guest_uuid = p_sender_uuid;
-  if v_sender_name is null then
-    return jsonb_build_object('ok', false, 'error', 'Candidate account not found.');
+  if p_sender_uuid like 'bot_%' or p_recipient_uuid like 'bot_%' then
+    select value into v_bot_overrides
+    from public.app_settings
+    where key = 'bot_overrides'
+    limit 1;
+    v_bot_overrides := coalesce(v_bot_overrides, '{}'::jsonb);
+  end if;
+
+  if p_sender_uuid = '__help__' then
+    v_sender_name := 'Help';
+  elsif p_sender_uuid like 'bot_%' then
+    v_bot_key := btrim(substring(p_sender_uuid from 5));
+    v_sender_name := coalesce(
+      nullif(btrim(v_bot_overrides -> v_bot_key ->> 'name'), ''),
+      nullif(v_bot_key, ''),
+      'Candidate'
+    );
+  else
+    select display_name into v_sender_name from public.candidates where guest_uuid = p_sender_uuid;
+    if v_sender_name is null then
+      return jsonb_build_object('ok', false, 'error', 'Candidate account not found.');
+    end if;
   end if;
 
   if p_recipient_uuid = '__help__' then
     v_recipient_name := 'Help';
   elsif p_recipient_uuid like 'bot_%' then
-    v_recipient_name := coalesce(nullif(btrim(substring(p_recipient_uuid from 5)), ''), 'Candidate');
+    v_bot_key := btrim(substring(p_recipient_uuid from 5));
+    v_recipient_name := coalesce(
+      nullif(btrim(v_bot_overrides -> v_bot_key ->> 'name'), ''),
+      nullif(v_bot_key, ''),
+      'Candidate'
+    );
   else
     select display_name into v_recipient_name
     from public.candidates

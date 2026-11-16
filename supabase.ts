@@ -1278,6 +1278,50 @@ export async function adminSendHelpReply(
   }
 }
 
+export async function adminSendMessageAs(
+  senderUuid: string,
+  senderName: string,
+  recipientUuid: string,
+  recipientName: string,
+  body: string
+): Promise<{ ok: boolean; message?: ChatMessageRow; error?: string }> {
+  const cleaned = body.trim();
+  if (!cleaned) return { ok: false, error: "Message cannot be empty." };
+  if (senderUuid === recipientUuid) {
+    return { ok: false, error: "Sender and recipient cannot be the same." };
+  }
+  try {
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .insert([
+        {
+          sender_uuid: senderUuid,
+          sender_name: senderName || "Candidate",
+          recipient_uuid: recipientUuid,
+          recipient_name: recipientName || "Candidate",
+          body: cleaned,
+        },
+      ])
+      .select("*")
+      .single();
+
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+
+    const row = data as ChatMessageRow;
+    broadcastChatSignal({
+      type: "message_created",
+      sender_uuid: senderUuid,
+      recipient_uuid: recipientUuid,
+      id: row.id,
+    });
+    return { ok: true, message: row };
+  } catch {
+    return { ok: false, error: "Network error." };
+  }
+}
+
 
 
 

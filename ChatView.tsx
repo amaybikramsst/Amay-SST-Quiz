@@ -22,6 +22,7 @@ import {
 interface ChatViewProps {
   guestId: string;
   myName: string;
+  extraDirectory?: ChatDirectoryUser[];
   initialPeer?: { uuid: string; name: string } | null;
   onClearInitialPeer?: () => void;
   onUnreadCountChange?: (count: number) => void;
@@ -54,6 +55,7 @@ function formatMsgTime(iso: string): string {
 export const ChatView: React.FC<ChatViewProps> = ({
   guestId,
   myName,
+  extraDirectory = [],
   initialPeer = null,
   onClearInitialPeer,
   onUnreadCountChange,
@@ -179,17 +181,32 @@ export const ChatView: React.FC<ChatViewProps> = ({
     onUnreadCountChange?.(totalUnread);
   }, [onUnreadCountChange, totalUnread]);
 
+  const mergedDirectory = useMemo(() => {
+    const map = new Map<string, ChatDirectoryUser>();
+    for (const u of directory) {
+      if (u.guest_uuid && u.guest_uuid !== guestId) {
+        map.set(u.guest_uuid, u);
+      }
+    }
+    for (const u of extraDirectory) {
+      if (u.guest_uuid && u.guest_uuid !== guestId && !map.has(u.guest_uuid)) {
+        map.set(u.guest_uuid, u);
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => (b.xp || 0) - (a.xp || 0));
+  }, [directory, extraDirectory, guestId]);
+
   const activePeerName = useMemo(() => {
     if (!activePeerUuid) return "";
     if (activePeerUuid === HELP_CHAT_UUID) return "Help";
+    const fromDir = mergedDirectory.find((u) => u.guest_uuid === activePeerUuid)?.display_name;
+    if (fromDir) return fromDir;
     const fromThread = threadsMap.get(activePeerUuid)?.peerName;
     if (fromThread) return fromThread;
-    const fromDir = directory.find((u) => u.guest_uuid === activePeerUuid)?.display_name;
-    if (fromDir) return fromDir;
     if (activePeerFallbackName) return activePeerFallbackName;
     if (activePeerUuid.startsWith("bot_")) return activePeerUuid.slice(4);
     return "Candidate";
-  }, [activePeerFallbackName, activePeerUuid, directory, threadsMap]);
+  }, [activePeerFallbackName, activePeerUuid, mergedDirectory, threadsMap]);
 
   const activeMessages = useMemo(() => {
     if (!activePeerUuid) return [];
@@ -271,13 +288,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
     const matches =
       q.length > 0
-        ? directory
+        ? mergedDirectory
             .filter((u) => !threadsMap.has(u.guest_uuid))
             .filter((u) => u.display_name.toLowerCase().includes(q))
         : [];
 
     return { recentThreads: activeList, searchMatches: matches };
-  }, [directory, search, threadsMap]);
+  }, [mergedDirectory, search, threadsMap]);
 
   const helpThread = threadsMap.get(HELP_CHAT_UUID);
 

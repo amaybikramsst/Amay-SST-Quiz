@@ -678,8 +678,8 @@ export default function App() {
     setQuiz(null);
     setView(nextView);
     window.scrollTo({ top: 0, behavior: "smooth" });
-    if (nextView === "rank") {
-      refreshLeaderboard(false);
+    if (nextView === "rank" || nextView === "chat") {
+      if (nextView === "rank") refreshLeaderboard(false);
       getChatDirectory(effectiveGuestId).then((dirRes) => {
         if (dirRes.users.length > 0) setChatDirectory(dirRes.users);
       });
@@ -911,10 +911,14 @@ export default function App() {
         profile: previewProfile,
         botOriginalName: target.botOriginalName,
       });
+      setPendingChatPeer(null);
       setQuiz(null);
       setView("home");
       window.scrollTo({ top: 0, behavior: "smooth" });
       refreshLeaderboard(true, target.guestUuid);
+      getChatDirectory(target.guestUuid).then((dirRes) => {
+        if (dirRes.users.length > 0) setChatDirectory(dirRes.users);
+      });
     },
     [profile.theme, refreshLeaderboard]
   );
@@ -944,7 +948,7 @@ export default function App() {
   };
 
   // Unified Overall & Today Leaderboards (all players reset Today XP to 0 at 12:00 AM IST)
-  const { allTimeEntries, todayEntries } = useMemo(() => {
+  const { allTimeEntries, todayEntries, botChatDirectory } = useMemo(() => {
     void botClockTick;
     const todayKeyIst = todayIST(0);
     const myToday = effectiveProfile.td?.d === todayKeyIst ? effectiveProfile.td.xp : 0;
@@ -987,8 +991,14 @@ export default function App() {
       }
     }
 
+    const botDirList: ChatDirectoryUser[] = resolvedBots.map((b) => ({
+      guest_uuid: `bot_${b.originalName}`,
+      display_name: b.name,
+      xp: b.xp,
+    }));
+
     const allList: RankEntry[] = [
-      ...resolvedBots.map((b) => ({ name: b.name, xp: b.xp, isMe: false, peerUuid: `bot_${b.name}` })),
+      ...resolvedBots.map((b) => ({ name: b.name, xp: b.xp, isMe: false, peerUuid: `bot_${b.originalName}` })),
       ...resolvedLivePlayers.map((l) => ({
         name: l.name,
         xp: l.xp,
@@ -1000,7 +1010,12 @@ export default function App() {
 
     const sortedBotsByToday = [...resolvedBots].sort((a, b) => b.todayXp - a.todayXp || b.xp - a.xp);
     const tdList: RankEntry[] = [
-      ...sortedBotsByToday.map((b) => ({ name: b.name, xp: b.todayXp, isMe: false, peerUuid: `bot_${b.name}` })),
+      ...sortedBotsByToday.map((b) => ({
+        name: b.name,
+        xp: b.todayXp,
+        isMe: false,
+        peerUuid: `bot_${b.originalName}`,
+      })),
       ...resolvedLivePlayers.map((l) => ({
         name: l.name,
         xp: l.todayXp,
@@ -1010,7 +1025,7 @@ export default function App() {
       { name: effectiveProfile.name || "You", xp: myToday, isMe: true },
     ].sort(sortWithMePriority);
 
-    return { allTimeEntries: allList, todayEntries: tdList };
+    return { allTimeEntries: allList, todayEntries: tdList, botChatDirectory: botDirList };
   }, [
     botClockTick,
     botOverrides,
@@ -1103,6 +1118,7 @@ export default function App() {
               type="button"
               onClick={() => {
                 setImpersonated(null);
+                setPendingChatPeer(null);
                 setQuiz(null);
                 setView("admin");
                 refreshLeaderboard(true, guestId);
@@ -1231,6 +1247,7 @@ export default function App() {
             <ChatView
               guestId={effectiveGuestId}
               myName={effectiveProfile.name || "Candidate"}
+              extraDirectory={botChatDirectory}
               initialPeer={pendingChatPeer}
               onClearInitialPeer={() => setPendingChatPeer(null)}
               onUnreadCountChange={setUnreadChatCount}

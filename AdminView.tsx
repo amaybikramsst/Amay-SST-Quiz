@@ -46,6 +46,7 @@ import {
   adminSaveCandidateTodayOverrides,
   adminSaveLatestVideo,
   adminSendHelpReply,
+  adminSendMessageAs,
   adminSendNotification,
   adminSignIn,
   adminSignOut,
@@ -221,11 +222,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [chatMessages, setChatMessages] = useState<ChatMessageRow[]>([]);
   const [needsChatTable, setNeedsChatTable] = useState(false);
   const [copiedChatSql, setCopiedChatSql] = useState(false);
-  const [msgSubTab, setMsgSubTab] = useState<"help" | "audit">("help");
+  const [msgSubTab, setMsgSubTab] = useState<"help" | "bots" | "audit">("help");
   const [selectedHelpUuid, setSelectedHelpUuid] = useState<string | null>(null);
   const [selectedAuditPairKey, setSelectedAuditPairKey] = useState<string | null>(null);
   const [helpReplyDraft, setHelpReplyDraft] = useState("");
   const [sendingHelpReply, setSendingHelpReply] = useState(false);
+  const [botComposerFromUuid, setBotComposerFromUuid] = useState("");
+  const [botComposerToUuid, setBotComposerToUuid] = useState("");
+  const [botReplyAsUuid, setBotReplyAsUuid] = useState("");
+  const [botReplyDraft, setBotReplyDraft] = useState("");
+  const [sendingBotReply, setSendingBotReply] = useState(false);
 
   // Question Entry Mode: single vs bulk
   const [qEntryMode, setQEntryMode] = useState<"single" | "bulk">("single");
@@ -897,17 +903,31 @@ export const AdminView: React.FC<AdminViewProps> = ({
   }, [candidates, installFilter, installStatusMap, searchQuery]);
 
   // Derived Help support conversations & Full All-Chats Audit (including student-deleted messages!)
-  const { helpThreads, auditThreads, deletedMessageCount } = useMemo(() => {
-    const nameByUuid = new Map<string, { displayName: string; username?: string | null }>();
+  const { helpThreads, botThreads, auditThreads, deletedMessageCount } = useMemo(() => {
+    const nameByUuid = new Map<string, { displayName: string; username?: string | null; isBot?: boolean }>();
     for (const c of candidates) {
-      nameByUuid.set(c.guest_uuid, { displayName: c.display_name, username: c.username });
+      nameByUuid.set(c.guest_uuid, { displayName: c.display_name, username: c.username, isBot: false });
+    }
+    for (const bName of BENCHMARK_PLAYERS) {
+      const orig = bName.name;
+      const ov = botOverrides[orig];
+      const disp = ov?.name?.trim() || orig;
+      nameByUuid.set(`bot_${orig}`, { displayName: disp, username: null, isBot: true });
+      if (disp !== orig) {
+        nameByUuid.set(`bot_${disp}`, { displayName: disp, username: null, isBot: true });
+      }
     }
     const resolveLabel = (uuid: string, fallbackName: string) => {
-      if (uuid === HELP_CHAT_UUID) return { displayName: "Help", username: null as string | null };
+      if (uuid === HELP_CHAT_UUID) return { displayName: "Help", username: null as string | null, isBot: false };
       const match = nameByUuid.get(uuid);
+      if (match) return { displayName: match.displayName, username: match.username || null, isBot: Boolean(match.isBot) };
+      if (uuid.startsWith("bot_")) {
+        return { displayName: fallbackName || uuid.slice(4), username: null as string | null, isBot: true };
+      }
       return {
-        displayName: match?.displayName || fallbackName || "Candidate",
-        username: match?.username || null,
+        displayName: fallbackName || "Candidate",
+        username: null as string | null,
+        isBot: false,
       };
     };
 
@@ -1016,8 +1036,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
       )
       .sort((a, b) => Date.parse(b.lastMessage.created_at) - Date.parse(a.lastMessage.created_at));
 
-    return { helpThreads: helpList, auditThreads: auditList, deletedMessageCount: totalDeleted };
-  }, [candidates, chatMessages, searchQuery]);
+    const botList = auditList.filter(
+      (t) => t.leftUuid.startsWith("bot_") || t.rightUuid.startsWith("bot_")
+    );
+
+    return { helpThreads: helpList, botThreads: botList, auditThreads: auditList, deletedMessageCount: totalDeleted };
+  }, [botOverrides, candidates, chatMessages, searchQuery]);
 
   const handleSendAdminHelpReply = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1042,6 +1066,34 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
 
     setHelpReplyDraft("");
+    setChatMessages((prev) =>
+      prev.some((m) => m.id === res.message!.id) ? prev : [...prev, res.message!]
+    );
+  };
+
+  const handleSendBotReplyInThread = async (
+    e: React.FormEvent,
+    senderUuid: string,
+    senderName: string,
+    recipientUuid: string,
+    recipientName: string
+  ) => {
+    e.preventDefault();
+    if (sendingBotReply) return;
+    const text = botReplyDraft.trim();
+    if (!text) return;
+
+    setSendingBotReply(true);
+    setFeedback(null);
+    const res = await adminSendMessageAs(senderUuid, senderName, recipientUuid, recipientName, text);
+    setSendingBotReply(false);
+
+    if (!res.ok || !res.message) {
+      setFeedback({ text: `Send failed: ${res.error || "Unknown error"}`, ok: false });
+      return;
+    }
+
+    setBotReplyDraft("");
     setChatMessages((prev) =>
       prev.some((m) => m.id === res.message!.id) ? prev : [...prev, res.message!]
     );
@@ -2859,6 +2911,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </button>
               <button
                 type="button"
+                onClick={() => setMsgSubTab("bots")}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer ${
+                  msgSubTab === "bots"
+                    ? "bg-[#1457E0] text-white"
+                    : "text-[#5A6A92] dark:text-[#93A3CC]"
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Bot Chats ({botThreads.length})</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setMsgSubTab("audit")}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer ${
                   msgSubTab === "audit"
@@ -3077,30 +3141,103 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-              {/* Left column: All candidate-to-candidate & Help conversation threads */}
-              <div className="lg:col-span-5 amay-card rounded-[26px] p-4 space-y-2">
+              {/* Left column: Bot conversations OR All conversations */}
+              <div className="lg:col-span-5 amay-card rounded-[26px] p-4 space-y-3">
                 <div>
                   <h3 className="text-sm font-extrabold text-[#0B1B4D] dark:text-white">
-                    Every Chat Thread ({auditThreads.length})
+                    {msgSubTab === "bots"
+                      ? `Bot Chats (${botThreads.length})`
+                      : `Every Chat Thread (${auditThreads.length})`}
                   </h3>
                   <p className="text-[11px] text-[#5A6A92] dark:text-[#93A3CC]">
-                    Full visibility across all candidates, including deleted chats &amp; messages.
+                    {msgSubTab === "bots"
+                      ? "Reply on behalf of any bot directly here, or start a new bot conversation."
+                      : "Full visibility across all candidates & bots, including deleted chats."}
                   </p>
                 </div>
 
-                {auditThreads.length === 0 ? (
+                {msgSubTab === "bots" && (
+                  <div className="rounded-2xl bg-[#1457E0]/[0.06] dark:bg-white/[0.05] p-3 space-y-2 border border-[#1846AA]/12 dark:border-white/10">
+                    <span className="block text-[11px] font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
+                      Open / Start Chat as Any Bot
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      <select
+                        value={botComposerFromUuid}
+                        onChange={(e) => setBotComposerFromUuid(e.target.value)}
+                        className="h-9 px-2 rounded-xl bg-white/90 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-xs font-semibold"
+                      >
+                        <option value="">From Bot…</option>
+                        {botSchedule.bots.map((b) => (
+                          <option key={`from-${b.originalName}`} value={`bot_${b.originalName}`}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={botComposerToUuid}
+                        onChange={(e) => setBotComposerToUuid(e.target.value)}
+                        className="h-9 px-2 rounded-xl bg-white/90 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-xs font-semibold"
+                      >
+                        <option value="">To Person / Bot…</option>
+                        <optgroup label="Candidates">
+                          {candidates.map((c) => (
+                            <option key={`to-c-${c.guest_uuid}`} value={c.guest_uuid}>
+                              {c.display_name}
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="Roster">
+                          {botSchedule.bots
+                            .filter((b) => `bot_${b.originalName}` !== botComposerFromUuid)
+                            .map((b) => (
+                              <option key={`to-b-${b.originalName}`} value={`bot_${b.originalName}`}>
+                                {b.name}
+                              </option>
+                            ))}
+                        </optgroup>
+                      </select>
+                    </div>
+                    {botComposerFromUuid && botComposerToUuid && botComposerFromUuid !== botComposerToUuid && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const [aUuid, bUuid] =
+                            botComposerFromUuid < botComposerToUuid
+                              ? [botComposerFromUuid, botComposerToUuid]
+                              : [botComposerToUuid, botComposerFromUuid];
+                          setSelectedAuditPairKey(`${aUuid}::${bUuid}`);
+                          setBotReplyAsUuid(botComposerFromUuid);
+                        }}
+                        className="w-full h-8 rounded-xl bg-[#1457E0] text-white text-xs font-bold cursor-pointer"
+                      >
+                        Open Conversation
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {(msgSubTab === "bots" ? botThreads : auditThreads).length === 0 ? (
                   <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] py-8 text-center">
-                    No chat messages recorded yet.
+                    {msgSubTab === "bots" ? "No bot conversations yet." : "No chat messages recorded yet."}
                   </p>
                 ) : (
                   <div className="divide-y divide-[#1846AA]/10 dark:divide-white/10 max-h-[480px] overflow-y-auto">
-                    {auditThreads.map((t) => {
+                    {(msgSubTab === "bots" ? botThreads : auditThreads).map((t) => {
                       const active = selectedAuditPairKey === t.pairKey;
                       return (
                         <button
                           key={t.pairKey}
                           type="button"
-                          onClick={() => setSelectedAuditPairKey(t.pairKey)}
+                          onClick={() => {
+                            setSelectedAuditPairKey(t.pairKey);
+                            const defaultBot = t.leftUuid.startsWith("bot_")
+                              ? t.leftUuid
+                              : t.rightUuid.startsWith("bot_")
+                                ? t.rightUuid
+                                : "";
+                            setBotReplyAsUuid(defaultBot);
+                          }}
                           className={`w-full py-2.5 px-2.5 rounded-xl text-left transition cursor-pointer ${
                             active
                               ? "bg-[#1457E0]/12 dark:bg-[#5AA2FF]/15"
@@ -3132,18 +3269,80 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 )}
               </div>
 
-              {/* Right column: Full audit transcript showing deleted flags */}
+              {/* Right column: Full audit transcript + reply on behalf of bot */}
               <div className="lg:col-span-7 amay-card rounded-[26px] p-5 min-h-[440px] flex flex-col">
                 {(() => {
-                  const chosen =
-                    auditThreads.find((t) => t.pairKey === selectedAuditPairKey) || null;
+                  const pool = msgSubTab === "bots" ? botThreads : auditThreads;
+                  let chosen = pool.find((t) => t.pairKey === selectedAuditPairKey) || null;
+
+                  // Support newly started Bot conversation even before first message is sent
+                  if (!chosen && selectedAuditPairKey && selectedAuditPairKey.includes("::")) {
+                    const [aUuid, bUuid] = selectedAuditPairKey.split("::");
+                    const resolvePairSide = (u: string) => {
+                      if (u.startsWith("bot_")) {
+                        const key = u.slice(4);
+                        const matched = botSchedule.bots.find((b) => b.originalName === key);
+                        return { name: matched?.name || key, username: null as string | null };
+                      }
+                      const cand = candidates.find((c) => c.guest_uuid === u);
+                      return { name: cand?.display_name || "Candidate", username: cand?.username || null };
+                    };
+                    if (aUuid && bUuid && (aUuid.startsWith("bot_") || bUuid.startsWith("bot_"))) {
+                      const a = resolvePairSide(aUuid);
+                      const b = resolvePairSide(bUuid);
+                      chosen = {
+                        pairKey: selectedAuditPairKey,
+                        leftUuid: aUuid,
+                        leftName: a.name,
+                        leftUsername: a.username,
+                        rightUuid: bUuid,
+                        rightName: b.name,
+                        rightUsername: b.username,
+                        messages: [],
+                        lastMessage: {
+                          id: "draft",
+                          sender_uuid: aUuid,
+                          sender_name: a.name,
+                          recipient_uuid: bUuid,
+                          recipient_name: b.name,
+                          body: "",
+                          created_at: new Date().toISOString(),
+                        },
+                        deletedCount: 0,
+                      };
+                    }
+                  }
+
                   if (!chosen) {
                     return (
                       <div className="flex-1 flex items-center justify-center text-sm text-[#5A6A92] dark:text-[#93A3CC]">
-                        Select any conversation on the left to inspect all messages (including deleted ones).
+                        {msgSubTab === "bots"
+                          ? "Select a bot thread or pick a bot on the left to reply on their behalf."
+                          : "Select any conversation on the left to inspect all messages (including deleted ones)."}
                       </div>
                     );
                   }
+
+                  const botSides: Array<{ uuid: string; name: string; peerUuid: string; peerName: string }> = [];
+                  if (chosen.leftUuid.startsWith("bot_")) {
+                    botSides.push({
+                      uuid: chosen.leftUuid,
+                      name: chosen.leftName,
+                      peerUuid: chosen.rightUuid,
+                      peerName: chosen.rightName,
+                    });
+                  }
+                  if (chosen.rightUuid.startsWith("bot_")) {
+                    botSides.push({
+                      uuid: chosen.rightUuid,
+                      name: chosen.rightName,
+                      peerUuid: chosen.leftUuid,
+                      peerName: chosen.leftName,
+                    });
+                  }
+                  const activeBotSender =
+                    botSides.find((s) => s.uuid === botReplyAsUuid) || botSides[0] || null;
+
                   return (
                     <>
                       <div className="pb-3 mb-3 border-b border-[#1846AA]/10 dark:border-white/10">
@@ -3157,54 +3356,113 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         </span>
                       </div>
 
-                      <div className="flex-1 max-h-[440px] overflow-y-auto space-y-2.5 pr-1">
-                        {chosen.messages.map((m) => {
-                          const deleteReasons: string[] = [];
-                          if (m.deleted_for_everyone) deleteReasons.push("Deleted for everyone");
-                          if (m.deleted_by_sender) deleteReasons.push("Deleted by sender");
-                          if (m.deleted_by_recipient) deleteReasons.push("Deleted by recipient");
-                          const isDeleted = deleteReasons.length > 0;
-                          const isLeft = m.sender_uuid === chosen.leftUuid;
+                      <div className="flex-1 max-h-[380px] overflow-y-auto space-y-2.5 pr-1">
+                        {chosen.messages.length === 0 ? (
+                          <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] py-10 text-center">
+                            No messages yet. Send the first message on behalf of {activeBotSender?.name} below.
+                          </p>
+                        ) : (
+                          chosen.messages.map((m) => {
+                            const deleteReasons: string[] = [];
+                            if (m.deleted_for_everyone) deleteReasons.push("Deleted for everyone");
+                            if (m.deleted_by_sender) deleteReasons.push("Deleted by sender");
+                            if (m.deleted_by_recipient) deleteReasons.push("Deleted by recipient");
+                            const isDeleted = deleteReasons.length > 0;
+                            const isLeft = m.sender_uuid === chosen!.leftUuid;
 
-                          return (
-                            <div
-                              key={m.id}
-                              className={`rounded-2xl p-3 border text-xs space-y-1 ${
-                                isDeleted
-                                  ? "bg-[#D92D3A]/[0.07] border-[#D92D3A]/35"
-                                  : isLeft
-                                    ? "bg-[#1457E0]/[0.05] border-[#1846AA]/12 dark:border-white/10"
-                                    : "bg-white/75 dark:bg-[#131E3A] border-[#1846AA]/12 dark:border-white/10"
-                              }`}
-                            >
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <strong className="text-[#0B1B4D] dark:text-white">
-                                  {m.sender_uuid === HELP_CHAT_UUID ? "Help" : m.sender_name} →{" "}
-                                  {m.recipient_uuid === HELP_CHAT_UUID ? "Help" : m.recipient_name}
-                                </strong>
-                                <span className="font-mono-nums text-[10px] text-[#5A6A92] dark:text-[#93A3CC]">
-                                  {new Date(m.created_at).toLocaleString()}
-                                </span>
-                              </div>
-                              {isDeleted && (
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="px-2 py-0.5 rounded bg-[#D92D3A] text-white text-[10px] font-extrabold">
-                                    DELETED: {deleteReasons.join(" · ")}
+                            return (
+                              <div
+                                key={m.id}
+                                className={`rounded-2xl p-3 border text-xs space-y-1 ${
+                                  isDeleted
+                                    ? "bg-[#D92D3A]/[0.07] border-[#D92D3A]/35"
+                                    : isLeft
+                                      ? "bg-[#1457E0]/[0.05] border-[#1846AA]/12 dark:border-white/10"
+                                      : "bg-white/75 dark:bg-[#131E3A] border-[#1846AA]/12 dark:border-white/10"
+                                }`}
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <strong className="text-[#0B1B4D] dark:text-white">
+                                    {m.sender_uuid === HELP_CHAT_UUID ? "Help" : m.sender_name} →{" "}
+                                    {m.recipient_uuid === HELP_CHAT_UUID ? "Help" : m.recipient_name}
+                                  </strong>
+                                  <span className="font-mono-nums text-[10px] text-[#5A6A92] dark:text-[#93A3CC]">
+                                    {new Date(m.created_at).toLocaleString()}
                                   </span>
-                                  {m.deleted_at && (
-                                    <span className="text-[10px] font-mono-nums text-[#D92D3A] dark:text-[#FF6B76]">
-                                      at {new Date(m.deleted_at).toLocaleString()}
-                                    </span>
-                                  )}
                                 </div>
-                              )}
-                              <p className="text-sm text-[#0B1B4D] dark:text-white whitespace-pre-wrap break-words">
-                                {m.body}
-                              </p>
-                            </div>
-                          );
-                        })}
+                                {isDeleted && (
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="px-2 py-0.5 rounded bg-[#D92D3A] text-white text-[10px] font-extrabold">
+                                      DELETED: {deleteReasons.join(" · ")}
+                                    </span>
+                                    {m.deleted_at && (
+                                      <span className="text-[10px] font-mono-nums text-[#D92D3A] dark:text-[#FF6B76]">
+                                        at {new Date(m.deleted_at).toLocaleString()}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                <p className="text-sm text-[#0B1B4D] dark:text-white whitespace-pre-wrap break-words">
+                                  {m.body}
+                                </p>
+                              </div>
+                            );
+                          })
+                        )}
                       </div>
+
+                      {activeBotSender && (
+                        <form
+                          onSubmit={(e) =>
+                            handleSendBotReplyInThread(
+                              e,
+                              activeBotSender.uuid,
+                              activeBotSender.name,
+                              activeBotSender.peerUuid,
+                              activeBotSender.peerName
+                            )
+                          }
+                          className="pt-3 mt-3 border-t border-[#1846AA]/10 dark:border-white/10 space-y-2"
+                        >
+                          {botSides.length > 1 && (
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold">
+                              <span className="text-[#5A6A92] dark:text-[#93A3CC]">Reply as:</span>
+                              {botSides.map((s) => (
+                                <button
+                                  key={s.uuid}
+                                  type="button"
+                                  onClick={() => setBotReplyAsUuid(s.uuid)}
+                                  className={`px-2.5 py-1 rounded-lg cursor-pointer ${
+                                    activeBotSender.uuid === s.uuid
+                                      ? "bg-[#1457E0] text-white"
+                                      : "amay-card text-[#0B1B4D] dark:text-white"
+                                  }`}
+                                >
+                                  {s.name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              maxLength={1000}
+                              value={botReplyDraft}
+                              onChange={(e) => setBotReplyDraft(e.target.value)}
+                              placeholder={`Reply as ${activeBotSender.name} to ${activeBotSender.peerName}…`}
+                              className="flex-1 h-11 px-3.5 rounded-xl bg-white/85 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm"
+                            />
+                            <button
+                              type="submit"
+                              disabled={sendingBotReply || !botReplyDraft.trim()}
+                              className="h-11 px-4 rounded-xl amay-play-btn text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              <span>{sendingBotReply ? "Sending…" : `Reply as ${activeBotSender.name}`}</span>
+                            </button>
+                          </div>
+                        </form>
+                      )}
                     </>
                   );
                 })()}

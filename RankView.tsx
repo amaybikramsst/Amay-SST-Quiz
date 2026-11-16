@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Clock, MessageCircle, Zap } from "lucide-react";
+import { ChevronRight, Clock, Zap } from "lucide-react";
 import {
   computeRankSnapshot,
   getNextOverallMilestone,
@@ -243,11 +243,9 @@ export const RankView: React.FC<RankViewProps> = ({
                         <button
                           type="button"
                           onClick={() => onChatWithPlayer({ uuid: r.peerUuid!, name: r.name })}
-                          className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] hover:text-[#1457E0] dark:hover:text-[#5AA2FF] hover:underline truncate inline-flex items-center gap-1 cursor-pointer text-left"
-                          title={`Chat with ${r.name}`}
+                          className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] truncate text-left cursor-pointer"
                         >
-                          <span className="truncate">{r.name}</span>
-                          <MessageCircle className="w-3 h-3 text-[#1457E0] dark:text-[#5AA2FF] shrink-0 opacity-75" />
+                          {r.name}
                         </button>
                       ) : (
                         <span className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
@@ -355,11 +353,9 @@ export const RankView: React.FC<RankViewProps> = ({
                         <button
                           type="button"
                           onClick={() => onChatWithPlayer({ uuid: r.peerUuid!, name: r.name })}
-                          className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] hover:text-[#1457E0] dark:hover:text-[#5AA2FF] hover:underline truncate inline-flex items-center gap-1 cursor-pointer text-left"
-                          title={`Chat with ${r.name}`}
+                          className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] truncate text-left cursor-pointer"
                         >
-                          <span className="truncate">{r.name}</span>
-                          <MessageCircle className="w-3 h-3 text-[#1457E0] dark:text-[#5AA2FF] shrink-0 opacity-75" />
+                          {r.name}
                         </button>
                       ) : (
                         <span className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
@@ -432,14 +428,12 @@ export const RankView: React.FC<RankViewProps> = ({
                       <button
                         type="button"
                         onClick={() => onChatWithPlayer({ uuid: entry.peerUuid!, name: entry.name })}
-                        title={`Tap to chat with ${entry.name}`}
-                        className="w-full text-[13px] sm:text-[14px] font-extrabold text-[#0B1B4D] dark:text-white hover:text-[#1457E0] dark:hover:text-[#5AA2FF] hover:underline leading-tight line-clamp-2 break-words cursor-pointer"
+                        className="w-full text-[13px] sm:text-[14px] font-extrabold text-[#0B1B4D] dark:text-white leading-tight line-clamp-2 break-words cursor-pointer"
                       >
                         {entry.name}
                       </button>
                     ) : (
                       <strong
-                        title={entry.name}
                         className="w-full text-[13px] sm:text-[14px] font-extrabold text-[#0B1B4D] dark:text-white leading-tight line-clamp-2 break-words"
                       >
                         {entry.name}
@@ -478,11 +472,9 @@ export const RankView: React.FC<RankViewProps> = ({
                     <button
                       type="button"
                       onClick={() => onChatWithPlayer({ uuid: entry.peerUuid!, name: entry.name })}
-                      className="text-base font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] hover:text-[#1457E0] dark:hover:text-[#5AA2FF] hover:underline truncate inline-flex items-center gap-1.5 cursor-pointer text-left"
-                      title={`Chat with ${entry.name}`}
+                      className="text-base font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] truncate text-left cursor-pointer"
                     >
-                      <span className="truncate">{entry.name}</span>
-                      <MessageCircle className="w-3.5 h-3.5 text-[#1457E0] dark:text-[#5AA2FF] shrink-0 opacity-75" />
+                      {entry.name}
                     </button>
                   ) : (
                     <span className="text-base text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
