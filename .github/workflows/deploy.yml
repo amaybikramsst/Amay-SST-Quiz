@@ -32,7 +32,7 @@ jobs:
           for f in App.tsx index.css main.tsx; do
             if [ -f "$f" ]; then mv -f "$f" src/; fi
           done
-          for f in AdminView.tsx BadgeModal.tsx BottomNav.tsx GateView.tsx Header.tsx HomeView.tsx NotificationModal.tsx ProfileView.tsx PWAInstallModal.tsx QuizView.tsx RankBadge.tsx RankView.tsx SubjectsView.tsx; do
+          for f in AdminView.tsx BadgeModal.tsx BottomNav.tsx ChatView.tsx GateView.tsx Header.tsx HomeView.tsx NotificationModal.tsx ProfileView.tsx PWAInstallModal.tsx QuizView.tsx RankBadge.tsx RankView.tsx SubjectsView.tsx; do
             if [ -f "$f" ]; then mv -f "$f" src/components/; fi
           done
           for f in benchmarks.ts questions.ts; do
