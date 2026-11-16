@@ -1,7 +1,7 @@
 import React from "react";
 import { Bell, Download } from "lucide-react";
 
-export type AppRoute = "gate" | "home" | "subs" | "sub" | "quiz" | "rank" | "me" | "admin";
+export type AppRoute = "gate" | "home" | "subs" | "sub" | "quiz" | "chat" | "rank" | "me" | "admin";
 
 interface HeaderProps {
   onNavigateHome: () => void;

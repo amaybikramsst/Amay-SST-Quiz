@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AdminView } from "./components/AdminView";
 import { BadgeModal } from "./components/BadgeModal";
 import { BottomNav } from "./components/BottomNav";
+import { ChatView } from "./components/ChatView";
 import { GateView } from "./components/GateView";
 import { Header, type AppRoute } from "./components/Header";
 import { HomeView } from "./components/HomeView";
@@ -18,6 +19,8 @@ import type { BadgeDesignSpec } from "./lib/badgeCanvas";
 import {
   buildQuizSet,
   calculateQuizScore,
+  clearProfileSession,
+  generateFreshGuestUUID,
   getGuestUUID,
   getTodayCutoffStatus,
   LEVELS,
@@ -27,6 +30,7 @@ import {
   QUIZ_LENGTHS,
   saveProfile,
   saveQueue,
+  setGuestUUID,
   todayIST,
   todayUTC,
   type ActiveQuizState,
@@ -46,7 +50,10 @@ import {
   fetchDynamicQuestions,
   fetchLatestVideo,
   fetchNotifications,
+  getChatDirectory,
   getLeaderboard,
+  getMyChatMessages,
+  getMyCredentials,
   getMyStats,
   getMyTodayIST,
   loadBotOverrides,
@@ -54,13 +61,18 @@ import {
   loadLocalLatestVideo,
   loadLocalNotifications,
   logCandidateTap,
+  loginWithCredentials,
   registerPlayer,
+  registerWithCredentials,
   reportAppInstallStatus,
   reportNotificationsSeen,
+  setMyCredentials,
   submitQuizAttempt,
+  subscribeChatRealtime,
   type AppNotification,
   type BotOverride,
   type CandidateTodayOverride,
+  type ChatDirectoryUser,
   type CloudStats,
   type LatestVideoConfig,
   type LiveLeaderRow,
@@ -79,11 +91,15 @@ function isSecretAdminUrl(): boolean {
 }
 
 export default function App() {
-  const [guestId] = useState<string>(() => getGuestUUID());
+  const [guestId, setGuestId] = useState<string>(() => getGuestUUID());
   const [profile, setProfile] = useState<StudentProfile>(() => loadProfile());
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [chatDirectory, setChatDirectory] = useState<ChatDirectoryUser[]>([]);
+  const [pendingChatPeer, setPendingChatPeer] = useState<{ uuid: string; name: string } | null>(null);
   const [view, setView] = useState<AppRoute>(() => {
     if (isSecretAdminUrl()) return "admin";
-    return loadProfile().name ? "home" : "gate";
+    const p = loadProfile();
+    return p.name && p.username && p.password ? "home" : "gate";
   });
 
   const [mergedBank, setMergedBank] = useState<Record<SubjectKey, RawQuestion[]>>(() =>
@@ -126,6 +142,7 @@ export default function App() {
 
   const effectiveProfile = impersonated ? impersonated.profile : profile;
   const effectiveGuestId = impersonated ? impersonated.guestUuid : guestId;
+  const hasCompleteAccount = Boolean(profile.name && profile.username && profile.password);
 
   const myNotifications = useMemo(
     () =>
@@ -143,6 +160,7 @@ export default function App() {
   const activePopupNotif = useMemo(() => {
     if (
       impersonated ||
+      !hasCompleteAccount ||
       showNotifInbox ||
       showInstallModal ||
       showBadgeModal ||
@@ -153,7 +171,7 @@ export default function App() {
       return null;
     }
     return myNotifications.find((n) => !seenNotifIds.includes(n.id)) || null;
-  }, [impersonated, myNotifications, seenNotifIds, showBadgeModal, showInstallModal, showNotifInbox, view]);
+  }, [hasCompleteAccount, impersonated, myNotifications, seenNotifIds, showBadgeModal, showInstallModal, showNotifInbox, view]);
 
   const markNotifsSeen = useCallback(
     (ids: string[]) => {
@@ -242,7 +260,7 @@ export default function App() {
 
   // Show install popup within the first 30 seconds to anyone who hasn't installed the app yet
   useEffect(() => {
-    if (isInstalled || view === "admin" || view === "quiz") return;
+    if (isInstalled || view === "admin" || view === "quiz" || view === "gate" || (!impersonated && !hasCompleteAccount)) return;
     try {
       if (sessionStorage.getItem("amaysst_install_prompted") === "1") return;
     } catch {
@@ -259,7 +277,7 @@ export default function App() {
     }, 6000);
 
     return () => window.clearTimeout(timer);
-  }, [isInstalled, view]);
+  }, [hasCompleteAccount, impersonated, isInstalled, view]);
 
   const handleInstallClick = useCallback(async () => {
     recordTap("Install App", "Tapped Install App button", view);
@@ -433,10 +451,32 @@ export default function App() {
     fetchNotifications().then((list) => setAllNotifications(list));
 
     const initCloud = async () => {
-      const current = loadProfile();
+      let current = loadProfile();
       await syncIdentity(current);
-      const candTodayMap = await fetchCandidateTodayOverrides();
+
+      if (current.name && (!current.username || !current.password)) {
+        const credRes = await getMyCredentials(guestId);
+        if (credRes.ok && credRes.has_credentials && credRes.username && credRes.password) {
+          current = {
+            ...current,
+            username: credRes.username,
+            password: credRes.password,
+            name: credRes.display_name || current.name,
+          };
+          saveProfile(current);
+          setProfile(current);
+          setView((prev) => (prev === "gate" ? "home" : prev));
+        }
+      }
+
+      const [candTodayMap, dirRes] = await Promise.all([
+        fetchCandidateTodayOverrides(),
+        getChatDirectory(guestId),
+      ]);
       setCandidateTodayOverrides(candTodayMap);
+      if (dirRes.users.length > 0) {
+        setChatDirectory(dirRes.users);
+      }
       if (loadQueue().length === 0 && current.name) {
         const [stats, todayIst] = await Promise.all([getMyStats(guestId), getMyTodayIST(guestId)]);
         if (stats) applyCloudStats(stats, true, todayIst, candTodayMap);
@@ -467,6 +507,9 @@ export default function App() {
       fetchLatestVideo().then((v) => setLatestVideo(v));
       fetchBotOverrides().then((ov) => setBotOverrides(ov));
       fetchCandidateTodayOverrides().then((ov) => setCandidateTodayOverrides(ov));
+      getChatDirectory(guestId).then((dirRes) => {
+        if (dirRes.users.length > 0) setChatDirectory(dirRes.users);
+      });
       refreshNotifs();
     };
     const onOffline = () => setIsOffline(true);
@@ -483,6 +526,51 @@ export default function App() {
       if (retryTimerRef.current) window.clearTimeout(retryTimerRef.current);
     };
   }, [applyCloudStats, flushQueue, guestId, refreshDynamicQuestions, refreshLeaderboard, syncIdentity]);
+
+  // Real-time unread chat badge sync across all screens
+  useEffect(() => {
+    if (!effectiveProfile.name || (!impersonated && !hasCompleteAccount) || view === "admin" || view === "gate") return;
+
+    const refreshUnreadChat = async () => {
+      const res = await getMyChatMessages(effectiveGuestId);
+      if (res.needsTableSetup) return;
+      let readMap: Record<string, string> = {};
+      try {
+        readMap = JSON.parse(localStorage.getItem("amaysst_chat_read_at") || "{}") || {};
+      } catch {
+        readMap = {};
+      }
+      let count = 0;
+      for (const m of res.messages) {
+        if (m.sender_uuid === effectiveGuestId) continue;
+        const lastReadIso = readMap[m.sender_uuid];
+        if (!lastReadIso || Date.parse(m.created_at) > Date.parse(lastReadIso)) {
+          count += 1;
+        }
+      }
+      setUnreadChatCount(count);
+    };
+
+    refreshUnreadChat();
+    const unsub = subscribeChatRealtime((signal) => {
+      const s = String(signal.sender_uuid || "");
+      const r = String(signal.recipient_uuid || "");
+      const g = String(signal.guest_uuid || "");
+      const o = String(signal.other_uuid || "");
+      if (
+        (!s && !r && !g) ||
+        s === effectiveGuestId ||
+        r === effectiveGuestId ||
+        g === effectiveGuestId ||
+        o === effectiveGuestId
+      ) {
+        refreshUnreadChat();
+      }
+    });
+    return () => {
+      unsub();
+    };
+  }, [effectiveGuestId, effectiveProfile.name, view]);
 
   const finishQuiz = useCallback(
     (active: ActiveQuizState) => {
@@ -582,7 +670,7 @@ export default function App() {
   }, [view, quiz?.done, finishQuiz]);
 
   const navigate = (nextView: AppRoute) => {
-    if (!effectiveProfile.name && nextView !== "admin") {
+    if (!impersonated && !hasCompleteAccount && nextView !== "admin") {
       setView("gate");
       return;
     }
@@ -590,10 +678,19 @@ export default function App() {
     setQuiz(null);
     setView(nextView);
     window.scrollTo({ top: 0, behavior: "smooth" });
-    if (nextView === "rank") refreshLeaderboard(false);
+    if (nextView === "rank") {
+      refreshLeaderboard(false);
+      getChatDirectory(effectiveGuestId).then((dirRes) => {
+        if (dirRes.users.length > 0) setChatDirectory(dirRes.users);
+      });
+    }
   };
 
   const openSubjectConfig = (key: QuizKey) => {
+    if (!impersonated && !hasCompleteAccount) {
+      setView("gate");
+      return;
+    }
     recordTap("Select Subject", `Subject: ${key}`, "subs");
     setConfigKey(key);
     setConfigLevel(1);
@@ -603,6 +700,10 @@ export default function App() {
   };
 
   const startQuiz = (k = configKey, L = configLevel, N = configLength) => {
+    if (!impersonated && !hasCompleteAccount) {
+      setView("gate");
+      return;
+    }
     const qs = buildQuizSet(k, L, N, mergedBank);
     if (qs.length === 0) return;
     recordTap("Start Quiz", `${k.toUpperCase()} · ${LEVELS[L]} · ${N} Qs`, "quiz");
@@ -621,23 +722,171 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const handleCompleteOnboarding = (name: string) => {
+  const handleRegister = async (payload: {
+    name: string;
+    username: string;
+    password: string;
+  }): Promise<string | null> => {
+    const activeId = guestId || generateFreshGuestUUID();
+    const res = await registerWithCredentials(activeId, payload.name, payload.username, payload.password);
+    if (!res.ok) {
+      return res.error || "Could not create account.";
+    }
+    const assignedId = res.guest_uuid || activeId;
+    if (assignedId !== guestId) {
+      setGuestUUID(assignedId);
+      setGuestId(assignedId);
+    }
     const next: StudentProfile = {
       ...profile,
-      name,
+      name: res.display_name || payload.name.trim(),
+      username: res.username || payload.username.trim().toLowerCase(),
+      password: res.password || payload.password,
       nameAt: Date.now(),
     };
     setProfile(next);
     saveProfile(next);
-    syncIdentity(next);
-    logCandidateTap(guestId, name, "Joined", "Entered candidate name", "gate");
+    lastSyncedNameRef.current = next.name;
+    logCandidateTap(assignedId, next.name, "Joined", `Registered @${next.username}`, "gate");
     setView("home");
+    refreshLeaderboard(true, assignedId);
+    getChatDirectory(assignedId).then((dirRes) => {
+      if (dirRes.users.length > 0) setChatDirectory(dirRes.users);
+    });
+    return null;
+  };
+
+  const handleClaimExistingCredentials = async (payload: {
+    name: string;
+    username: string;
+    password: string;
+  }): Promise<string | null> => {
+    const existingName = profile.name?.trim();
+    if (!existingName) {
+      return "Candidate name is missing. Please sign up as a new account.";
+    }
+    const msLeft = Math.max(0, (profile.nameAt || 0) + 864e5 - Date.now());
+    const requestedName = payload.name.trim();
+    const targetName = msLeft > 0 || requestedName.length < 2 ? existingName : requestedName;
+    const nameChanged = targetName !== existingName;
+
+    let res = await setMyCredentials(guestId, payload.username, payload.password, targetName);
+    if (!res.ok && /not found|no candidate|does not exist/i.test(res.error || "")) {
+      res = await registerWithCredentials(guestId, targetName, payload.username, payload.password);
+    }
+    if (!res.ok) {
+      return res.error || "Could not save username and password.";
+    }
+    const next: StudentProfile = {
+      ...profile,
+      name: res.display_name || targetName,
+      nameAt: nameChanged ? Date.now() : profile.nameAt,
+      username: res.username || payload.username.trim().toLowerCase(),
+      password: res.password || payload.password,
+    };
+    setProfile(next);
+    saveProfile(next);
+    lastSyncedNameRef.current = next.name;
+    logCandidateTap(guestId, next.name, "Account Setup", `Claimed @${next.username}`, "gate");
+    setView("home");
+    refreshLeaderboard(true, guestId);
+    getChatDirectory(guestId).then((dirRes) => {
+      if (dirRes.users.length > 0) setChatDirectory(dirRes.users);
+    });
+    return null;
+  };
+
+  const handleLogin = async (payload: {
+    username: string;
+    password: string;
+  }): Promise<string | null> => {
+    const res = await loginWithCredentials(payload.username, payload.password);
+    if (!res.ok || !res.guest_uuid) {
+      return res.error || "Invalid username or password.";
+    }
+
+    const signedId = res.guest_uuid;
+    setGuestUUID(signedId);
+    saveQueue([]);
+
+    const [stats, todayIst, candTodayMap, dirRes] = await Promise.all([
+      getMyStats(signedId),
+      getMyTodayIST(signedId),
+      fetchCandidateTodayOverrides(),
+      getChatDirectory(signedId),
+    ]);
+    setCandidateTodayOverrides(candTodayMap);
+    if (dirRes.users.length > 0) {
+      setChatDirectory(dirRes.users);
+    }
+
+    const todayKey = todayIST(0);
+    const myOv = candTodayMap[signedId];
+    const adminTodayDelta = myOv && myOv.dateKey === todayKey ? myOv.delta : 0;
+    const baseToday = todayIst ?? stats?.today_xp ?? 0;
+    const resolvedToday = Math.max(0, baseToday + adminTodayDelta);
+    const resolvedXp = Math.max(0, stats?.xp ?? res.xp ?? 0);
+
+    const next: StudentProfile = {
+      name: res.display_name || payload.username,
+      username: res.username || payload.username.trim().toLowerCase(),
+      password: res.password || payload.password,
+      xp: resolvedXp,
+      streak: stats?.streak ?? res.streak ?? 0,
+      last: todayKey,
+      quizzes: stats?.quizzes ?? res.quizzes_count ?? 0,
+      perfect: stats?.perfect ?? res.perfect_count ?? 0,
+      theme: profile.theme,
+      td: { d: todayKey, xp: resolvedToday },
+      lastCloudXp: resolvedXp,
+      lastAdminTodayDate: todayKey,
+      lastAdminTodayDelta: adminTodayDelta,
+      earnedDailyBadges: [],
+    };
+    saveProfile(next);
+    setProfile(next);
+    setGuestId(signedId);
+    lastSyncedNameRef.current = next.name;
+    logCandidateTap(signedId, next.name, "Signed In", `Logged in as @${next.username}`, "gate");
+    setView("home");
+    refreshLeaderboard(true, signedId);
+    return null;
+  };
+
+  const handleSetCredentials = async (username: string, password: string): Promise<string | null> => {
+    const res = await setMyCredentials(guestId, username, password);
+    if (!res.ok) {
+      return res.error || "Could not save username and password.";
+    }
+    const next: StudentProfile = {
+      ...profile,
+      username: res.username || username.trim().toLowerCase(),
+      password: res.password || password,
+    };
+    setProfile(next);
+    saveProfile(next);
+    recordTap("Account Setup", `Claimed permanent username @${next.username}`, "me");
+    return null;
+  };
+
+  const handleSignOut = () => {
+    const freshId = clearProfileSession();
+    lastSyncedNameRef.current = "";
+    setImpersonated(null);
+    setPendingChatPeer(null);
+    setQuiz(null);
+    setUnreadChatCount(0);
+    setGuestId(freshId);
+    setProfile(loadProfile());
+    setView("gate");
   };
 
   const handleOpenCandidateId = useCallback(
     (target: {
       guestUuid: string;
       name: string;
+      username?: string | null;
+      password?: string | null;
       xp: number;
       todayXp: number;
       streak: number;
@@ -647,6 +896,8 @@ export default function App() {
     }) => {
       const previewProfile: StudentProfile = {
         name: target.name,
+        username: target.username ?? undefined,
+        password: target.password ?? undefined,
         xp: target.xp,
         streak: target.streak,
         last: todayIST(0),
@@ -729,16 +980,33 @@ export default function App() {
       return 0;
     };
 
+    const chatDirUuidByName = new Map<string, string>();
+    for (const u of chatDirectory) {
+      if (u.guest_uuid && u.display_name) {
+        chatDirUuidByName.set(u.display_name.trim().toLowerCase(), u.guest_uuid);
+      }
+    }
+
     const allList: RankEntry[] = [
-      ...resolvedBots.map((b) => ({ name: b.name, xp: b.xp, isMe: false })),
-      ...resolvedLivePlayers.map((l) => ({ name: l.name, xp: l.xp, isMe: false })),
+      ...resolvedBots.map((b) => ({ name: b.name, xp: b.xp, isMe: false, peerUuid: `bot_${b.name}` })),
+      ...resolvedLivePlayers.map((l) => ({
+        name: l.name,
+        xp: l.xp,
+        isMe: false,
+        peerUuid: chatDirUuidByName.get((l.name || "").trim().toLowerCase()),
+      })),
       { name: effectiveProfile.name || "You", xp: effectiveProfile.xp, isMe: true },
     ].sort(sortWithMePriority);
 
     const sortedBotsByToday = [...resolvedBots].sort((a, b) => b.todayXp - a.todayXp || b.xp - a.xp);
     const tdList: RankEntry[] = [
-      ...sortedBotsByToday.map((b) => ({ name: b.name, xp: b.todayXp, isMe: false })),
-      ...resolvedLivePlayers.map((l) => ({ name: l.name, xp: l.todayXp, isMe: false })),
+      ...sortedBotsByToday.map((b) => ({ name: b.name, xp: b.todayXp, isMe: false, peerUuid: `bot_${b.name}` })),
+      ...resolvedLivePlayers.map((l) => ({
+        name: l.name,
+        xp: l.todayXp,
+        isMe: false,
+        peerUuid: chatDirUuidByName.get((l.name || "").trim().toLowerCase()),
+      })),
       { name: effectiveProfile.name || "You", xp: myToday, isMe: true },
     ].sort(sortWithMePriority);
 
@@ -747,6 +1015,7 @@ export default function App() {
     botClockTick,
     botOverrides,
     candidateTodayOverrides,
+    chatDirectory,
     effectiveGuestId,
     effectiveProfile.name,
     effectiveProfile.td,
@@ -814,15 +1083,17 @@ export default function App() {
     [recordTap]
   );
 
-  const hideHeader = view === "quiz" || view === "admin";
-  const hideNav = view === "quiz" || view === "gate" || view === "admin";
+  const mustCompleteGate = view !== "admin" && !impersonated && !hasCompleteAccount;
+  const effectiveView: AppRoute = mustCompleteGate ? "gate" : view;
+  const hideHeader = effectiveView === "quiz" || effectiveView === "admin";
+  const hideNav = effectiveView === "quiz" || effectiveView === "gate" || effectiveView === "admin";
 
   return (
     <div className="min-h-screen relative flex flex-col">
       <div className="amay-bg-mesh" aria-hidden="true" />
 
       <div className="relative z-10 flex-1 flex flex-col">
-        {impersonated && view !== "admin" && (
+        {impersonated && effectiveView !== "admin" && (
           <div className="sticky top-0 z-40 bg-[#0B1B4D] text-white text-xs font-bold px-4 py-2 flex items-center justify-between gap-2 shadow-md">
             <span className="truncate">
               Viewing ID: <strong>{impersonated.profile.name}</strong> ({impersonated.profile.xp.toLocaleString()} XP)
@@ -852,11 +1123,11 @@ export default function App() {
         {!hideHeader && (
           <Header
             onNavigateHome={() => navigate("home")}
-            showInstallButton={!isInstalled}
+            showInstallButton={!isInstalled && effectiveView !== "gate"}
             onInstallClick={handleInstallClick}
-            unreadNotifications={view !== "gate" ? unreadNotifCount : 0}
+            unreadNotifications={effectiveView !== "gate" ? unreadNotifCount : 0}
             onOpenNotifications={
-              view !== "gate"
+              effectiveView !== "gate"
                 ? () => {
                     fetchNotifications().then((list) => setAllNotifications(list));
                     setShowNotifInbox(true);
@@ -871,12 +1142,21 @@ export default function App() {
 
         <main
           className={`w-full mx-auto px-4 pt-4 ${
-            view === "admin" ? "max-w-5xl pb-12" : `max-w-[560px] ${hideNav ? "pb-10" : "pb-32"}`
+            effectiveView === "admin" ? "max-w-5xl pb-12" : `max-w-[560px] ${hideNav ? "pb-10" : "pb-32"}`
           }`}
         >
-          {view === "gate" && <GateView onComplete={handleCompleteOnboarding} />}
+          {effectiveView === "gate" && (
+            <GateView
+              existingAccount={
+                profile.name ? { name: profile.name, xp: profile.xp, nameAt: profile.nameAt } : null
+              }
+              onRegister={handleRegister}
+              onClaimExisting={handleClaimExistingCredentials}
+              onLogin={handleLogin}
+            />
+          )}
 
-          {view === "home" && (
+          {effectiveView === "home" && (
             <HomeView
               profile={effectiveProfile}
               allTimeEntries={allTimeEntries}
@@ -889,9 +1169,9 @@ export default function App() {
             />
           )}
 
-          {view === "subs" && <SubjectsGridView onSelectSubject={openSubjectConfig} />}
+          {effectiveView === "subs" && <SubjectsGridView onSelectSubject={openSubjectConfig} />}
 
-          {view === "sub" && (
+          {effectiveView === "sub" && (
             <SubjectConfigView
               subjectKey={configKey}
               level={configLevel}
@@ -910,7 +1190,7 @@ export default function App() {
             />
           )}
 
-          {view === "quiz" && quiz && (
+          {effectiveView === "quiz" && quiz && (
             <QuizView
               quiz={quiz}
               profile={effectiveProfile}
@@ -947,32 +1227,52 @@ export default function App() {
             />
           )}
 
-          {view === "rank" && (
+          {effectiveView === "chat" && (
+            <ChatView
+              guestId={effectiveGuestId}
+              myName={effectiveProfile.name || "Candidate"}
+              initialPeer={pendingChatPeer}
+              onClearInitialPeer={() => setPendingChatPeer(null)}
+              onUnreadCountChange={setUnreadChatCount}
+            />
+          )}
+
+          {effectiveView === "rank" && (
             <RankView
               allTimeEntries={allTimeEntries}
               todayEntries={todayEntries}
               onStartQuiz={() => openSubjectConfig("mix")}
+              onChatWithPlayer={(peer) => {
+                recordTap("Chat from Rank", `Opened chat with ${peer.name}`, "rank");
+                setPendingChatPeer(peer);
+                setQuiz(null);
+                setView("chat");
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
             />
           )}
 
-          {view === "me" && (
+          {effectiveView === "me" && (
             <ProfileView
               profile={effectiveProfile}
               isDark={isDark}
               onToggleTheme={handleToggleTheme}
               onUpdateName={handleUpdateName}
+              onSetCredentials={handleSetCredentials}
+              onSignOut={handleSignOut}
+              isImpersonating={Boolean(impersonated)}
               onOpenBadge={(spec) => openBadgeModal(spec, "me")}
             />
           )}
 
-          {view === "admin" && (
+          {effectiveView === "admin" && (
             <AdminView
               onBack={() => {
                 if (window.location.hash === "#admin") {
                   window.history.replaceState(null, "", window.location.pathname);
                 }
                 setImpersonated(null);
-                setView(profile.name ? "home" : "gate");
+                setView(hasCompleteAccount ? "home" : "gate");
               }}
               onQuestionsChanged={refreshDynamicQuestions}
               onBotsChanged={(ov) => setBotOverrides(ov)}
@@ -985,7 +1285,9 @@ export default function App() {
         </main>
       </div>
 
-      {!hideNav && <BottomNav activeView={view} onNavigate={navigate} />}
+      {!hideNav && (
+        <BottomNav activeView={effectiveView} onNavigate={navigate} unreadChatCount={unreadChatCount} />
+      )}
 
       {showBadgeModal && (
         <BadgeModal

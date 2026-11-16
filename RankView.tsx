@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Clock, Zap } from "lucide-react";
+import { ChevronRight, Clock, MessageCircle, Zap } from "lucide-react";
 import {
   computeRankSnapshot,
   getNextOverallMilestone,
@@ -14,12 +14,14 @@ interface RankViewProps {
   allTimeEntries: RankEntry[];
   todayEntries: RankEntry[];
   onStartQuiz?: () => void;
+  onChatWithPlayer?: (peer: { uuid: string; name: string }) => void;
 }
 
 export const RankView: React.FC<RankViewProps> = ({
   allTimeEntries,
   todayEntries,
   onStartQuiz,
+  onChatWithPlayer,
 }) => {
   const [period, setPeriod] = useState<"td" | "all">("td");
   const [cutoff, setCutoff] = useState(() => getTodayCutoffStatus());
@@ -237,9 +239,21 @@ export const RankView: React.FC<RankViewProps> = ({
                       <strong className="font-mono-nums text-[#1457E0] dark:text-[#5AA2FF] w-8 shrink-0">
                         #{r.rank}
                       </strong>
-                      <span className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
-                        {r.name}
-                      </span>
+                      {onChatWithPlayer && r.peerUuid ? (
+                        <button
+                          type="button"
+                          onClick={() => onChatWithPlayer({ uuid: r.peerUuid!, name: r.name })}
+                          className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] hover:text-[#1457E0] dark:hover:text-[#5AA2FF] hover:underline truncate inline-flex items-center gap-1 cursor-pointer text-left"
+                          title={`Chat with ${r.name}`}
+                        >
+                          <span className="truncate">{r.name}</span>
+                          <MessageCircle className="w-3 h-3 text-[#1457E0] dark:text-[#5AA2FF] shrink-0 opacity-75" />
+                        </button>
+                      ) : (
+                        <span className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
+                          {r.name}
+                        </span>
+                      )}
                     </div>
                     <span className="font-mono-nums font-bold text-[#1457E0] dark:text-[#5AA2FF] shrink-0">
                       +{r.xpToPass.toLocaleString()} XP
@@ -337,9 +351,21 @@ export const RankView: React.FC<RankViewProps> = ({
                       <strong className="font-mono-nums text-[#1457E0] dark:text-[#5AA2FF] w-8 shrink-0">
                         #{r.rank}
                       </strong>
-                      <span className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
-                        {r.name}
-                      </span>
+                      {onChatWithPlayer && r.peerUuid ? (
+                        <button
+                          type="button"
+                          onClick={() => onChatWithPlayer({ uuid: r.peerUuid!, name: r.name })}
+                          className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] hover:text-[#1457E0] dark:hover:text-[#5AA2FF] hover:underline truncate inline-flex items-center gap-1 cursor-pointer text-left"
+                          title={`Chat with ${r.name}`}
+                        >
+                          <span className="truncate">{r.name}</span>
+                          <MessageCircle className="w-3 h-3 text-[#1457E0] dark:text-[#5AA2FF] shrink-0 opacity-75" />
+                        </button>
+                      ) : (
+                        <span className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
+                          {r.name}
+                        </span>
+                      )}
                     </div>
                     <span className="font-mono-nums font-bold text-[#1457E0] dark:text-[#5AA2FF] shrink-0">
                       +{r.xpToPass.toLocaleString()} XP
@@ -402,13 +428,24 @@ export const RankView: React.FC<RankViewProps> = ({
                 >
                   <RankBadge rank={rank} size={badgeSize} />
                   <div className="mt-1.5 w-full h-[34px] flex items-center justify-center">
-                    <strong
-                      title={entry.name}
-                      className="w-full text-[13px] sm:text-[14px] font-extrabold text-[#0B1B4D] dark:text-white leading-tight line-clamp-2 break-words"
-                    >
-                      {entry.name}
-                      {isMe ? " (You)" : ""}
-                    </strong>
+                    {!isMe && onChatWithPlayer && entry.peerUuid ? (
+                      <button
+                        type="button"
+                        onClick={() => onChatWithPlayer({ uuid: entry.peerUuid!, name: entry.name })}
+                        title={`Tap to chat with ${entry.name}`}
+                        className="w-full text-[13px] sm:text-[14px] font-extrabold text-[#0B1B4D] dark:text-white hover:text-[#1457E0] dark:hover:text-[#5AA2FF] hover:underline leading-tight line-clamp-2 break-words cursor-pointer"
+                      >
+                        {entry.name}
+                      </button>
+                    ) : (
+                      <strong
+                        title={entry.name}
+                        className="w-full text-[13px] sm:text-[14px] font-extrabold text-[#0B1B4D] dark:text-white leading-tight line-clamp-2 break-words"
+                      >
+                        {entry.name}
+                        {isMe ? " (You)" : ""}
+                      </strong>
+                    )}
                   </div>
                   <span className="mt-1 text-[11px] sm:text-xs font-extrabold text-[#1457E0] dark:text-[#5AA2FF] font-mono-nums">
                     {entry.xp.toLocaleString()} XP
@@ -437,10 +474,22 @@ export const RankView: React.FC<RankViewProps> = ({
                   <strong className="w-9 text-center text-sm font-extrabold text-[#5A6A92] dark:text-[#93A3CC] font-mono-nums shrink-0">
                     #{actualRank}
                   </strong>
-                  <span className="text-base text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
-                    {entry.name}
-                    {entry.isMe ? " (You)" : ""}
-                  </span>
+                  {!entry.isMe && onChatWithPlayer && entry.peerUuid ? (
+                    <button
+                      type="button"
+                      onClick={() => onChatWithPlayer({ uuid: entry.peerUuid!, name: entry.name })}
+                      className="text-base font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] hover:text-[#1457E0] dark:hover:text-[#5AA2FF] hover:underline truncate inline-flex items-center gap-1.5 cursor-pointer text-left"
+                      title={`Chat with ${entry.name}`}
+                    >
+                      <span className="truncate">{entry.name}</span>
+                      <MessageCircle className="w-3.5 h-3.5 text-[#1457E0] dark:text-[#5AA2FF] shrink-0 opacity-75" />
+                    </button>
+                  ) : (
+                    <span className="text-base text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
+                      {entry.name}
+                      {entry.isMe ? " (You)" : ""}
+                    </span>
+                  )}
                 </div>
                 <strong className="font-mono-nums text-base font-extrabold text-[#1457E0] dark:text-[#5AA2FF] shrink-0">
                   {entry.xp.toLocaleString()} XP

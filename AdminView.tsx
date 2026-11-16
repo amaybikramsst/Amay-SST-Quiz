@@ -22,6 +22,9 @@ import {
   Send,
   Users,
   User,
+  MessageCircle,
+  LifeBuoy,
+  Lock,
 } from "lucide-react";
 import { BENCHMARK_PLAYERS } from "../data/benchmarks";
 import type { SubjectKey } from "../data/questions";
@@ -32,6 +35,7 @@ import {
   adminDeleteQuestion,
   adminGetSession,
   adminInsertQuestion,
+  adminLoadAllChatMessages,
   adminLoadAttempts,
   adminLoadCandidates,
   adminLoadCandidateTaps,
@@ -41,6 +45,7 @@ import {
   adminSaveBotOverrides,
   adminSaveCandidateTodayOverrides,
   adminSaveLatestVideo,
+  adminSendHelpReply,
   adminSendNotification,
   adminSignIn,
   adminSignOut,
@@ -52,10 +57,12 @@ import {
   fetchDynamicQuestions,
   fetchLatestVideo,
   fetchNotifications,
+  HELP_CHAT_UUID,
   loadBotOverrides,
   loadCandidateTodayOverrides,
   saveBotOverrides,
   saveCandidateTodayOverrides,
+  subscribeChatRealtime,
   supabase,
   type AdminAttemptRow,
   type AdminCandidateRow,
@@ -63,6 +70,7 @@ import {
   type BotOverride,
   type CandidateTapEvent,
   type CandidateTodayOverride,
+  type ChatMessageRow,
   type DynamicQuestionRow,
   type LatestVideoConfig,
   type NotificationActionType,
@@ -71,6 +79,8 @@ import {
 export interface OpenCandidateIdPayload {
   guestUuid: string;
   name: string;
+  username?: string | null;
+  password?: string | null;
   xp: number;
   todayXp: number;
   streak: number;
@@ -113,6 +123,9 @@ create policy "Allow public read app_settings" on public.app_settings for select
 drop policy if exists "Allow authenticated write app_settings" on public.app_settings;
 create policy "Allow authenticated write app_settings" on public.app_settings for all to authenticated using (true) with check (true);`;
 
+const CHAT_AUTH_SQL = `-- Run Sections 8 & 9 from supabase-setup.sql for Login & Live Messages + Admin Audit
+-- (Paste full supabase-setup.sql into Supabase SQL Editor -> Run)`;
+
 export const AdminView: React.FC<AdminViewProps> = ({
   onBack,
   onQuestionsChanged,
@@ -131,7 +144,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [loggingIn, setLoggingIn] = useState(false);
 
   const [tab, setTab] = useState<
-    "candidates" | "attempts" | "taps" | "questions" | "video" | "notifications"
+    "candidates" | "messages" | "attempts" | "taps" | "questions" | "video" | "notifications"
   >("candidates");
   const [candidateFilter, setCandidateFilter] = useState<"students" | "bots">("students");
   const [installFilter, setInstallFilter] = useState<"all" | "installed" | "not_installed">("all");
@@ -195,12 +208,24 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [selectedCandidate, setSelectedCandidate] = useState<AdminCandidateRow | null>(null);
   const [copiedCandidateId, setCopiedCandidateId] = useState(false);
   const [editName, setEditName] = useState("");
+  const [editUsername, setEditUsername] = useState("");
+  const [editPassword, setEditPassword] = useState("");
   const [editXp, setEditXp] = useState(0);
   const [editTodayXp, setEditTodayXp] = useState(0);
   const [candidateBaseWithoutToday, setCandidateBaseWithoutToday] = useState(0);
   const [editStreak, setEditStreak] = useState(0);
   const [editQuizzes, setEditQuizzes] = useState(0);
   const [savingCandidate, setSavingCandidate] = useState(false);
+
+  // Admin Messages & Help state (sees ALL chats including student-deleted ones)
+  const [chatMessages, setChatMessages] = useState<ChatMessageRow[]>([]);
+  const [needsChatTable, setNeedsChatTable] = useState(false);
+  const [copiedChatSql, setCopiedChatSql] = useState(false);
+  const [msgSubTab, setMsgSubTab] = useState<"help" | "audit">("help");
+  const [selectedHelpUuid, setSelectedHelpUuid] = useState<string | null>(null);
+  const [selectedAuditPairKey, setSelectedAuditPairKey] = useState<string | null>(null);
+  const [helpReplyDraft, setHelpReplyDraft] = useState("");
+  const [sendingHelpReply, setSendingHelpReply] = useState(false);
 
   // Question Entry Mode: single vs bulk
   const [qEntryMode, setQEntryMode] = useState<"single" | "bulk">("single");
@@ -225,10 +250,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [publishingBulk, setPublishingBulk] = useState(false);
   const [rawExtractPreview, setRawExtractPreview] = useState("");
 
+  const refreshAdminChatOnly = async () => {
+    const res = await adminLoadAllChatMessages();
+    setChatMessages(res.messages);
+    setNeedsChatTable(res.needsTableSetup);
+  };
+
   const loadAllAdminData = async () => {
     const localBots = loadBotOverrides();
     const localCandToday = loadCandidateTodayOverrides();
-    const [st, dqs, cands, atts, tapRes, vid, cloudBots, cloudCandToday, installMap, notifs, seenMap] =
+    const [st, dqs, cands, atts, tapRes, vid, cloudBots, cloudCandToday, installMap, notifs, seenMap, chatRes] =
       await Promise.all([
         adminLoadStats(),
         fetchDynamicQuestions(),
@@ -241,6 +272,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
         adminLoadInstallStatusMap(),
         fetchNotifications(),
         adminLoadNotificationSeenMap(),
+        adminLoadAllChatMessages(),
       ]);
     const mergedBots = { ...cloudBots, ...localBots };
     const mergedCandToday = { ...cloudCandToday, ...localCandToday };
@@ -251,6 +283,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setAttempts(atts);
     setTaps(tapRes.events);
     setNeedsTapTable(tapRes.needsTableSetup);
+    setChatMessages(chatRes.messages);
+    setNeedsChatTable(chatRes.needsTableSetup);
     setVideoUrl(vid.url);
     setVideoTitle(vid.title);
     setVideoSubtitle(vid.subtitle);
@@ -277,6 +311,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
     const timer = window.setInterval(() => setBotClockTick(Date.now()), 30000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!adminEmail) return;
+    const unsubscribe = subscribeChatRealtime(() => {
+      refreshAdminChatOnly();
+    }, true);
+    return () => {
+      unsubscribe();
+    };
+  }, [adminEmail]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -305,6 +349,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setCopiedCandidateId(false);
     setSelectedCandidate(cand);
     setEditName(cand.display_name || "");
+    setEditUsername(cand.username || "");
+    setEditPassword(cand.password || "");
     setEditXp(totalVal);
     setEditTodayXp(todayVal);
     setCandidateBaseWithoutToday(totalVal - todayVal);
@@ -338,6 +384,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
     onOpenCandidateId({
       guestUuid: cand.guest_uuid,
       name: cand.display_name,
+      username: cand.username ?? null,
+      password: cand.password ?? null,
       xp: cand.xp || 0,
       todayXp: getCandidateTodayIstXp(cand),
       streak: cand.streak || 0,
@@ -423,6 +471,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const handleSaveCandidateEdits = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCandidate) return;
+    const cleanUsername = editUsername.trim().toLowerCase();
+    if (cleanUsername && !/^[a-z0-9_]{3,20}$/.test(cleanUsername)) {
+      setFeedback({
+        text: "Username must be 3–20 letters, numbers, or underscore.",
+        ok: false,
+      });
+      return;
+    }
     setSavingCandidate(true);
     setFeedback(null);
 
@@ -430,17 +486,29 @@ export const AdminView: React.FC<AdminViewProps> = ({
     const savedXp = Math.max(0, Math.round(Number(editXp) || 0));
     const savedTodayXp = Math.max(0, Math.round(Number(editTodayXp) || 0));
 
-    const { data, error } = await adminUpdateCandidate(selectedCandidate.guest_uuid, {
+    const updates: Parameters<typeof adminUpdateCandidate>[1] = {
       display_name: savedName,
       xp: savedXp,
       today_xp: savedTodayXp,
       streak: Math.max(0, Math.round(Number(editStreak) || 0)),
       quizzes_count: Math.max(0, Math.round(Number(editQuizzes) || 0)),
-    });
+    };
+    if (cleanUsername !== (selectedCandidate.username || "")) {
+      updates.username = cleanUsername || null;
+    }
+    if (editPassword !== (selectedCandidate.password || "")) {
+      updates.password = editPassword || null;
+    }
+
+    const { data, error } = await adminUpdateCandidate(selectedCandidate.guest_uuid, updates);
 
     if (error) {
       setSavingCandidate(false);
-      setFeedback({ text: `Update failed: ${error.message}`, ok: false });
+      const dup = /duplicate key|unique constraint|candidates_username/i.test(error.message);
+      setFeedback({
+        text: dup ? "That username is already assigned to another candidate." : `Update failed: ${error.message}`,
+        ok: false,
+      });
       return;
     }
     if (!data || data.length === 0) {
@@ -471,7 +539,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
     setSavingCandidate(false);
     setCandidateBaseWithoutToday(savedXp - savedTodayXp);
-    setFeedback({ text: `Updated ${savedName}'s name, XP, and stats.`, ok: true });
+    setFeedback({ text: `Updated ${savedName}'s profile, credentials & XP.`, ok: true });
     setSelectedCandidate(data[0] as AdminCandidateRow);
     await loadAllAdminData();
   };
@@ -820,9 +888,164 @@ export const AdminView: React.FC<AdminViewProps> = ({
       if (installFilter === "installed" && !installed) return false;
       if (installFilter === "not_installed" && installed) return false;
       if (!q) return true;
-      return c.display_name.toLowerCase().includes(q) || c.guest_uuid.toLowerCase().includes(q);
+      return (
+        c.display_name.toLowerCase().includes(q) ||
+        (c.username || "").toLowerCase().includes(q) ||
+        c.guest_uuid.toLowerCase().includes(q)
+      );
     });
   }, [candidates, installFilter, installStatusMap, searchQuery]);
+
+  // Derived Help support conversations & Full All-Chats Audit (including student-deleted messages!)
+  const { helpThreads, auditThreads, deletedMessageCount } = useMemo(() => {
+    const nameByUuid = new Map<string, { displayName: string; username?: string | null }>();
+    for (const c of candidates) {
+      nameByUuid.set(c.guest_uuid, { displayName: c.display_name, username: c.username });
+    }
+    const resolveLabel = (uuid: string, fallbackName: string) => {
+      if (uuid === HELP_CHAT_UUID) return { displayName: "Help", username: null as string | null };
+      const match = nameByUuid.get(uuid);
+      return {
+        displayName: match?.displayName || fallbackName || "Candidate",
+        username: match?.username || null,
+      };
+    };
+
+    const helpMap = new Map<
+      string,
+      {
+        candidateUuid: string;
+        candidateName: string;
+        username?: string | null;
+        messages: ChatMessageRow[];
+        lastMessage: ChatMessageRow;
+        deletedCount: number;
+      }
+    >();
+
+    const pairMap = new Map<
+      string,
+      {
+        pairKey: string;
+        leftUuid: string;
+        leftName: string;
+        leftUsername?: string | null;
+        rightUuid: string;
+        rightName: string;
+        rightUsername?: string | null;
+        messages: ChatMessageRow[];
+        lastMessage: ChatMessageRow;
+        deletedCount: number;
+      }
+    >();
+
+    let totalDeleted = 0;
+    const q = searchQuery.trim().toLowerCase();
+
+    for (const m of chatMessages) {
+      const isDeleted = Boolean(m.deleted_for_everyone || m.deleted_by_sender || m.deleted_by_recipient);
+      if (isDeleted) totalDeleted++;
+
+      // 1. Help inbox grouping
+      if (m.sender_uuid === HELP_CHAT_UUID || m.recipient_uuid === HELP_CHAT_UUID) {
+        const candUuid = m.sender_uuid === HELP_CHAT_UUID ? m.recipient_uuid : m.sender_uuid;
+        const fallback = m.sender_uuid === HELP_CHAT_UUID ? m.recipient_name : m.sender_name;
+        const info = resolveLabel(candUuid, fallback);
+        const existing = helpMap.get(candUuid) || {
+          candidateUuid: candUuid,
+          candidateName: info.displayName,
+          username: info.username,
+          messages: [],
+          lastMessage: m,
+          deletedCount: 0,
+        };
+        existing.messages.push(m);
+        existing.lastMessage = m;
+        if (isDeleted) existing.deletedCount++;
+        helpMap.set(candUuid, existing);
+      }
+
+      // 2. All conversation pairs grouping (for Admin Audit)
+      const [aUuid, bUuid] =
+        m.sender_uuid < m.recipient_uuid
+          ? [m.sender_uuid, m.recipient_uuid]
+          : [m.recipient_uuid, m.sender_uuid];
+      const pairKey = `${aUuid}::${bUuid}`;
+      const aFallback = m.sender_uuid === aUuid ? m.sender_name : m.recipient_name;
+      const bFallback = m.sender_uuid === bUuid ? m.sender_name : m.recipient_name;
+      const aInfo = resolveLabel(aUuid, aFallback);
+      const bInfo = resolveLabel(bUuid, bFallback);
+
+      const pairExisting = pairMap.get(pairKey) || {
+        pairKey,
+        leftUuid: aUuid,
+        leftName: aInfo.displayName,
+        leftUsername: aInfo.username,
+        rightUuid: bUuid,
+        rightName: bInfo.displayName,
+        rightUsername: bInfo.username,
+        messages: [],
+        lastMessage: m,
+        deletedCount: 0,
+      };
+      pairExisting.messages.push(m);
+      pairExisting.lastMessage = m;
+      if (isDeleted) pairExisting.deletedCount++;
+      pairMap.set(pairKey, pairExisting);
+    }
+
+    const helpList = Array.from(helpMap.values())
+      .filter(
+        (t) =>
+          !q ||
+          t.candidateName.toLowerCase().includes(q) ||
+          (t.username || "").toLowerCase().includes(q) ||
+          t.messages.some((msg) => msg.body.toLowerCase().includes(q))
+      )
+      .sort((a, b) => Date.parse(b.lastMessage.created_at) - Date.parse(a.lastMessage.created_at));
+
+    const auditList = Array.from(pairMap.values())
+      .filter(
+        (t) =>
+          !q ||
+          t.leftName.toLowerCase().includes(q) ||
+          t.rightName.toLowerCase().includes(q) ||
+          (t.leftUsername || "").toLowerCase().includes(q) ||
+          (t.rightUsername || "").toLowerCase().includes(q) ||
+          t.messages.some((msg) => msg.body.toLowerCase().includes(q))
+      )
+      .sort((a, b) => Date.parse(b.lastMessage.created_at) - Date.parse(a.lastMessage.created_at));
+
+    return { helpThreads: helpList, auditThreads: auditList, deletedMessageCount: totalDeleted };
+  }, [candidates, chatMessages, searchQuery]);
+
+  const handleSendAdminHelpReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedHelpUuid || sendingHelpReply) return;
+    const text = helpReplyDraft.trim();
+    if (!text) return;
+
+    const cand = candidates.find((c) => c.guest_uuid === selectedHelpUuid);
+    const candName =
+      cand?.display_name ||
+      helpThreads.find((t) => t.candidateUuid === selectedHelpUuid)?.candidateName ||
+      "Candidate";
+
+    setSendingHelpReply(true);
+    setFeedback(null);
+    const res = await adminSendHelpReply(selectedHelpUuid, candName, text);
+    setSendingHelpReply(false);
+
+    if (!res.ok || !res.message) {
+      setFeedback({ text: `Reply failed: ${res.error || "Unknown error"}`, ok: false });
+      return;
+    }
+
+    setHelpReplyDraft("");
+    setChatMessages((prev) =>
+      prev.some((m) => m.id === res.message!.id) ? prev : [...prev, res.message!]
+    );
+  };
 
   const istTodayXpMap = useMemo(() => {
     const todayKey = getIstClock(botClockTick).dateKey;
@@ -1038,6 +1261,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           {(
             [
               ["candidates", "Everyone & XP"],
+              ["messages", `Messages & Help (${chatMessages.length})`],
               ["attempts", "Every Result"],
               ["taps", "Every Tap"],
               ["questions", "Questions & Bulk Upload"],
@@ -1165,6 +1389,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   <tr>
                     <th className="py-3.5 px-4">Rank</th>
                     <th className="py-3.5 px-4">Name</th>
+                    <th className="py-3.5 px-4">Username</th>
+                    <th className="py-3.5 px-4">Password</th>
                     <th className="py-3.5 px-4">App Status</th>
                     <th className="py-3.5 px-4">Total XP</th>
                     <th className="py-3.5 px-4">Today XP</th>
@@ -1222,6 +1448,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
                               </span>
                             </button>
                           )}
+                        </td>
+                        <td className="py-3 px-4 font-mono-nums text-xs font-bold text-[#1457E0] dark:text-[#5AA2FF] whitespace-nowrap">
+                          {c.username ? `@${c.username}` : <span className="text-[#5A6A92]/60 font-normal">—</span>}
+                        </td>
+                        <td className="py-3 px-4 font-mono-nums text-xs font-semibold text-[#0B1B4D] dark:text-white whitespace-nowrap select-all">
+                          {c.password ? c.password : <span className="text-[#5A6A92]/60 font-normal">—</span>}
                         </td>
                         <td className="py-3 px-4 whitespace-nowrap">
                           {installed ? (
@@ -2581,6 +2813,407 @@ export const AdminView: React.FC<AdminViewProps> = ({
         </div>
       )}
 
+      {/* TAB: MESSAGES, HELP SUPPORT INBOX & ALL-CHATS AUDIT (INCLUDES DELETED) */}
+      {tab === "messages" && (
+        <div className="space-y-4">
+          {needsChatTable && (
+            <div className="amay-card rounded-[24px] p-5 border-2 border-amber-400/60 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-extrabold text-amber-800 dark:text-amber-300">
+                    Run updated supabase-setup.sql in Supabase → SQL Editor
+                  </h3>
+                  <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+                    Sections 8 &amp; 9 create unique username/password login and the live chat_messages audit table.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(CHAT_AUTH_SQL);
+                    setCopiedChatSql(true);
+                    setTimeout(() => setCopiedChatSql(false), 2000);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  {copiedChatSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedChatSql ? "Copied Note" : "Copy Reminder"}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="inline-flex p-1 rounded-xl amay-card gap-1">
+              <button
+                type="button"
+                onClick={() => setMsgSubTab("help")}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer ${
+                  msgSubTab === "help"
+                    ? "bg-[#1457E0] text-white"
+                    : "text-[#5A6A92] dark:text-[#93A3CC]"
+                }`}
+              >
+                <LifeBuoy className="w-3.5 h-3.5" />
+                <span>Help Inbox ({helpThreads.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMsgSubTab("audit")}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer ${
+                  msgSubTab === "audit"
+                    ? "bg-[#1457E0] text-white"
+                    : "text-[#5A6A92] dark:text-[#93A3CC]"
+                }`}
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span>All Candidate Chats ({auditThreads.length})</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs font-bold">
+              <span className="px-2.5 py-1 rounded-lg amay-card text-[#5A6A92] dark:text-[#93A3CC]">
+                Total messages: {chatMessages.length}
+              </span>
+              {deletedMessageCount > 0 && (
+                <span className="px-2.5 py-1 rounded-lg bg-[#D92D3A]/12 text-[#D92D3A] dark:text-[#FF6B76]">
+                  Deleted by students (retained): {deletedMessageCount}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={refreshAdminChatOnly}
+                className="px-3 py-1 rounded-lg amay-card text-[#1457E0] dark:text-[#5AA2FF] inline-flex items-center gap-1 cursor-pointer"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Sync</span>
+              </button>
+            </div>
+          </div>
+
+          {msgSubTab === "help" ? (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+              {/* Left column: Help conversations + start Help chat with any candidate */}
+              <div className="lg:col-span-4 amay-card rounded-[26px] p-4 space-y-3">
+                <div>
+                  <h3 className="text-sm font-extrabold text-[#0B1B4D] dark:text-white">
+                    Help Conversations
+                  </h3>
+                  <p className="text-[11px] text-[#5A6A92] dark:text-[#93A3CC]">
+                    Students see you as &ldquo;Help&rdquo;. Reply directly below.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-[#5A6A92] mb-1">
+                    Or message any candidate as Help:
+                  </label>
+                  <select
+                    value={selectedHelpUuid || ""}
+                    onChange={(e) => setSelectedHelpUuid(e.target.value || null)}
+                    className="w-full h-9 px-2.5 rounded-xl bg-white/85 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-xs font-semibold"
+                  >
+                    <option value="">-- Pick any candidate --</option>
+                    {candidates.map((c) => (
+                      <option key={c.guest_uuid} value={c.guest_uuid}>
+                        {c.display_name} {c.username ? `(@${c.username})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {helpThreads.length === 0 ? (
+                  <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] py-6 text-center">
+                    No Help messages yet.
+                  </p>
+                ) : (
+                  <div className="divide-y divide-[#1846AA]/10 dark:divide-white/10 max-h-[420px] overflow-y-auto">
+                    {helpThreads.map((t) => {
+                      const active = selectedHelpUuid === t.candidateUuid;
+                      return (
+                        <button
+                          key={t.candidateUuid}
+                          type="button"
+                          onClick={() => setSelectedHelpUuid(t.candidateUuid)}
+                          className={`w-full py-2.5 px-2.5 rounded-xl text-left transition cursor-pointer ${
+                            active
+                              ? "bg-[#1457E0]/12 dark:bg-[#5AA2FF]/15"
+                              : "hover:bg-[#1457E0]/5"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <strong className="text-sm font-bold text-[#0B1B4D] dark:text-white truncate">
+                              {t.candidateName}
+                              {t.username ? (
+                                <span className="ml-1 text-[11px] font-mono-nums font-semibold text-[#1457E0] dark:text-[#5AA2FF]">
+                                  @{t.username}
+                                </span>
+                              ) : null}
+                            </strong>
+                            {t.deletedCount > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-[#D92D3A]/12 text-[#D92D3A] dark:text-[#FF6B76] text-[10px] font-bold shrink-0">
+                                {t.deletedCount} del
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] truncate mt-0.5">
+                            {t.lastMessage.sender_uuid === HELP_CHAT_UUID ? "Help: " : ""}
+                            {t.lastMessage.body}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Right column: Active Help thread transcript & reply box */}
+              <div className="lg:col-span-8 amay-card rounded-[26px] p-5 flex flex-col min-h-[440px]">
+                {!selectedHelpUuid ? (
+                  <div className="flex-1 flex items-center justify-center text-sm text-[#5A6A92] dark:text-[#93A3CC]">
+                    Select a candidate on the left to view messages &amp; reply as Help.
+                  </div>
+                ) : (
+                  (() => {
+                    const threadMsgs = chatMessages.filter(
+                      (m) =>
+                        (m.sender_uuid === selectedHelpUuid && m.recipient_uuid === HELP_CHAT_UUID) ||
+                        (m.sender_uuid === HELP_CHAT_UUID && m.recipient_uuid === selectedHelpUuid)
+                    );
+                    const cand = candidates.find((c) => c.guest_uuid === selectedHelpUuid);
+                    const candName =
+                      cand?.display_name ||
+                      helpThreads.find((t) => t.candidateUuid === selectedHelpUuid)?.candidateName ||
+                      "Candidate";
+
+                    return (
+                      <>
+                        <div className="pb-3 mb-3 border-b border-[#1846AA]/10 dark:border-white/10 flex items-center justify-between gap-2">
+                          <div>
+                            <strong className="text-base font-extrabold text-[#0B1B4D] dark:text-white">
+                              {candName}
+                            </strong>
+                            {cand?.username && (
+                              <span className="ml-2 text-xs font-mono-nums font-bold text-[#1457E0] dark:text-[#5AA2FF]">
+                                @{cand.username}
+                              </span>
+                            )}
+                            <span className="block text-[11px] text-[#5A6A92] dark:text-[#93A3CC]">
+                              Replying as &ldquo;Help&rdquo; · Deleted messages remain visible here
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex-1 max-h-[340px] overflow-y-auto space-y-2.5 pr-1">
+                          {threadMsgs.length === 0 ? (
+                            <p className="text-xs text-[#5A6A92] py-10 text-center">
+                              No messages in this Help chat yet. Send the first reply below.
+                            </p>
+                          ) : (
+                            threadMsgs.map((m) => {
+                              const fromHelp = m.sender_uuid === HELP_CHAT_UUID;
+                              const isDeleted = Boolean(
+                                m.deleted_for_everyone || m.deleted_by_sender || m.deleted_by_recipient
+                              );
+                              return (
+                                <div
+                                  key={m.id}
+                                  className={`flex ${fromHelp ? "justify-end" : "justify-start"}`}
+                                >
+                                  <div
+                                    className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm ${
+                                      fromHelp
+                                        ? "bg-[#1457E0] text-white"
+                                        : "bg-white/85 dark:bg-[#131E3A] text-[#0B1B4D] dark:text-white border border-[#1846AA]/12 dark:border-white/10"
+                                    } ${isDeleted ? "ring-2 ring-[#D92D3A]/60" : ""}`}
+                                  >
+                                    {isDeleted && (
+                                      <span className="inline-block mb-1 px-1.5 py-0.5 rounded bg-[#D92D3A] text-white text-[10px] font-extrabold">
+                                        Deleted by student{m.deleted_for_everyone ? " (for everyone)" : ""}
+                                      </span>
+                                    )}
+                                    <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                                    <span
+                                      className={`block text-[10px] font-mono-nums mt-1 ${
+                                        fromHelp ? "text-white/75 text-right" : "text-[#5A6A92] dark:text-[#93A3CC]"
+                                      }`}
+                                    >
+                                      {fromHelp ? "Help · " : `${candName} · `}
+                                      {new Date(m.created_at).toLocaleString()}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+
+                        <form
+                          onSubmit={handleSendAdminHelpReply}
+                          className="pt-3 mt-3 border-t border-[#1846AA]/10 dark:border-white/10 flex items-center gap-2"
+                        >
+                          <input
+                            type="text"
+                            maxLength={1000}
+                            value={helpReplyDraft}
+                            onChange={(e) => setHelpReplyDraft(e.target.value)}
+                            placeholder={`Reply to ${candName} as Help…`}
+                            className="flex-1 h-11 px-3.5 rounded-xl bg-white/85 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm"
+                          />
+                          <button
+                            type="submit"
+                            disabled={sendingHelpReply || !helpReplyDraft.trim()}
+                            className="h-11 px-4 rounded-xl amay-play-btn text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            <span>{sendingHelpReply ? "Sending…" : "Send as Help"}</span>
+                          </button>
+                        </form>
+                      </>
+                    );
+                  })()
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+              {/* Left column: All candidate-to-candidate & Help conversation threads */}
+              <div className="lg:col-span-5 amay-card rounded-[26px] p-4 space-y-2">
+                <div>
+                  <h3 className="text-sm font-extrabold text-[#0B1B4D] dark:text-white">
+                    Every Chat Thread ({auditThreads.length})
+                  </h3>
+                  <p className="text-[11px] text-[#5A6A92] dark:text-[#93A3CC]">
+                    Full visibility across all candidates, including deleted chats &amp; messages.
+                  </p>
+                </div>
+
+                {auditThreads.length === 0 ? (
+                  <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] py-8 text-center">
+                    No chat messages recorded yet.
+                  </p>
+                ) : (
+                  <div className="divide-y divide-[#1846AA]/10 dark:divide-white/10 max-h-[480px] overflow-y-auto">
+                    {auditThreads.map((t) => {
+                      const active = selectedAuditPairKey === t.pairKey;
+                      return (
+                        <button
+                          key={t.pairKey}
+                          type="button"
+                          onClick={() => setSelectedAuditPairKey(t.pairKey)}
+                          className={`w-full py-2.5 px-2.5 rounded-xl text-left transition cursor-pointer ${
+                            active
+                              ? "bg-[#1457E0]/12 dark:bg-[#5AA2FF]/15"
+                              : "hover:bg-[#1457E0]/5"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <strong className="text-xs font-extrabold text-[#0B1B4D] dark:text-white truncate">
+                              {t.leftName} ↔ {t.rightName}
+                            </strong>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <span className="px-1.5 py-0.5 rounded bg-[#1457E0]/10 text-[#1457E0] dark:text-[#5AA2FF] text-[10px] font-bold">
+                                {t.messages.length}
+                              </span>
+                              {t.deletedCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded bg-[#D92D3A]/12 text-[#D92D3A] dark:text-[#FF6B76] text-[10px] font-bold">
+                                  {t.deletedCount} deleted
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-[#5A6A92] dark:text-[#93A3CC] truncate mt-0.5">
+                            {t.lastMessage.body}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Right column: Full audit transcript showing deleted flags */}
+              <div className="lg:col-span-7 amay-card rounded-[26px] p-5 min-h-[440px] flex flex-col">
+                {(() => {
+                  const chosen =
+                    auditThreads.find((t) => t.pairKey === selectedAuditPairKey) || null;
+                  if (!chosen) {
+                    return (
+                      <div className="flex-1 flex items-center justify-center text-sm text-[#5A6A92] dark:text-[#93A3CC]">
+                        Select any conversation on the left to inspect all messages (including deleted ones).
+                      </div>
+                    );
+                  }
+                  return (
+                    <>
+                      <div className="pb-3 mb-3 border-b border-[#1846AA]/10 dark:border-white/10">
+                        <strong className="text-base font-extrabold text-[#0B1B4D] dark:text-white">
+                          {chosen.leftName}
+                          {chosen.leftUsername ? ` (@${chosen.leftUsername})` : ""} ↔ {chosen.rightName}
+                          {chosen.rightUsername ? ` (@${chosen.rightUsername})` : ""}
+                        </strong>
+                        <span className="block text-[11px] text-[#5A6A92] dark:text-[#93A3CC]">
+                          {chosen.messages.length} total messages · {chosen.deletedCount} deleted by participants
+                        </span>
+                      </div>
+
+                      <div className="flex-1 max-h-[440px] overflow-y-auto space-y-2.5 pr-1">
+                        {chosen.messages.map((m) => {
+                          const deleteReasons: string[] = [];
+                          if (m.deleted_for_everyone) deleteReasons.push("Deleted for everyone");
+                          if (m.deleted_by_sender) deleteReasons.push("Deleted by sender");
+                          if (m.deleted_by_recipient) deleteReasons.push("Deleted by recipient");
+                          const isDeleted = deleteReasons.length > 0;
+                          const isLeft = m.sender_uuid === chosen.leftUuid;
+
+                          return (
+                            <div
+                              key={m.id}
+                              className={`rounded-2xl p-3 border text-xs space-y-1 ${
+                                isDeleted
+                                  ? "bg-[#D92D3A]/[0.07] border-[#D92D3A]/35"
+                                  : isLeft
+                                    ? "bg-[#1457E0]/[0.05] border-[#1846AA]/12 dark:border-white/10"
+                                    : "bg-white/75 dark:bg-[#131E3A] border-[#1846AA]/12 dark:border-white/10"
+                              }`}
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <strong className="text-[#0B1B4D] dark:text-white">
+                                  {m.sender_uuid === HELP_CHAT_UUID ? "Help" : m.sender_name} →{" "}
+                                  {m.recipient_uuid === HELP_CHAT_UUID ? "Help" : m.recipient_name}
+                                </strong>
+                                <span className="font-mono-nums text-[10px] text-[#5A6A92] dark:text-[#93A3CC]">
+                                  {new Date(m.created_at).toLocaleString()}
+                                </span>
+                              </div>
+                              {isDeleted && (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="px-2 py-0.5 rounded bg-[#D92D3A] text-white text-[10px] font-extrabold">
+                                    DELETED: {deleteReasons.join(" · ")}
+                                  </span>
+                                  {m.deleted_at && (
+                                    <span className="text-[10px] font-mono-nums text-[#D92D3A] dark:text-[#FF6B76]">
+                                      at {new Date(m.deleted_at).toLocaleString()}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              <p className="text-sm text-[#0B1B4D] dark:text-white whitespace-pre-wrap break-words">
+                                {m.body}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* CANDIDATE EDITOR & INSPECTOR MODAL */}
       {selectedCandidate && (
         <div
@@ -2615,6 +3248,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     {copiedCandidateId ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                     <span>{copiedCandidateId ? "Copied" : "Copy ID"}</span>
                   </button>
+                  {selectedCandidate.username && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-extrabold font-mono-nums bg-[#1457E0]/12 text-[#1457E0] dark:text-[#5AA2FF]">
+                      <Lock className="w-3 h-3" />
+                      <span>@{selectedCandidate.username}</span>
+                    </span>
+                  )}
+                  {selectedCandidate.password && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold font-mono-nums bg-slate-500/15 text-[#0B1B4D] dark:text-white select-all">
+                      Pass: {selectedCandidate.password}
+                    </span>
+                  )}
                   {isCandidateInstalled(selectedCandidate) ? (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
                       <Smartphone className="w-3 h-3" />
@@ -2694,6 +3338,28 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   />
                 </div>
                 <div>
+                  <label className="block text-xs font-semibold text-[#5A6A92] mb-1">Username</label>
+                  <input
+                    type="text"
+                    maxLength={20}
+                    value={editUsername}
+                    onChange={(e) => setEditUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+                    placeholder="Not set"
+                    className="w-full h-10 px-3 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm font-mono-nums font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#5A6A92] mb-1">Password</label>
+                  <input
+                    type="text"
+                    maxLength={40}
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    placeholder="Not set"
+                    className="w-full h-10 px-3 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm font-mono-nums font-bold"
+                  />
+                </div>
+                <div>
                   <label className="block text-xs font-semibold text-[#5A6A92] mb-1">Total XP</label>
                   <input
                     type="number"
@@ -2750,7 +3416,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 disabled={savingCandidate}
                 className="h-11 px-5 rounded-xl amay-play-btn text-white font-bold text-sm cursor-pointer disabled:opacity-60"
               >
-                {savingCandidate ? "Updating…" : "Save Name, XP & Stats"}
+                {savingCandidate ? "Updating…" : "Save Profile, Credentials & XP"}
               </button>
             </form>
 

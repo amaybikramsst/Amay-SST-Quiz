@@ -38,6 +38,8 @@ export interface AdminCandidateRow {
   id?: string;
   guest_uuid: string;
   display_name: string;
+  username?: string | null;
+  password?: string | null;
   xp: number;
   today_xp?: number;
   streak: number;
@@ -82,6 +84,151 @@ export async function registerPlayer(guestId: string, name: string): Promise<boo
     return !error;
   } catch {
     return false;
+  }
+}
+
+export interface AuthRpcResult {
+  ok: boolean;
+  error?: string;
+  needsSql?: boolean;
+  has_credentials?: boolean;
+  guest_uuid?: string;
+  display_name?: string;
+  username?: string;
+  password?: string;
+  xp?: number;
+  streak?: number;
+  quizzes_count?: number;
+  perfect_count?: number;
+}
+
+export async function registerWithCredentials(
+  guestId: string,
+  name: string,
+  username: string,
+  password: string
+): Promise<AuthRpcResult> {
+  try {
+    const { data, error } = await supabase.rpc("register_with_credentials", {
+      p_guest: guestId,
+      p_name: name.trim(),
+      p_username: username.trim().toLowerCase(),
+      p_password: password,
+      p_state: "Bihar",
+    });
+    if (error) {
+      const missing = /could not find the function|function .* does not exist/i.test(error.message);
+      if (missing) {
+        await registerPlayer(guestId, name.trim());
+        return {
+          ok: true,
+          needsSql: true,
+          guest_uuid: guestId,
+          display_name: name.trim(),
+          username: username.trim().toLowerCase(),
+          password,
+        };
+      }
+      if (/duplicate key|unique constraint|candidates_username/i.test(error.message)) {
+        return { ok: false, error: "This username is already taken. Choose another." };
+      }
+      return { ok: false, error: error.message };
+    }
+    const res = (data || {}) as AuthRpcResult;
+    return { ...res, password };
+  } catch {
+    return { ok: false, error: "Network error. Please check your connection and try again." };
+  }
+}
+
+export async function loginWithCredentials(
+  username: string,
+  password: string
+): Promise<AuthRpcResult> {
+  try {
+    const { data, error } = await supabase.rpc("login_with_credentials", {
+      p_username: username.trim().toLowerCase(),
+      p_password: password,
+    });
+    if (error) {
+      const missing = /could not find the function|function .* does not exist/i.test(error.message);
+      if (missing) {
+        return {
+          ok: false,
+          needsSql: true,
+          error: "Login database setup is pending. Please run the updated SQL in Supabase.",
+        };
+      }
+      return { ok: false, error: error.message };
+    }
+    const res = (data || { ok: false, error: "Invalid username or password." }) as AuthRpcResult;
+    return res.ok ? { ...res, password: res.password || password } : res;
+  } catch {
+    return { ok: false, error: "Network error. Please check your connection and try again." };
+  }
+}
+
+export async function setMyCredentials(
+  guestId: string,
+  username: string,
+  password: string,
+  displayName?: string
+): Promise<AuthRpcResult> {
+  try {
+    const cleanedName = displayName?.trim() || "";
+    const { data, error } = await supabase.rpc("set_my_credentials", {
+      p_guest: guestId,
+      p_username: username.trim().toLowerCase(),
+      p_password: password,
+      ...(cleanedName.length >= 2 ? { p_display_name: cleanedName } : {}),
+    });
+    if (error) {
+      const missing = /could not find the function|function .* does not exist/i.test(error.message);
+      if (missing && cleanedName.length >= 2) {
+        // Fallback if database still has the 3-argument signature
+        const legacyRes = await supabase.rpc("set_my_credentials", {
+          p_guest: guestId,
+          p_username: username.trim().toLowerCase(),
+          p_password: password,
+        });
+        if (!legacyRes.error) {
+          await registerPlayer(guestId, cleanedName);
+          const parsed = (legacyRes.data || { ok: false }) as AuthRpcResult;
+          return parsed.ok ? { ...parsed, password, display_name: cleanedName } : parsed;
+        }
+      }
+      if (missing) {
+        return {
+          ok: false,
+          needsSql: true,
+          error: "Account setup SQL has not been run in Supabase yet.",
+        };
+      }
+      if (/duplicate key|unique constraint|candidates_username/i.test(error.message)) {
+        return { ok: false, error: "This username is already taken. Choose another." };
+      }
+      return { ok: false, error: error.message };
+    }
+    const res = (data || { ok: false, error: "Could not save credentials." }) as AuthRpcResult;
+    if (res.ok && cleanedName.length >= 2 && res.display_name !== cleanedName) {
+      await registerPlayer(guestId, cleanedName);
+    }
+    return res.ok ? { ...res, password, display_name: res.display_name || cleanedName || undefined } : res;
+  } catch {
+    return { ok: false, error: "Network error. Please try again." };
+  }
+}
+
+export async function getMyCredentials(guestId: string): Promise<AuthRpcResult> {
+  try {
+    const { data, error } = await supabase.rpc("get_my_credentials", { p_guest: guestId });
+    if (error) {
+      const missing = /could not find the function|function .* does not exist/i.test(error.message);
+      return { ok: false, needsSql: missing };
+    }
+    return (data || { ok: false }) as AuthRpcResult;
+  } catch {
+    return { ok: false };
   }
 }
 
@@ -281,6 +428,8 @@ export async function adminUpdateCandidate(
   guestUuid: string,
   updates: Partial<{
     display_name: string;
+    username: string | null;
+    password: string | null;
     xp: number;
     today_xp: number;
     streak: number;
@@ -897,6 +1046,236 @@ export async function adminLoadNotificationSeenMap(): Promise<
     };
   }
   return out;
+}
+
+// ============================================================
+// Real-Time Messaging & Help Support Chat
+// ============================================================
+
+export const HELP_CHAT_UUID = "__help__";
+
+export interface ChatDirectoryUser {
+  guest_uuid: string;
+  display_name: string;
+  xp: number;
+}
+
+export interface ChatMessageRow {
+  id: string;
+  sender_uuid: string;
+  sender_name: string;
+  recipient_uuid: string;
+  recipient_name: string;
+  body: string;
+  deleted_by_sender?: boolean;
+  deleted_by_recipient?: boolean;
+  deleted_for_everyone?: boolean;
+  deleted_at?: string | null;
+  created_at: string;
+}
+
+let chatBroadcastChannel: ReturnType<typeof supabase.channel> | null = null;
+
+function broadcastChatSignal(payload: Record<string, unknown>) {
+  try {
+    if (!chatBroadcastChannel) {
+      chatBroadcastChannel = supabase.channel("amaysst_chat_live", {
+        config: { broadcast: { self: true } },
+      });
+      chatBroadcastChannel.subscribe();
+    }
+    chatBroadcastChannel.send({
+      type: "broadcast",
+      event: "chat_sync",
+      payload,
+    });
+  } catch {
+    // ignore realtime broadcast errors
+  }
+}
+
+export function subscribeChatRealtime(
+  onSignal: (payload: Record<string, unknown>) => void,
+  listenPostgresChanges = false
+): () => void {
+  const channelName = `amaysst_chat_sub_${Math.random().toString(36).slice(2, 8)}`;
+  let channel = supabase.channel(channelName).on(
+    "broadcast",
+    { event: "chat_sync" },
+    ({ payload }) => {
+      onSignal((payload || {}) as Record<string, unknown>);
+    }
+  );
+
+  if (listenPostgresChanges) {
+    channel = channel.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "chat_messages" },
+      (change) => {
+        onSignal({ type: "postgres_change", eventType: change.eventType });
+      }
+    );
+  }
+
+  channel.subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
+export async function getChatDirectory(guestId: string): Promise<{
+  users: ChatDirectoryUser[];
+  needsTableSetup: boolean;
+}> {
+  try {
+    const { data, error } = await supabase.rpc("get_chat_directory", { p_guest: guestId });
+    if (error) {
+      const missing = /could not find the function|does not exist/i.test(error.message);
+      return { users: [], needsTableSetup: missing };
+    }
+    return { users: (data as ChatDirectoryUser[]) || [], needsTableSetup: false };
+  } catch {
+    return { users: [], needsTableSetup: false };
+  }
+}
+
+export async function getMyChatMessages(guestId: string): Promise<{
+  messages: ChatMessageRow[];
+  needsTableSetup: boolean;
+}> {
+  try {
+    const { data, error } = await supabase.rpc("get_my_chat_messages", { p_guest: guestId });
+    if (error) {
+      const missing = /could not find the function|relation.*does not exist/i.test(error.message);
+      return { messages: [], needsTableSetup: missing };
+    }
+    return { messages: (data as ChatMessageRow[]) || [], needsTableSetup: false };
+  } catch {
+    return { messages: [], needsTableSetup: false };
+  }
+}
+
+export async function sendChatMessage(
+  senderUuid: string,
+  recipientUuid: string,
+  body: string
+): Promise<{ ok: boolean; message?: ChatMessageRow; error?: string; needsTableSetup?: boolean }> {
+  try {
+    const { data, error } = await supabase.rpc("send_chat_message", {
+      p_sender_uuid: senderUuid,
+      p_recipient_uuid: recipientUuid,
+      p_body: body.trim(),
+    });
+    if (error) {
+      const missing = /could not find the function|relation.*does not exist/i.test(error.message);
+      return { ok: false, error: error.message, needsTableSetup: missing };
+    }
+    const parsed = (data || {}) as { ok: boolean; message?: ChatMessageRow; error?: string };
+    if (parsed.ok && parsed.message) {
+      broadcastChatSignal({
+        type: "message_created",
+        sender_uuid: senderUuid,
+        recipient_uuid: recipientUuid,
+        id: parsed.message.id,
+      });
+    }
+    return parsed;
+  } catch {
+    return { ok: false, error: "Network error. Please try again." };
+  }
+}
+
+export async function deleteChatMessage(guestId: string, messageId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc("delete_chat_message", {
+      p_guest: guestId,
+      p_message_id: messageId,
+    });
+    if (!error) {
+      broadcastChatSignal({ type: "message_deleted", guest_uuid: guestId, id: messageId });
+      return Boolean(data);
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteChatThread(guestId: string, otherUuid: string): Promise<boolean> {
+  try {
+    const { error } = await supabase.rpc("delete_chat_thread", {
+      p_guest: guestId,
+      p_other_uuid: otherUuid,
+    });
+    if (!error) {
+      broadcastChatSignal({ type: "thread_deleted", guest_uuid: guestId, other_uuid: otherUuid });
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export async function adminLoadAllChatMessages(): Promise<{
+  messages: ChatMessageRow[];
+  needsTableSetup: boolean;
+}> {
+  try {
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .select("*")
+      .order("created_at", { ascending: true })
+      .limit(1000);
+
+    if (error) {
+      const missing = /could not find the table|relation.*does not exist/i.test(error.message);
+      return { messages: [], needsTableSetup: missing };
+    }
+    return { messages: (data as ChatMessageRow[]) || [], needsTableSetup: false };
+  } catch {
+    return { messages: [], needsTableSetup: false };
+  }
+}
+
+export async function adminSendHelpReply(
+  recipientUuid: string,
+  recipientName: string,
+  body: string
+): Promise<{ ok: boolean; message?: ChatMessageRow; error?: string }> {
+  const cleaned = body.trim();
+  if (!cleaned) return { ok: false, error: "Message cannot be empty." };
+  try {
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .insert([
+        {
+          sender_uuid: HELP_CHAT_UUID,
+          sender_name: "Help",
+          recipient_uuid: recipientUuid,
+          recipient_name: recipientName || "Candidate",
+          body: cleaned,
+        },
+      ])
+      .select("*")
+      .single();
+
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+
+    const row = data as ChatMessageRow;
+    broadcastChatSignal({
+      type: "message_created",
+      sender_uuid: HELP_CHAT_UUID,
+      recipient_uuid: recipientUuid,
+      id: row.id,
+    });
+    return { ok: true, message: row };
+  } catch {
+    return { ok: false, error: "Network error." };
+  }
 }
 
 

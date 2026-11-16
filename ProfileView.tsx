@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Clock } from "lucide-react";
+import { Clock, Eye, EyeOff, Lock, LogOut } from "lucide-react";
 import type { BadgeDesignSpec } from "../lib/badgeCanvas";
 import {
   getBadges,
@@ -15,6 +15,9 @@ interface ProfileViewProps {
   isDark: boolean;
   onToggleTheme: () => void;
   onUpdateName: (name: string) => void;
+  onSetCredentials?: (username: string, password: string) => Promise<string | null>;
+  onSignOut?: () => void;
+  isImpersonating?: boolean;
   onOpenBadge: (spec?: BadgeDesignSpec) => void;
 }
 
@@ -23,12 +26,23 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   isDark,
   onToggleTheme,
   onUpdateName,
+  onSetCredentials,
+  onSignOut,
+  isImpersonating = false,
   onOpenBadge,
 }) => {
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(profile.name);
   const [error, setError] = useState("");
   const [cutoff, setCutoff] = useState(() => getTodayCutoffStatus());
+
+  // Legacy credential claim state (only shown if profile.username isn't set yet)
+  const [claimUser, setClaimUser] = useState("");
+  const [claimPass, setClaimPass] = useState("");
+  const [showClaimPass, setShowClaimPass] = useState(false);
+  const [claimError, setClaimError] = useState("");
+  const [claiming, setClaiming] = useState(false);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -168,6 +182,128 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </p>
           </form>
         )}
+
+        {/* Private Username & Password (hidden with xxxxxx until user chooses Show) */}
+        <div className="pt-3 border-t border-[#1846AA]/10 dark:border-white/10">
+          {profile.username && profile.password ? (
+            <div className="rounded-2xl bg-[#1457E0]/[0.05] dark:bg-white/[0.04] px-3.5 py-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#5A6A92] dark:text-[#93A3CC]">
+                  Private Login Details
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowClaimPass((s) => !s)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 text-[11px] font-bold text-[#1457E0] dark:text-[#5AA2FF] cursor-pointer"
+                >
+                  {showClaimPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  <span>{showClaimPass ? "Hide" : "Show"}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="rounded-xl bg-white/70 dark:bg-[#0B1224]/70 px-3 py-2 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="block text-[10px] font-bold uppercase text-[#5A6A92] dark:text-[#93A3CC]">
+                      Username
+                    </span>
+                    <strong className="block text-sm font-extrabold font-mono-nums text-[#0B1B4D] dark:text-white truncate">
+                      {showClaimPass ? `@${profile.username}` : "xxxxxx"}
+                    </strong>
+                  </div>
+                  <Lock className="w-3.5 h-3.5 text-[#1457E0] dark:text-[#5AA2FF] shrink-0" />
+                </div>
+
+                <div className="rounded-xl bg-white/70 dark:bg-[#0B1224]/70 px-3 py-2 min-w-0">
+                  <span className="block text-[10px] font-bold uppercase text-[#5A6A92] dark:text-[#93A3CC]">
+                    Password
+                  </span>
+                  <strong className="block text-sm font-extrabold font-mono-nums text-[#0B1B4D] dark:text-white truncate">
+                    {showClaimPass ? profile.password : "xxxxxx"}
+                  </strong>
+                </div>
+              </div>
+            </div>
+          ) : (
+            !isImpersonating &&
+            onSetCredentials && (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const clean = (profile.username || claimUser).trim().toLowerCase();
+                  if (!/^[a-z0-9_]{3,20}$/.test(clean)) {
+                    setClaimError("Username must be 3–20 letters, numbers, or underscore.");
+                    return;
+                  }
+                  if (claimPass.length < 4) {
+                    setClaimError("Password must be at least 4 characters.");
+                    return;
+                  }
+                  setClaimError("");
+                  setClaiming(true);
+                  const err = await onSetCredentials(clean, claimPass);
+                  setClaiming(false);
+                  if (err) setClaimError(err);
+                }}
+                className="rounded-2xl bg-[#1457E0]/[0.05] dark:bg-white/[0.04] p-3.5 space-y-2.5"
+              >
+                <div>
+                  <strong className="block text-xs font-extrabold text-[#0B1B4D] dark:text-white">
+                    Set your permanent Username &amp; Password
+                  </strong>
+                  <span className="block text-[11px] text-[#5A6A92] dark:text-[#93A3CC]">
+                    Set a strong password to keep your account safe. Only visible to you here.
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    maxLength={20}
+                    disabled={Boolean(profile.username)}
+                    value={profile.username || claimUser}
+                    onChange={(e) => {
+                      setClaimUser(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""));
+                      if (claimError) setClaimError("");
+                    }}
+                    placeholder="Unique username (e.g. rahul_9)"
+                    className="h-10 px-3 rounded-xl bg-white/85 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm font-mono-nums disabled:opacity-65"
+                  />
+                  <div className="relative">
+                    <input
+                      type={showClaimPass ? "text" : "password"}
+                      maxLength={40}
+                      value={claimPass}
+                      onChange={(e) => {
+                        setClaimPass(e.target.value);
+                        if (claimError) setClaimError("");
+                      }}
+                      placeholder="Strong password (min 4 chars)"
+                      className="w-full h-10 pl-3 pr-9 rounded-xl bg-white/85 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowClaimPass((s) => !s)}
+                      aria-label={showClaimPass ? "Hide password" : "Show password"}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[#5A6A92] cursor-pointer"
+                    >
+                      {showClaimPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                {claimError && (
+                  <p className="text-xs font-semibold text-[#D92D3A] dark:text-[#FF6B76]">{claimError}</p>
+                )}
+                <button
+                  type="submit"
+                  disabled={claiming}
+                  className="h-9 px-4 rounded-xl amay-play-btn text-white text-xs font-bold cursor-pointer disabled:opacity-60"
+                >
+                  {claiming ? "Saving…" : "Save Username & Password"}
+                </button>
+              </form>
+            )
+          )}
+        </div>
       </div>
 
       {/* Theme Settings */}
@@ -315,6 +451,49 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </p>
         )}
       </div>
+
+      {/* Sign Out / Switch Account */}
+      {!isImpersonating && onSignOut && (
+        <div className="amay-card rounded-[26px] p-4">
+          {!confirmSignOut ? (
+            <button
+              type="button"
+              onClick={() => setConfirmSignOut(true)}
+              className="w-full py-2 text-sm font-bold text-[#D92D3A] dark:text-[#FF6B76] inline-flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Sign Out / Switch Account</span>
+            </button>
+          ) : (
+            <div className="space-y-2.5 text-center">
+              <p className="text-xs font-semibold text-[#5A6A92] dark:text-[#93A3CC]">
+                {profile.username
+                  ? `You can sign back in anytime using @${profile.username} and your password.`
+                  : "Set a username & password above before signing out so you don't lose access to your XP."}
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmSignOut(false);
+                    onSignOut();
+                  }}
+                  className="h-10 rounded-xl bg-[#D92D3A] text-white text-xs font-bold cursor-pointer"
+                >
+                  Confirm Sign Out
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmSignOut(false)}
+                  className="h-10 rounded-xl amay-card text-xs font-bold text-[#0B1B4D] dark:text-white cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

@@ -22,6 +22,8 @@ export interface DailyBadgeRecord {
 
 export interface StudentProfile {
   name: string;
+  username?: string;
+  password?: string;
   xp: number;
   streak: number;
   last: string;
@@ -159,17 +161,47 @@ export function formatTime(seconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+export function generateFreshGuestUUID(): string {
+  const id =
+    "guest_" +
+    (typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2) + Date.now());
+  try {
+    localStorage.setItem("amaysst_uuid", id);
+  } catch {
+    // ignore storage errors
+  }
+  return id;
+}
+
+export function setGuestUUID(id: string): void {
+  try {
+    localStorage.setItem("amaysst_uuid", id);
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export function getGuestUUID(): string {
   let id = localStorage.getItem("amaysst_uuid");
   if (!id) {
-    id =
-      "guest_" +
-      (typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : Math.random().toString(36).slice(2) + Date.now());
-    localStorage.setItem("amaysst_uuid", id);
+    id = generateFreshGuestUUID();
   }
   return id;
+}
+
+export function clearProfileSession(): string {
+  try {
+    localStorage.removeItem("r10");
+    localStorage.removeItem("amaysst_queue");
+    localStorage.removeItem("amaysst_seen_notifs");
+    localStorage.removeItem("amaysst_reported_install");
+    localStorage.removeItem("amaysst_chat_read_at");
+  } catch {
+    // ignore storage errors
+  }
+  return generateFreshGuestUUID();
 }
 
 export function loadProfile(): StudentProfile {
@@ -179,6 +211,8 @@ export function loadProfile(): StudentProfile {
       const parsed = JSON.parse(raw);
       return {
         name: parsed.name || "",
+        username: typeof parsed.username === "string" ? parsed.username : undefined,
+        password: typeof parsed.password === "string" ? parsed.password : undefined,
         xp: Math.max(0, Number(parsed.xp) || 0),
         streak: Number(parsed.streak) || 0,
         last: parsed.last || "",
@@ -188,6 +222,10 @@ export function loadProfile(): StudentProfile {
         nameAt: parsed.nameAt,
         td: parsed.td,
         lastCloudXp: typeof parsed.lastCloudXp === "number" ? parsed.lastCloudXp : undefined,
+        lastAdminTodayDate:
+          typeof parsed.lastAdminTodayDate === "string" ? parsed.lastAdminTodayDate : undefined,
+        lastAdminTodayDelta:
+          typeof parsed.lastAdminTodayDelta === "number" ? parsed.lastAdminTodayDelta : undefined,
         earnedDailyBadges: Array.isArray(parsed.earnedDailyBadges)
           ? (parsed.earnedDailyBadges as DailyBadgeRecord[])
           : [],
@@ -536,6 +574,7 @@ export interface RankListEntry {
   name: string;
   xp: number;
   isMe: boolean;
+  peerUuid?: string;
 }
 
 export interface ImmediateRival {
@@ -545,6 +584,7 @@ export interface ImmediateRival {
   diffXp: number;
   xpToPass: number;
   questionsNeeded: number;
+  peerUuid?: string;
 }
 
 export interface ChaserRival {
@@ -552,6 +592,7 @@ export interface ChaserRival {
   name: string;
   xp: number;
   gapBelow: number;
+  peerUuid?: string;
 }
 
 export interface RankSnapshot {
@@ -606,6 +647,7 @@ export function computeRankSnapshot(
               diffXp,
               xpToPass,
               questionsNeeded: Math.max(1, Math.ceil(xpToPass / XP_PER_LEVEL[1])),
+              peerUuid: entry.peerUuid,
             };
           })
       : [];
@@ -617,6 +659,7 @@ export function computeRankSnapshot(
         name: chaserEntry.name,
         xp: chaserEntry.xp,
         gapBelow: Math.max(0, myXp - chaserEntry.xp),
+        peerUuid: chaserEntry.peerUuid,
       }
     : null;
 
