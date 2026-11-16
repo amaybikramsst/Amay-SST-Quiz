@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Clock, Eye, EyeOff, Lock, LogOut } from "lucide-react";
+import { Check, Clock, Eye, EyeOff, Lock, LogOut, Share2 } from "lucide-react";
 import type { BadgeDesignSpec } from "../lib/badgeCanvas";
 import {
   getBadges,
@@ -17,6 +17,7 @@ interface ProfileViewProps {
   onUpdateName: (name: string) => void;
   onSetCredentials?: (username: string, password: string) => Promise<string | null>;
   onSignOut?: () => void;
+  onShareApp?: () => void;
   isImpersonating?: boolean;
   onOpenBadge: (spec?: BadgeDesignSpec) => void;
 }
@@ -28,6 +29,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onUpdateName,
   onSetCredentials,
   onSignOut,
+  onShareApp,
   isImpersonating = false,
   onOpenBadge,
 }) => {
@@ -43,6 +45,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [claimError, setClaimError] = useState("");
   const [claiming, setClaiming] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -88,6 +91,33 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
     setError("");
     setEditing(false);
+  };
+
+  const handleShareApp = async () => {
+    onShareApp?.();
+    const shareUrl = `${window.location.origin}${window.location.pathname}`;
+    const shareData = {
+      title: "AmaySST Quiz",
+      text: "Practice Maths, Science, SST, English, Hindi & Current Affairs with live ranks and daily badges! Join me on AmaySST Quiz:",
+      url: shareUrl,
+    };
+
+    if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") return;
+      }
+    }
+
+    try {
+      await navigator.clipboard?.writeText(shareUrl);
+      setShareCopied(true);
+      window.setTimeout(() => setShareCopied(false), 3000);
+    } catch {
+      // ignore clipboard errors
+    }
   };
 
   return (
@@ -306,12 +336,31 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       </div>
 
-      {/* Theme Settings */}
-      <div className="amay-card rounded-[30px] p-4">
+      {/* Theme & Share Settings */}
+      <div className="amay-card rounded-[28px] divide-y divide-[#1846AA]/10 dark:divide-white/10 overflow-hidden">
+        <button
+          type="button"
+          onClick={handleShareApp}
+          className="w-full px-5 py-3.5 flex items-center justify-between gap-3 text-left cursor-pointer hover:bg-[#1457E0]/[0.04] transition-colors"
+        >
+          <div className="min-w-0">
+            <strong className="block text-sm font-extrabold text-[#0B1B4D] dark:text-white">
+              Share this app
+            </strong>
+            <span className="block text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+              {shareCopied ? "App link copied! Send it to friends" : "Invite classmates to practice & compete"}
+            </span>
+          </div>
+          <span className="shrink-0 h-9 px-3.5 rounded-full bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 text-[#1457E0] dark:text-[#5AA2FF] text-xs font-bold inline-flex items-center gap-1.5">
+            {shareCopied ? <Check className="w-3.5 h-3.5" /> : <Share2 className="w-3.5 h-3.5" />}
+            <span>{shareCopied ? "Copied" : "Share"}</span>
+          </span>
+        </button>
+
         <button
           type="button"
           onClick={onToggleTheme}
-          className="w-full py-2.5 text-base font-bold text-[#1457E0] dark:text-[#5AA2FF] cursor-pointer text-center"
+          className="w-full px-5 py-3.5 text-sm font-bold text-[#1457E0] dark:text-[#5AA2FF] cursor-pointer text-center hover:bg-[#1457E0]/[0.04] transition-colors"
         >
           {isDark ? "Switch to light mode" : "Switch to dark mode"}
         </button>

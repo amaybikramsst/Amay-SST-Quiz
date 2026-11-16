@@ -1,8 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { Eye, EyeOff, Lock, ShieldCheck, UserCheck, UserPlus } from "lucide-react";
+import { Download, ExternalLink, Eye, EyeOff, Lock, ShieldCheck, UserCheck, UserPlus } from "lucide-react";
 
 interface GateViewProps {
   existingAccount?: { name: string; xp: number; nameAt?: number } | null;
+  showInstallBanner?: boolean;
+  onInstallClick?: () => void;
+  isInAppBrowser?: boolean;
+  externalBrowserUrl?: string;
   onRegister: (payload: {
     name: string;
     username: string;
@@ -26,6 +30,10 @@ function formatWait(ms: number): string {
 
 export const GateView: React.FC<GateViewProps> = ({
   existingAccount = null,
+  showInstallBanner = false,
+  onInstallClick,
+  isInAppBrowser = false,
+  externalBrowserUrl = "",
   onRegister,
   onClaimExisting,
   onLogin,
@@ -114,7 +122,27 @@ export const GateView: React.FC<GateViewProps> = ({
 
   return (
     <div className="space-y-4 pt-2">
-      <div className="amay-card rounded-[28px] p-6 space-y-4">
+      {isInAppBrowser && externalBrowserUrl && (
+        <div className="amay-card rounded-[24px] p-4 flex items-center justify-between gap-3 border border-[#1457E0]/25 overflow-hidden">
+          <div className="min-w-0">
+            <strong className="block text-sm font-extrabold text-[#0B1B4D] dark:text-white">
+              Open in Chrome / Browser
+            </strong>
+            <span className="block text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+              For faster play &amp; smooth app install
+            </span>
+          </div>
+          <a
+            href={externalBrowserUrl}
+            className="shrink-0 h-10 px-4 rounded-full bg-[#1457E0] text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-sm whitespace-nowrap"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            <span>Open</span>
+          </a>
+        </div>
+      )}
+
+      <div className="amay-card rounded-[28px] p-6 space-y-4 overflow-hidden">
         <div>
           <h1 className="text-[26px] sm:text-[30px] font-extrabold tracking-tight text-[#0B1B4D] dark:text-[#EAF0FF]">
             {isClaimFlow
@@ -302,6 +330,27 @@ export const GateView: React.FC<GateViewProps> = ({
                 : "Sign In"}
         </button>
       </form>
+
+      {showInstallBanner && onInstallClick && (
+        <div className="amay-card rounded-[24px] p-4 flex items-center justify-between gap-3 overflow-hidden">
+          <div className="min-w-0">
+            <strong className="block text-sm font-extrabold text-[#0B1B4D] dark:text-white truncate">
+              Install AmaySST Quiz App
+            </strong>
+            <span className="block text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+              1-tap launch from your home screen
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onInstallClick}
+            className="shrink-0 h-10 px-4 rounded-full bg-gradient-to-b from-[#2B7BFF] to-[#1457E0] text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-[0_8px_18px_rgba(20,87,224,0.28)] active:scale-95 transition cursor-pointer whitespace-nowrap"
+          >
+            <Download className="w-3.5 h-3.5 shrink-0" />
+            <span>Install App</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

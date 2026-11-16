@@ -25,9 +25,42 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
+    <script>
+      (function () {
+        try {
+          var ua = navigator.userAgent || "";
+          var isStandalone =
+            (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+            navigator.standalone === true ||
+            document.referrer.indexOf("android-app://") === 0;
+          if (isStandalone) return;
+          var isAndroid = /Android/i.test(ua);
+          var isInApp =
+            /Instagram|FBAN|FBAV|FB_IAB|Messenger|WhatsApp|Snapchat|BytedanceWebview|TikTok|musical_ly|Line\/|Twitter|LinkedInApp|MicroMessenger|GSA\/|; wv\b/i.test(
+              ua
+            );
+          if (!isAndroid || !isInApp) return;
+          if (sessionStorage.getItem("amaysst_browser_opened") === "1") return;
+          sessionStorage.setItem("amaysst_browser_opened", "1");
+          var loc = window.location;
+          var scheme = loc.protocol.replace(":", "") || "https";
+          var target = loc.host + loc.pathname + loc.search + loc.hash;
+          var fallback = encodeURIComponent(loc.href);
+          var intentUrl =
+            "intent://" +
+            target +
+            "#Intent;scheme=" +
+            scheme +
+            ";action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;S.browser_fallback_url=" +
+            fallback +
+            ";end";
+          window.location.replace(intentUrl);
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body class="bg-[#F4F7FC] text-[#0B1B4D] dark:bg-[#080D1B] dark:text-[#EEF3FF] antialiased selection:bg-[#1457E0]/20">
     <div id="root"></div>

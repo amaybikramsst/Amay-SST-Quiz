@@ -18,6 +18,10 @@
     color: #EAF0FF;
   }
 
+  .font-display {
+    font-family: "Outfit", "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
   .font-mono-nums {
     font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     font-variant-numeric: tabular-nums;
@@ -114,16 +118,50 @@
 
 .amay-fill-bar {
   transform-origin: left center;
-  transition: transform 850ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 950ms cubic-bezier(0.16, 1, 0.3, 1);
   will-change: transform;
+}
+
+@keyframes amayXpFlow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes amayTipPulse {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 0 10px 2px rgba(56, 176, 255, 0.75);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.22);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 1), 0 0 16px 4px rgba(20, 87, 224, 0.95);
+  }
+}
+
+.amay-xp-flow {
+  background: linear-gradient(90deg, #5AD2FF 0%, #2B9BF6 32%, #1457E0 68%, #47B8FF 100%);
+  background-size: 220% 100%;
+  animation: amayXpFlow 4s ease-in-out infinite;
+}
+
+.amay-tip-orb {
+  animation: amayTipPulse 1.9s ease-in-out infinite;
+  will-change: transform, box-shadow;
 }
 
 .amay-shimmer-beam {
   position: absolute;
   inset: 0;
   width: 45%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.42), transparent);
-  animation: amayShimmerSweep 3.4s ease-in-out infinite;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.48), transparent);
+  animation: amayShimmerSweep 2.8s ease-in-out infinite;
   pointer-events: none;
 }
 
@@ -205,6 +243,8 @@
   .animate-wave,
   .amay-play-btn,
   .amay-shimmer-beam,
+  .amay-xp-flow,
+  .amay-tip-orb,
   .amay-splash-photo,
   .amay-splash-ring,
   .amay-splash-title,

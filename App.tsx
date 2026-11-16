@@ -142,7 +142,8 @@ export default function App() {
     profile: StudentProfile;
     botOriginalName?: string;
   } | null>(null);
-  const { canNativeInstall, isInstalled, isIOS, install } = usePWAInstall();
+  const { canNativeInstall, isInstalled, isIOS, isInAppBrowser, externalBrowserUrl, install } =
+    usePWAInstall();
 
   const effectiveProfile = impersonated ? impersonated.profile : profile;
   const effectiveGuestId = impersonated ? impersonated.guestUuid : guestId;
@@ -1166,7 +1167,7 @@ export default function App() {
         {!hideHeader && (
           <Header
             onNavigateHome={() => navigate("home")}
-            showInstallButton={!isInstalled && effectiveView !== "gate"}
+            showInstallButton={!isInstalled}
             onInstallClick={handleInstallClick}
             unreadNotifications={effectiveView !== "gate" ? unreadNotifCount : 0}
             onOpenNotifications={
@@ -1193,6 +1194,10 @@ export default function App() {
               existingAccount={
                 profile.name ? { name: profile.name, xp: profile.xp, nameAt: profile.nameAt } : null
               }
+              showInstallBanner={!isInstalled}
+              onInstallClick={handleInstallClick}
+              isInAppBrowser={isInAppBrowser}
+              externalBrowserUrl={externalBrowserUrl}
               onRegister={handleRegister}
               onClaimExisting={handleClaimExistingCredentials}
               onLogin={handleLogin}
@@ -1305,6 +1310,7 @@ export default function App() {
               onUpdateName={handleUpdateName}
               onSetCredentials={handleSetCredentials}
               onSignOut={handleSignOut}
+              onShareApp={() => recordTap("Share App", "Shared app link", "me")}
               isImpersonating={Boolean(impersonated)}
               onOpenBadge={(spec) => openBadgeModal(spec, "me")}
             />
@@ -1371,6 +1377,8 @@ export default function App() {
         <PWAInstallModal
           canNativeInstall={canNativeInstall}
           isIOS={isIOS}
+          isInAppBrowser={isInAppBrowser}
+          externalBrowserUrl={externalBrowserUrl}
           onInstall={async () => {
             const outcome = await install();
             if (outcome === "accepted") {

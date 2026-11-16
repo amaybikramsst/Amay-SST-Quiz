@@ -132,6 +132,34 @@ export function usePWAInstall() {
     canNativeInstall: !!deferredPrompt,
     isInstalled,
     isIOS,
+    isInAppBrowser: checkInAppBrowser(),
+    externalBrowserUrl: getExternalBrowserUrl(),
     install,
   };
+}
+
+function checkInAppBrowser(): boolean {
+  if (typeof window === "undefined") return false;
+  if (checkStandalone()) return false;
+  const ua = window.navigator.userAgent || "";
+  return /Instagram|FBAN|FBAV|FB_IAB|Messenger|WhatsApp|Snapchat|BytedanceWebview|TikTok|musical_ly|Line\/|Twitter|LinkedInApp|MicroMessenger|GSA\/|; wv\b/i.test(
+    ua
+  );
+}
+
+function getExternalBrowserUrl(): string {
+  if (typeof window === "undefined") return "";
+  const ua = window.navigator.userAgent || "";
+  const loc = window.location;
+  if (/Android/i.test(ua)) {
+    const scheme = loc.protocol.replace(":", "") || "https";
+    const target = `${loc.host}${loc.pathname}${loc.search}${loc.hash}`;
+    return `intent://${target}#Intent;scheme=${scheme};action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;S.browser_fallback_url=${encodeURIComponent(
+      loc.href
+    )};end`;
+  }
+  if (/iPhone|iPad|iPod/i.test(ua)) {
+    return `x-safari-${loc.href}`;
+  }
+  return loc.href;
 }

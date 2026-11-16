@@ -1,9 +1,11 @@
 import React from "react";
-import { Download, Share, Smartphone, X, Zap, CheckCircle2 } from "lucide-react";
+import { Download, ExternalLink, Share, Smartphone, X, Zap, CheckCircle2 } from "lucide-react";
 
 interface PWAInstallModalProps {
   canNativeInstall: boolean;
   isIOS: boolean;
+  isInAppBrowser?: boolean;
+  externalBrowserUrl?: string;
   onInstall: () => void;
   onClose: () => void;
 }
@@ -11,6 +13,8 @@ interface PWAInstallModalProps {
 export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
   canNativeInstall,
   isIOS,
+  isInAppBrowser = false,
+  externalBrowserUrl = "",
   onInstall,
   onClose,
 }) => {
@@ -61,7 +65,24 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
           </div>
         </div>
 
-        {canNativeInstall ? (
+        {isInAppBrowser && externalBrowserUrl ? (
+          <div className="mt-5 space-y-3">
+            <a
+              href={externalBrowserUrl}
+              className="w-full py-3.5 px-5 rounded-full bg-gradient-to-b from-[#2B7BFF] to-[#1457E0] text-white font-bold text-[15px] shadow-[0_10px_24px_rgba(20,87,224,0.32)] flex items-center justify-center gap-2 active:scale-[0.98] transition"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Open in Chrome / Default Browser
+            </a>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full py-2.5 rounded-full text-[13px] font-bold text-[#5A6B94] dark:text-[#9AAAD2] hover:bg-slate-100 dark:hover:bg-slate-800/60 transition cursor-pointer"
+            >
+              Continue here
+            </button>
+          </div>
+        ) : canNativeInstall ? (
           <div className="mt-5 flex flex-col gap-2.5">
             <button
               type="button"
