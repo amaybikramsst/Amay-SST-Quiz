@@ -25,11 +25,24 @@ import {
   MessageCircle,
   LifeBuoy,
   Lock,
+  Sparkles,
+  AlertTriangle,
+  CheckCircle2,
 } from "lucide-react";
 import { BENCHMARK_PLAYERS } from "../data/benchmarks";
 import type { SubjectKey } from "../data/questions";
 import { getIstClock, resolveBotRoster, type ResolvedBotPlayer } from "../lib/botSimulator";
-import { parseBulkQuestionFile, type ParsedBulkQuestion } from "../lib/questionParser";
+import {
+  classifyQuestionDifficulty,
+  parseBulkQuestionFile,
+  type ParsedBulkQuestion,
+} from "../lib/questionParser";
+import {
+  getQuestionInventory,
+  HIGH_LEVEL_TARGET_PER_MODE,
+  LEVELS,
+  mergeDynamicQuestions,
+} from "../lib/quizEngine";
 import {
   adminDeleteNotification,
   adminDeleteQuestion,
@@ -1043,6 +1056,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
     return { helpThreads: helpList, botThreads: botList, auditThreads: auditList, deletedMessageCount: totalDeleted };
   }, [botOverrides, candidates, chatMessages, searchQuery]);
 
+  const questionInventory = useMemo(
+    () => getQuestionInventory(mergeDynamicQuestions(dynamicQuestions), HIGH_LEVEL_TARGET_PER_MODE),
+    [dynamicQuestions]
+  );
+
   const handleSendAdminHelpReply = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedHelpUuid || sendingHelpReply) return;
@@ -1936,6 +1954,162 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {/* TAB 4: QUESTIONS & BULK FILE UPLOAD */}
       {tab === "questions" && (
         <div className="space-y-5">
+          {/* Question Bank Inventory & High-Level Gap Advisor */}
+          <div className="amay-card rounded-[28px] p-5 sm:p-6 space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-white">
+                  Question Bank Inventory (By Subject &amp; Mode)
+                </h2>
+                <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] mt-0.5">
+                  Built-in + live uploaded questions · Recommended high-level depth:{" "}
+                  <strong className="font-mono-nums">{HIGH_LEVEL_TARGET_PER_MODE}+</strong> Hard &amp;{" "}
+                  <strong className="font-mono-nums">{HIGH_LEVEL_TARGET_PER_MODE}+</strong> Amay Special per subject
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-xs font-bold">
+                <span className="text-[#0B1B4D] dark:text-white font-mono-nums">
+                  Total Bank: {questionInventory.grandTotal} Qs
+                </span>
+                <span className="text-[#1457E0] dark:text-[#5AA2FF] font-mono-nums">
+                  Mixed High-Level Pool (Hard + Amay Special): {questionInventory.highLevelTotal} Qs
+                </span>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                <thead>
+                  <tr className="border-b border-[#1846AA]/15 dark:border-white/10 text-[11px] uppercase tracking-wider text-[#5A6A92] dark:text-[#93A3CC]">
+                    <th className="py-2 pr-3 font-extrabold">Subject</th>
+                    <th className="py-2 px-2 text-right font-extrabold">Easy</th>
+                    <th className="py-2 px-2 text-right font-extrabold">Medium</th>
+                    <th className="py-2 px-2 text-right font-extrabold">Hard</th>
+                    <th className="py-2 px-2 text-right font-extrabold">Amay Special</th>
+                    <th className="py-2 px-2 text-right font-extrabold">Total</th>
+                    <th className="py-2 pl-3 text-right font-extrabold">High-Level Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1846AA]/10 dark:divide-white/10">
+                  {questionInventory.rows.map((row) => {
+                    const needsHard = row.counts[2] < HIGH_LEVEL_TARGET_PER_MODE;
+                    const needsSpecial = row.counts[3] < HIGH_LEVEL_TARGET_PER_MODE;
+                    const ready = !needsHard && !needsSpecial;
+                    return (
+                      <tr key={row.subject} className="hover:bg-[#1457E0]/[0.03] dark:hover:bg-white/[0.03]">
+                        <td className="py-2.5 pr-3 font-bold text-[#0B1B4D] dark:text-white whitespace-nowrap">
+                          <span className="mr-1.5" aria-hidden="true">
+                            {row.emoji}
+                          </span>
+                          {row.name}
+                          {row.dynamicTotal > 0 && (
+                            <span className="ml-1.5 text-[11px] font-semibold text-[#12A150] dark:text-emerald-400 font-mono-nums">
+                              (+{row.dynamicTotal} live)
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2 text-right font-mono-nums font-semibold text-[#5A6A92] dark:text-[#93A3CC]">
+                          {row.counts[0]}
+                        </td>
+                        <td className="py-2.5 px-2 text-right font-mono-nums font-semibold text-[#5A6A92] dark:text-[#93A3CC]">
+                          {row.counts[1]}
+                        </td>
+                        <td
+                          className={`py-2.5 px-2 text-right font-mono-nums font-extrabold ${
+                            needsHard
+                              ? "text-amber-600 dark:text-amber-400"
+                              : "text-[#0B1B4D] dark:text-white"
+                          }`}
+                        >
+                          {row.counts[2]}
+                        </td>
+                        <td
+                          className={`py-2.5 px-2 text-right font-mono-nums font-extrabold ${
+                            needsSpecial
+                              ? "text-[#D92D3A] dark:text-[#FF6B76]"
+                              : "text-[#1457E0] dark:text-[#5AA2FF]"
+                          }`}
+                        >
+                          {row.counts[3]}
+                        </td>
+                        <td className="py-2.5 px-2 text-right font-mono-nums font-extrabold text-[#0B1B4D] dark:text-white">
+                          {row.total}
+                        </td>
+                        <td className="py-2.5 pl-3 text-right whitespace-nowrap">
+                          {ready ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-bold text-[#12A150] dark:text-emerald-400">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Ready
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 dark:text-amber-300">
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              Add more
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="border-t-2 border-[#1846AA]/20 dark:border-white/15 bg-[#1457E0]/[0.05] dark:bg-white/[0.04] font-extrabold text-[#0B1B4D] dark:text-white">
+                    <td className="py-2.5 pr-3">Normal Mixed Quiz (All Subjects)</td>
+                    <td className="py-2.5 px-2 text-right font-mono-nums">{questionInventory.modeTotals[0]}</td>
+                    <td className="py-2.5 px-2 text-right font-mono-nums">{questionInventory.modeTotals[1]}</td>
+                    <td className="py-2.5 px-2 text-right font-mono-nums">{questionInventory.modeTotals[2]}</td>
+                    <td className="py-2.5 px-2 text-right font-mono-nums text-[#1457E0] dark:text-[#5AA2FF]">
+                      {questionInventory.modeTotals[3]}
+                    </td>
+                    <td className="py-2.5 px-2 text-right font-mono-nums">{questionInventory.grandTotal}</td>
+                    <td className="py-2.5 pl-3 text-right text-xs font-mono-nums">
+                      {questionInventory.highLevelTotal} Hard+Special
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {questionInventory.gaps.length > 0 ? (
+              <div className="rounded-2xl border border-amber-400/35 bg-amber-500/[0.08] p-3.5 space-y-2">
+                <div className="flex items-center gap-1.5 text-xs font-extrabold text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>
+                    Needs More High-Level Questions ({questionInventory.gaps.length} subject-mode slot
+                    {questionInventory.gaps.length === 1 ? "" : "s"} below {HIGH_LEVEL_TARGET_PER_MODE} Qs)
+                  </span>
+                </div>
+                <p className="text-xs text-[#5A6A92] dark:text-[#DCE6FF]">
+                  Top 20 &amp; Top 50 candidates play Hard / Amay Special in Mixed Quiz. Tap any slot below to add questions there directly:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {questionInventory.gaps.map((gap) => (
+                    <button
+                      key={`${gap.subject}-${gap.level}`}
+                      type="button"
+                      onClick={() => {
+                        setQEntryMode("single");
+                        setQSub(gap.subject);
+                        setQLvl(gap.level);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-white/90 dark:bg-[#0B1224] border border-amber-500/35 text-xs font-bold text-[#0B1B4D] dark:text-white hover:border-[#1457E0] transition cursor-pointer"
+                    >
+                      + {gap.subjectName} · {gap.levelName}{" "}
+                      <span className="font-mono-nums text-[#D92D3A] dark:text-[#FF6B76]">
+                        ({gap.current}/{gap.target} · need {gap.needed})
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-[#12A150]/25 bg-[#12A150]/[0.07] px-3.5 py-2.5 flex items-center gap-2 text-xs font-bold text-[#12A150] dark:text-emerald-400">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>
+                  All 6 subjects have {HIGH_LEVEL_TARGET_PER_MODE}+ Hard and {HIGH_LEVEL_TARGET_PER_MODE}+ Amay Special questions ready for Top 20 / Top 50 Mixed Quiz rotation.
+                </span>
+              </div>
+            )}
+          </div>
+
           <div className="inline-flex p-1 rounded-xl amay-card gap-1">
             <button
               type="button"
@@ -1965,7 +2139,24 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
             {qEntryMode === "single" ? (
               <form onSubmit={handleSaveQuestion} className="lg:col-span-7 amay-card rounded-[28px] p-6 space-y-4">
-                <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-white">Publish New Question</h2>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-white">Publish New Question</h2>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const suggested = classifyQuestionDifficulty(qSub, qTxt, [qOa, qOb, qOc, qOd], qExp);
+                      setQLvl(suggested);
+                      setFeedback({
+                        text: `Auto-categorised as "${LEVELS[suggested]}" based on question complexity.`,
+                        ok: true,
+                      });
+                    }}
+                    className="px-3 py-1.5 rounded-xl amay-card text-xs font-bold text-[#1457E0] dark:text-[#5AA2FF] inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Auto-Categorise Difficulty</span>
+                  </button>
+                </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -2158,11 +2349,35 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
                 {bulkQueue.length > 0 && (
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <strong className="text-sm font-extrabold text-[#0B1B4D] dark:text-white">
                         Ready to publish: {bulkQueue.length} questions
                       </strong>
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBulkQueue((prev) =>
+                              prev.map((q) => ({
+                                ...q,
+                                level: classifyQuestionDifficulty(
+                                  q.subject,
+                                  q.question_text,
+                                  [q.option_a, q.option_b, q.option_c, q.option_d],
+                                  q.explanation
+                                ),
+                              }))
+                            );
+                            setFeedback({
+                              text: "Auto-categorised Easy, Medium, Hard & Amay Special across all queued questions.",
+                              ok: true,
+                            });
+                          }}
+                          className="px-3 py-1.5 rounded-xl amay-card text-xs font-bold text-[#1457E0] dark:text-[#5AA2FF] inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>Auto-Categorise All</span>
+                        </button>
                         <button
                           type="button"
                           onClick={() => setBulkQueue([])}
@@ -2226,6 +2441,20 @@ export const AdminView: React.FC<AdminViewProps> = ({
                               <option value="sci">Sci</option>
                               <option value="eng">Eng</option>
                               <option value="hin">Hin</option>
+                            </select>
+                            <select
+                              value={item.level}
+                              onChange={(e) => {
+                                const next = [...bulkQueue];
+                                next[idx] = { ...next[idx], level: Number(e.target.value) };
+                                setBulkQueue(next);
+                              }}
+                              className="h-7 px-2 rounded-lg bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 font-semibold"
+                            >
+                              <option value={0}>Easy</option>
+                              <option value={1}>Medium</option>
+                              <option value={2}>Hard</option>
+                              <option value={3}>Amay Special</option>
                             </select>
                             <select
                               value={item.correct_index}

@@ -23,10 +23,12 @@ import {
   clearProfileSession,
   generateFreshGuestUUID,
   getGuestUUID,
+  getRankDifficultyRule,
   getTodayCutoffStatus,
   LEVELS,
   loadProfile,
   loadQueue,
+  markQuestionsSeen,
   mergeDynamicQuestions,
   QUIZ_LENGTHS,
   saveProfile,
@@ -689,42 +691,6 @@ export default function App() {
     }
   };
 
-  const openSubjectConfig = (key: QuizKey) => {
-    if (!impersonated && !hasCompleteAccount) {
-      setView("gate");
-      return;
-    }
-    recordTap("Select Subject", `Subject: ${key}`, "subs");
-    setConfigKey(key);
-    setConfigLevel(1);
-    setConfigLength(10);
-    setView("sub");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const startQuiz = (k = configKey, L = configLevel, N = configLength) => {
-    if (!impersonated && !hasCompleteAccount) {
-      setView("gate");
-      return;
-    }
-    const qs = buildQuizSet(k, L, N, mergedBank);
-    if (qs.length === 0) return;
-    recordTap("Start Quiz", `${k.toUpperCase()} · ${LEVELS[L]} · ${N} Qs`, "quiz");
-    const minutes = QUIZ_LENGTHS[N] ?? 2;
-    setQuiz({
-      k,
-      L,
-      N: qs.length,
-      qs,
-      i: 0,
-      sel: Array(qs.length).fill(undefined),
-      t: minutes * 60,
-      done: false,
-    });
-    setView("quiz");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
   const handleRegister = async (payload: {
     name: string;
     username: string;
@@ -1043,6 +1009,61 @@ export default function App() {
     livePlayers,
   ]);
 
+  const myEffectiveRank = useMemo(() => {
+    const allIdx = allTimeEntries.findIndex((e) => e.isMe);
+    const tdIdx = todayEntries.findIndex((e) => e.isMe);
+    const rAll = allIdx >= 0 ? allIdx + 1 : allTimeEntries.length + 1;
+    const rTd = tdIdx >= 0 ? tdIdx + 1 : todayEntries.length + 1;
+    return Math.min(rAll, rTd);
+  }, [allTimeEntries, todayEntries]);
+
+  const openSubjectConfig = (key: QuizKey) => {
+    if (!impersonated && !hasCompleteAccount) {
+      setView("gate");
+      return;
+    }
+    recordTap("Select Subject", `Subject: ${key}`, "subs");
+    setConfigKey(key);
+    if (key === "mix") {
+      const rule = getRankDifficultyRule(myEffectiveRank);
+      setConfigLevel(rule.defaultLevel);
+    } else {
+      setConfigLevel(1);
+    }
+    setConfigLength(10);
+    setView("sub");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const startQuiz = (k = configKey, L = configLevel, N = configLength) => {
+    if (!impersonated && !hasCompleteAccount) {
+      setView("gate");
+      return;
+    }
+    const rule = k === "mix" ? getRankDifficultyRule(myEffectiveRank) : null;
+    const resolvedLevel = rule ? Math.max(L, rule.minLevel) : L;
+    const qs = buildQuizSet(k, resolvedLevel, N, mergedBank, {
+      guestId: effectiveGuestId,
+      playerRank: myEffectiveRank,
+    });
+    if (qs.length === 0) return;
+    markQuestionsSeen(effectiveGuestId, qs);
+    recordTap("Start Quiz", `${k.toUpperCase()} · ${LEVELS[resolvedLevel]} · ${N} Qs`, "quiz");
+    const minutes = QUIZ_LENGTHS[N] ?? 2;
+    setQuiz({
+      k,
+      L: resolvedLevel,
+      N: qs.length,
+      qs,
+      i: 0,
+      sel: Array(qs.length).fill(undefined),
+      t: minutes * 60,
+      done: false,
+    });
+    setView("quiz");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   // Fire an exact tick right at 11:00 PM IST cutoff and 12:00 AM IST daily reset
   useEffect(() => {
     const status = getTodayCutoffStatus(botClockTick);
@@ -1198,6 +1219,7 @@ export default function App() {
               subjectKey={configKey}
               level={configLevel}
               length={configLength}
+              playerRank={myEffectiveRank}
               mergedBank={mergedBank}
               onChangeLevel={(lvl) => {
                 setConfigLevel(lvl);

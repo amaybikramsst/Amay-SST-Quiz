@@ -1,9 +1,11 @@
 import React from "react";
+import { Lock } from "lucide-react";
 import { STATIC_QUESTIONS, type QuizKey, type RawQuestion, type SubjectKey } from "../data/questions";
 import {
   formatXpValue,
   getAvailableCount,
   getNegativePenalty,
+  getRankDifficultyRule,
   getSubjectMeta,
   LEVELS,
   QUIZ_LENGTHS,
@@ -50,6 +52,7 @@ interface SubjectConfigViewProps {
   subjectKey: QuizKey;
   level: number;
   length: number;
+  playerRank?: number;
   mergedBank: Record<SubjectKey, RawQuestion[]>;
   onChangeLevel: (l: number) => void;
   onChangeLength: (n: number) => void;
@@ -61,6 +64,7 @@ export const SubjectConfigView: React.FC<SubjectConfigViewProps> = ({
   subjectKey,
   level,
   length,
+  playerRank,
   mergedBank,
   onChangeLevel,
   onChangeLength,
@@ -69,6 +73,11 @@ export const SubjectConfigView: React.FC<SubjectConfigViewProps> = ({
 }) => {
   const meta = getSubjectMeta(subjectKey);
   const maxAvail = getAvailableCount(subjectKey, mergedBank);
+  const rankRule =
+    subjectKey === "mix"
+      ? getRankDifficultyRule(playerRank)
+      : { minLevel: 0, defaultLevel: 1, tierLabel: null, lockReason: null };
+  const activeLevel = Math.max(level, rankRule.minLevel);
 
   return (
     <div className="space-y-4">
@@ -85,25 +94,50 @@ export const SubjectConfigView: React.FC<SubjectConfigViewProps> = ({
       </h1>
 
       <div className="space-y-2">
-        <h2 className="text-base font-bold text-[#0B1B4D] dark:text-[#EAF0FF] px-1">Level</h2>
+        <div className="flex items-center justify-between gap-2 px-1">
+          <h2 className="text-base font-bold text-[#0B1B4D] dark:text-[#EAF0FF]">Level</h2>
+          {rankRule.tierLabel && (
+            <span className="text-xs font-bold text-[#1457E0] dark:text-[#5AA2FF]">
+              Rank #{playerRank} · {rankRule.tierLabel}
+            </span>
+          )}
+        </div>
+
+        {rankRule.lockReason && (
+          <div className="rounded-2xl border border-[#1457E0]/20 bg-[#1457E0]/[0.06] dark:bg-[#5AA2FF]/10 px-3.5 py-2.5 text-xs font-semibold text-[#0B1B4D] dark:text-[#DCE6FF]">
+            {rankRule.lockReason}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-2.5">
           {LEVELS.map((lvlName, idx) => {
-            const active = level === idx;
+            const lockedByRank = subjectKey === "mix" && idx < rankRule.minLevel;
+            const active = activeLevel === idx;
             const penalty = formatXpValue(getNegativePenalty(idx));
             return (
               <button
                 key={lvlName}
                 type="button"
+                disabled={lockedByRank}
                 onClick={() => onChangeLevel(idx)}
-                className={`rounded-[18px] p-3.5 text-left transition-all cursor-pointer ${
-                  active
-                    ? "bg-[#1457E0]/15 dark:bg-[#5AA2FF]/20 border-2 border-[#1457E0] dark:border-[#5AA2FF]"
-                    : "amay-card"
+                className={`rounded-[18px] p-3.5 text-left transition-all ${
+                  lockedByRank
+                    ? "amay-card opacity-50 cursor-not-allowed"
+                    : active
+                      ? "bg-[#1457E0]/15 dark:bg-[#5AA2FF]/20 border-2 border-[#1457E0] dark:border-[#5AA2FF] cursor-pointer"
+                      : "amay-card cursor-pointer"
                 }`}
               >
-                <div className="text-base font-bold text-[#0B1B4D] dark:text-[#EAF0FF]">{lvlName}</div>
+                <div className="flex items-center justify-between gap-1.5">
+                  <span className="text-base font-bold text-[#0B1B4D] dark:text-[#EAF0FF]">
+                    {lvlName}
+                  </span>
+                  {lockedByRank && <Lock className="w-3.5 h-3.5 text-[#5A6A92] shrink-0" />}
+                </div>
                 <div className="text-xs font-semibold text-[#5A6A92] dark:text-[#93A3CC] mt-0.5">
-                  +{XP_PER_LEVEL[idx]} XP right · −{penalty} XP wrong
+                  {lockedByRank
+                    ? `Unlocked below #${playerRank && playerRank <= 50 ? 50 : 100}`
+                    : `+${XP_PER_LEVEL[idx]} XP right · −${penalty} XP wrong`}
                 </div>
               </button>
             );

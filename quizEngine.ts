@@ -4,12 +4,59 @@ import type { DynamicQuestionRow } from "./supabase";
 export const LEVELS = ["Easy", "Medium", "Hard", "Amay Special"] as const;
 export const XP_PER_LEVEL = [10, 15, 20, 30] as const;
 export const NEGATIVE_RATIO = 0.25; // 1/4 negative marking per wrong answer
+export const HIGH_LEVEL_TARGET_PER_MODE = 35;
 
 // Strictly 2 minutes (10 questions) and 5 minutes (20 questions)
 export const QUIZ_LENGTHS: Record<number, number> = {
   10: 2,
   20: 5,
 };
+
+export interface RankDifficultyRule {
+  minLevel: number;
+  defaultLevel: number;
+  tierLabel: string | null;
+  lockReason: string | null;
+}
+
+export function getRankDifficultyRule(playerRank?: number): RankDifficultyRule {
+  if (!playerRank || !Number.isFinite(playerRank) || playerRank <= 0) {
+    return { minLevel: 0, defaultLevel: 1, tierLabel: null, lockReason: null };
+  }
+  if (playerRank <= 10) {
+    return {
+      minLevel: 2,
+      defaultLevel: 3,
+      tierLabel: "Top 10 Challenge",
+      lockReason: "Top 10 players face Amay Special & Hard questions in Mixed Quiz.",
+    };
+  }
+  if (playerRank <= 20) {
+    return {
+      minLevel: 2,
+      defaultLevel: 2,
+      tierLabel: "Top 20 Challenge",
+      lockReason: "Top 20 players must play Hard or Amay Special in Mixed Quiz.",
+    };
+  }
+  if (playerRank <= 50) {
+    return {
+      minLevel: 2,
+      defaultLevel: 2,
+      tierLabel: "Top 50 Challenge",
+      lockReason: "Top 50 players must play Hard or Amay Special in Mixed Quiz.",
+    };
+  }
+  if (playerRank <= 100) {
+    return {
+      minLevel: 1,
+      defaultLevel: 1,
+      tierLabel: "Top 100 Challenge",
+      lockReason: "Top 100 players start from Medium difficulty or higher in Mixed Quiz.",
+    };
+  }
+  return { minLevel: 0, defaultLevel: 1, tierLabel: null, lockReason: null };
+}
 
 export const OVERALL_BADGE_MILESTONES = [100, 1000, 10000, 100000] as const;
 export type OverallBadgeMilestone = (typeof OVERALL_BADGE_MILESTONES)[number];
@@ -269,6 +316,40 @@ export function saveQueue(q: QueuedAttempt[]): void {
   }
 }
 
+const SEEN_QUESTIONS_KEY = "amaysst_seen_q_v1";
+const MAX_SEEN_HISTORY = 500;
+
+function normalizeQuestionKey(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function loadSeenQuestionKeys(guestId = "default"): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SEEN_QUESTIONS_KEY) || "{}");
+    const list = raw?.[guestId];
+    return Array.isArray(list) ? (list as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function markQuestionsSeen(guestId: string | undefined, qs: RawQuestion[]): void {
+  if (!qs.length) return;
+  const scope = guestId || "default";
+  try {
+    const raw = JSON.parse(localStorage.getItem(SEEN_QUESTIONS_KEY) || "{}");
+    const prev: string[] = Array.isArray(raw?.[scope]) ? raw[scope] : [];
+    const newKeys = qs.map((q) => normalizeQuestionKey(q[0]));
+    const newSet = new Set(newKeys);
+    const filtered = prev.filter((k) => !newSet.has(k));
+    const updated = [...filtered, ...newKeys].slice(-MAX_SEEN_HISTORY);
+    raw[scope] = updated;
+    localStorage.setItem(SEEN_QUESTIONS_KEY, JSON.stringify(raw));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export function shuffle<T>(arr: readonly T[]): T[] {
   const copy = [...arr];
   for (let i = copy.length - 1; i > 0; i--) {
@@ -439,7 +520,88 @@ export function generateMathQuestions(level: number, count: number): RawQuestion
     },
   ];
 
-  const poolFns = level < 2 ? (level ? medFns : easyFns) : hardFns;
+  const amaySpecialFns: Array<() => [string, number, string]> = [
+    () => {
+      const alpha = R(2, 9);
+      const beta = R(alpha + 1, 13);
+      return [
+        `If α and β are the roots of x² − ${alpha + beta}x + ${alpha * beta} = 0, what is α² + β²?`,
+        alpha * alpha + beta * beta,
+        "α² + β² = (α + β)² − 2αβ.",
+      ];
+    },
+    () => {
+      const a = R(2, 5);
+      const r = R(2, 6);
+      const b = 2 * a * r;
+      return [
+        `For what positive value of k does ${a}x² − ${b}x + k = 0 have real and equal roots?`,
+        a * r * r,
+        "For equal roots, discriminant b² − 4ac = 0 ⇒ k = b² ÷ (4a).",
+      ];
+    },
+    () => {
+      const k = R(3, 8);
+      const ans = k * k * k;
+      return [
+        `A sphere of radius ${k * 2} cm is melted into small spheres of radius 2 cm. How many small spheres are formed?`,
+        ans,
+        "Number of spheres = (R ÷ r)³.",
+      ];
+    },
+    () => {
+      const x1 = R(-4, 4);
+      const y1 = R(-4, 4);
+      const dx = 2 * R(2, 7);
+      const dy = 2 * R(2, 7);
+      return [
+        `The sum of coordinates (x + y) of the midpoint between (${x1}, ${y1}) and (${x1 + dx}, ${y1 + dy}) is`,
+        x1 + dx / 2 + (y1 + dy / 2),
+        "Midpoint = ((x₁+x₂)/2, (y₁+y₂)/2).",
+      ];
+    },
+    () => {
+      const mean = R(18, 36);
+      const median = mean + R(2, 6);
+      return [
+        `If the mean is ${mean} and the median is ${median}, what is the empirical mode?`,
+        3 * median - 2 * mean,
+        "Empirical formula: Mode = 3(Median) − 2(Mean).",
+      ];
+    },
+    () => {
+      const a = R(3, 9);
+      const d = R(4, 11);
+      const n = R(14, 24);
+      const nth = a + (n - 1) * d;
+      return [
+        `Which term number of the AP ${a}, ${a + d}, ${a + 2 * d}, … equals ${nth}?`,
+        n,
+        "Use aₙ = a + (n − 1)d and solve for n.",
+      ];
+    },
+    () => {
+      const r = 7 * R(1, 3);
+      const l = R(8, 20);
+      return [
+        `The curved surface area of a cone of radius ${r} cm and slant height ${l} cm (π = 22/7), in cm², is`,
+        (22 * r * l) / 7,
+        "CSA of a cone = πrl.",
+      ];
+    },
+    () => {
+      const a = R(2, 6);
+      const b = R(2, 6);
+      return [
+        `The value of (${a}sec²θ − ${a}tan²θ) + (${b}sin²θ + ${b}cos²θ) is`,
+        a + b,
+        "sec²θ − tan²θ = 1 and sin²θ + cos²θ = 1.",
+      ];
+    },
+  ];
+
+  const poolFns =
+    level >= 3 ? amaySpecialFns : level === 2 ? hardFns : level === 1 ? medFns : easyFns;
   let guard = 0;
   while (out.length < count && guard++ < count * 20) {
     const [q, a, e] = poolFns[R(0, poolFns.length - 1)]();
@@ -490,33 +652,101 @@ export function getAvailableCount(k: QuizKey, mergedBank: Record<SubjectKey, Raw
   return mergedBank[k].length + (k === "math" ? 100 : 0);
 }
 
+export interface BuildQuizOptions {
+  guestId?: string;
+  playerRank?: number;
+}
+
 export function buildQuizSet(
   k: QuizKey,
   level: number,
   count: number,
-  mergedBank: Record<SubjectKey, RawQuestion[]>
+  mergedBank: Record<SubjectKey, RawQuestion[]>,
+  options: BuildQuizOptions = {}
 ): RawQuestion[] {
-  const poolForSubject = (subj: SubjectKey): RawQuestion[] => {
+  const rankRule = getRankDifficultyRule(options.playerRank);
+  const effectiveLevel = k === "mix" ? Math.max(level, rankRule.minLevel) : level;
+  const isTop20 = Boolean(options.playerRank && options.playerRank <= 20);
+  const isTop50 = Boolean(options.playerRank && options.playerRank <= 50);
+
+  const seenList = loadSeenQuestionKeys(options.guestId);
+  const seenOrder = new Map<string, number>();
+  seenList.forEach((key, idx) => seenOrder.set(key, idx));
+
+  const poolForSubject = (subj: SubjectKey, targetLvl: number): RawQuestion[] => {
     let items = [...mergedBank[subj]];
     if (subj === "math") {
-      items = items.concat(generateMathQuestions(level, 100));
+      items = items.concat(generateMathQuestions(targetLvl, 50));
+      if (isTop20 && targetLvl === 2) {
+        items = items.concat(generateMathQuestions(3, 25));
+      }
     }
-    return shuffle(items).sort((x, y) => Math.abs(x[4] - level) - Math.abs(y[4] - level));
+
+    // Never serve Easy (0) in Mixed Quiz for Top 50 when higher-tier items exist
+    if (k === "mix" && isTop50) {
+      const nonEasy = items.filter((q) => q[4] >= 1);
+      if (nonEasy.length >= 6) {
+        items = nonEasy;
+      }
+    }
+
+    // Shuffle first for random ordering within equal priority tiers
+    const randomized = shuffle(items);
+
+    const priorityScore = (q: RawQuestion): number => {
+      const qKey = normalizeQuestionKey(q[0]);
+      const seenIdx = seenOrder.get(qKey);
+      const isSeen = seenIdx !== undefined;
+      const lvlDiff = Math.abs(q[4] - targetLvl);
+
+      // Exact level match first (for Top 20 on Hard, allow Amay Special closely alongside Hard)
+      let levelBucket = lvlDiff * 10000;
+      if (isTop20 && targetLvl === 2 && q[4] === 3) {
+        levelBucket = 1500;
+      }
+
+      // Unseen questions strictly beat seen questions; oldest-seen beats recently-seen
+      const seenPenalty = isSeen ? 500 + (seenIdx as number) : 0;
+      return levelBucket + seenPenalty;
+    };
+
+    return randomized.sort((a, b) => priorityScore(a) - priorityScore(b));
   };
 
   let picked: RawQuestion[] = [];
 
   if (k === "mix") {
-    const pools = SUBJECT_ORDER.map((subj) => poolForSubject(subj));
+    const rotatedSubjects = shuffle(SUBJECT_ORDER);
+    const pools = rotatedSubjects.map((subj, idx) => {
+      // Top 20 players playing Hard get ~40% Amay Special questions mixed in automatically
+      const slotTarget =
+        isTop20 && effectiveLevel === 2 && idx % 2 === 1 ? 3 : effectiveLevel;
+      return poolForSubject(subj, slotTarget);
+    });
+    const usedText = new Set<string>();
     let idx = 0;
-    while (picked.length < count && pools.some((p) => p.length > 0)) {
+    let guard = 0;
+    while (picked.length < count && pools.some((p) => p.length > 0) && guard++ < count * 20) {
       const p = pools[idx++ % pools.length];
       const next = p.shift();
-      if (next) picked.push(next);
+      if (!next) continue;
+      const norm = normalizeQuestionKey(next[0]);
+      if (usedText.has(norm)) continue;
+      usedText.add(norm);
+      picked.push(next);
     }
     picked = shuffle(picked);
   } else {
-    picked = shuffle(poolForSubject(k).slice(0, count));
+    const pool = poolForSubject(k, effectiveLevel);
+    const usedText = new Set<string>();
+    for (const q of pool) {
+      if (picked.length >= count) break;
+      const norm = normalizeQuestionKey(q[0]);
+      if (usedText.has(norm)) continue;
+      usedText.add(norm);
+      picked.push(q);
+    }
+    picked = shuffle(picked);
   }
 
   return picked.map(([text, opts, correctIdx, expl, lvl]) => {
@@ -529,6 +759,91 @@ export function buildQuizSet(
       lvl,
     ];
   });
+}
+
+export interface SubjectQuestionCounts {
+  subject: SubjectKey;
+  name: string;
+  emoji: string;
+  counts: [number, number, number, number];
+  total: number;
+  staticTotal: number;
+  dynamicTotal: number;
+}
+
+export interface QuestionGapAdvice {
+  subject: SubjectKey;
+  subjectName: string;
+  level: 2 | 3;
+  levelName: string;
+  current: number;
+  target: number;
+  needed: number;
+}
+
+export interface QuestionInventorySummary {
+  rows: SubjectQuestionCounts[];
+  modeTotals: [number, number, number, number];
+  grandTotal: number;
+  highLevelTotal: number;
+  gaps: QuestionGapAdvice[];
+}
+
+export function getQuestionInventory(
+  mergedBank: Record<SubjectKey, RawQuestion[]>,
+  targetPerHighMode = HIGH_LEVEL_TARGET_PER_MODE
+): QuestionInventorySummary {
+  const modeTotals: [number, number, number, number] = [0, 0, 0, 0];
+  let grandTotal = 0;
+  const gaps: QuestionGapAdvice[] = [];
+
+  const rows: SubjectQuestionCounts[] = SUBJECT_ORDER.map((subj) => {
+    const list = mergedBank[subj] || [];
+    const counts: [number, number, number, number] = [0, 0, 0, 0];
+    for (const q of list) {
+      const lvl = Math.max(0, Math.min(3, q[4] ?? 0));
+      counts[lvl] += 1;
+      modeTotals[lvl] += 1;
+    }
+    const staticTotal = STATIC_QUESTIONS[subj].q.length;
+    const total = list.length;
+    const dynamicTotal = Math.max(0, total - staticTotal);
+    grandTotal += total;
+
+    ([2, 3] as const).forEach((lvl) => {
+      if (counts[lvl] < targetPerHighMode) {
+        gaps.push({
+          subject: subj,
+          subjectName: STATIC_QUESTIONS[subj].n,
+          level: lvl,
+          levelName: LEVELS[lvl],
+          current: counts[lvl],
+          target: targetPerHighMode,
+          needed: targetPerHighMode - counts[lvl],
+        });
+      }
+    });
+
+    return {
+      subject: subj,
+      name: STATIC_QUESTIONS[subj].n,
+      emoji: STATIC_QUESTIONS[subj].e,
+      counts,
+      total,
+      staticTotal,
+      dynamicTotal,
+    };
+  });
+
+  gaps.sort((a, b) => b.needed - a.needed);
+
+  return {
+    rows,
+    modeTotals,
+    grandTotal,
+    highLevelTotal: modeTotals[2] + modeTotals[3],
+    gaps,
+  };
 }
 
 export function getUnlockedOverallMilestones(xp: number): OverallBadgeMilestone[] {

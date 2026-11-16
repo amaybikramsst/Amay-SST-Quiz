@@ -328,3 +328,54 @@ export async function parseBulkQuestionFile(
   const questions = parseTextMcqQuestions(txt, defaultSubject, defaultLevel);
   return { questions, rawTextPreview: txt.slice(0, 800) };
 }
+
+export function classifyQuestionDifficulty(
+  subject: SubjectKey,
+  questionText: string,
+  options: string[] = [],
+  explanation = ""
+): 0 | 1 | 2 | 3 {
+  const text = `${questionText} ${explanation} ${options.join(" ")}`.toLowerCase();
+  const qOnly = questionText.trim();
+  const wordCount = qOnly.split(/\s+/).filter(Boolean).length;
+  let score = 1; // baseline Medium
+
+  // Clear Amay Special (hardest) competitive/multi-step/analytical markers
+  if (
+    /kesavananda|basic structure|itcz|monetary policy|article (100|148|279a|352|356|360)|schedule|ryotwari|mahalwari|khadar|bangar|synecdoche|inversion|scarcely|hardly had|lest you|conditional|sec²|cosec|α²|β²|discriminant|empirical mode|melted|recast|equidistant|dihybrid|mendel|isoto|ph of a solution|lactic acid|hypermetropia|refactive|refractive index|अयादि|विसर्ग|श्लेष|उत्प्रेक्षा|ज्ञानपीठ|चौपाई|दोहा|अतिशयोक्ति|lagrange|bimstec|ramsar|pslv|biosphere/i.test(
+      text
+    )
+  ) {
+    score += 2;
+  }
+
+  // Clear Hard markers
+  if (
+    /constitutional|amendment|treaty|viceroy|governor-general|concurrent list|union list|state list|unemployment|hydroelectric|dam|steel plant|oxidation|reduction|displacement|enzyme|pancreatic|allotrope|cathode|anode|capacitor|inductance|radioactivity|oxymoron|extempore|passive|indirect speech|idiom|ephemeral|laconic|pragmatic|बहुव्रीहि|कर्मधारय|तत्सम|यमक|रस का स्थायी|अलंकार|रचयिता|election commission|niti aayog|gst council|curvilinear|curved surface|cone|cylinder|probability|doublet|quadratic|trigonometr/i.test(
+      text
+    )
+  ) {
+    score += 1;
+  }
+
+  // Multi-clause / multi-step numerical complexity
+  if (wordCount >= 18) score += 1;
+  if (/\d+\s*[x²³^√÷×]/.test(qOnly) && wordCount >= 10) score += 1;
+
+  // Clear Easy basic-recall markers
+  if (
+    wordCount <= 9 &&
+    /(what is \d+\s*[+\-×]\s*\d+|capital of (india|france|germany|russia|italy|japan|nepal|egypt)|opposite of|past tense of|plural of|national (bird|flower|animal|fruit|tree)|festival of|symbol of (carbon|oxygen|gold|iron|sodium|nitrogen|calcium)|planet (nearest|largest|red|blue)|विलोम|पर्यायवाची)/i.test(
+      text
+    )
+  ) {
+    score -= 1;
+  }
+
+  // Subject-specific nuance
+  if (subject === "math" && /ratio|melted|roots|section formula|collinear|probability/.test(text)) {
+    score = Math.max(score, 2);
+  }
+
+  return Math.max(0, Math.min(3, score)) as 0 | 1 | 2 | 3;
+}
