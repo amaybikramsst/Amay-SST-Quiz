@@ -127,10 +127,89 @@
   pointer-events: none;
 }
 
+@keyframes amaySplashPhotoIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.7) translateY(20px);
+  }
+  65% {
+    opacity: 1;
+    transform: scale(1.04) translateY(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes amaySplashRingExpand {
+  0% {
+    opacity: 0.65;
+    transform: scale(0.84);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.48);
+  }
+}
+
+@keyframes amaySplashTextIn {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes amaySplashBarFill {
+  0% {
+    opacity: 0.45;
+    transform: scaleX(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+.amay-splash-photo {
+  animation: amaySplashPhotoIn 720ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+.amay-splash-ring {
+  animation: amaySplashRingExpand 1250ms cubic-bezier(0.16, 1, 0.3, 1) 180ms both;
+  will-change: transform, opacity;
+}
+
+.amay-splash-title {
+  animation: amaySplashTextIn 640ms cubic-bezier(0.16, 1, 0.3, 1) 180ms both;
+  will-change: transform, opacity;
+}
+
+.amay-splash-subtitle {
+  animation: amaySplashTextIn 640ms cubic-bezier(0.16, 1, 0.3, 1) 320ms both;
+  will-change: transform, opacity;
+}
+
+.amay-splash-bar {
+  transform-origin: left center;
+  animation: amaySplashBarFill 1150ms cubic-bezier(0.22, 1, 0.36, 1) 240ms both;
+  will-change: transform, opacity;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-wave,
   .amay-play-btn,
-  .amay-shimmer-beam {
+  .amay-shimmer-beam,
+  .amay-splash-photo,
+  .amay-splash-ring,
+  .amay-splash-title,
+  .amay-splash-subtitle,
+  .amay-splash-bar {
     animation: none;
   }
   .amay-fill-bar {

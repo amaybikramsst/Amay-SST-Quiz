@@ -6,6 +6,7 @@ import { ChatView } from "./components/ChatView";
 import { GateView } from "./components/GateView";
 import { Header, type AppRoute } from "./components/Header";
 import { HomeView } from "./components/HomeView";
+import { LaunchSplash } from "./components/LaunchSplash";
 import { NotificationInboxModal, NotificationPopupModal } from "./components/NotificationModal";
 import { ProfileView } from "./components/ProfileView";
 import { PWAInstallModal } from "./components/PWAInstallModal";
@@ -101,6 +102,7 @@ export default function App() {
     const p = loadProfile();
     return p.name && p.username && p.password ? "home" : "gate";
   });
+  const [showLaunchSplash, setShowLaunchSplash] = useState<boolean>(() => !isSecretAdminUrl());
 
   const [mergedBank, setMergedBank] = useState<Record<SubjectKey, RawQuestion[]>>(() =>
     mergeDynamicQuestions([])
@@ -159,6 +161,7 @@ export default function App() {
 
   const activePopupNotif = useMemo(() => {
     if (
+      showLaunchSplash ||
       impersonated ||
       !hasCompleteAccount ||
       showNotifInbox ||
@@ -171,7 +174,7 @@ export default function App() {
       return null;
     }
     return myNotifications.find((n) => !seenNotifIds.includes(n.id)) || null;
-  }, [hasCompleteAccount, impersonated, myNotifications, seenNotifIds, showBadgeModal, showInstallModal, showNotifInbox, view]);
+  }, [hasCompleteAccount, impersonated, myNotifications, seenNotifIds, showBadgeModal, showInstallModal, showLaunchSplash, showNotifInbox, view]);
 
   const markNotifsSeen = useCallback(
     (ids: string[]) => {
@@ -1105,6 +1108,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen relative flex flex-col">
+      {showLaunchSplash && effectiveView !== "admin" && (
+        <LaunchSplash onDone={() => setShowLaunchSplash(false)} />
+      )}
       <div className="amay-bg-mesh" aria-hidden="true" />
 
       <div className="relative z-10 flex-1 flex flex-col">
