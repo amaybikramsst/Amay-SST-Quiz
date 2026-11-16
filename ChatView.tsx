@@ -72,6 +72,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [sendError, setSendError] = useState("");
   const [confirmDeleteThread, setConfirmDeleteThread] = useState(false);
   const [deletingThread, setDeletingThread] = useState(false);
+  const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null);
+  const [unsendingMsgId, setUnsendingMsgId] = useState<string | null>(null);
   const [readMap, setReadMap] = useState<Record<string, string>>(() => loadReadMap());
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -81,6 +83,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       setActivePeerUuid(initialPeer.uuid);
       setActivePeerFallbackName(initialPeer.name);
       setConfirmDeleteThread(false);
+      setSelectedMsgId(null);
       setSendError("");
     }
   }, [initialPeer?.uuid, initialPeer?.name]);
@@ -248,9 +251,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
     markPeerRead(activePeerUuid);
   };
 
-  const handleDeleteOneMessage = async (msgId: string) => {
-    setMessages((prev) => prev.filter((m) => m.id !== msgId));
-    await deleteChatMessage(guestId, msgId);
+  const handleUnsendMessage = async (msgId: string) => {
+    if (unsendingMsgId) return;
+    setUnsendingMsgId(msgId);
+    setSendError("");
+    const ok = await deleteChatMessage(guestId, msgId);
+    setUnsendingMsgId(null);
+    setSelectedMsgId(null);
+    if (ok) {
+      setMessages((prev) => prev.filter((m) => m.id !== msgId));
+    } else {
+      setSendError("Could not unsend message. Please try again.");
+    }
   };
 
   const handleDeleteEntireThread = async () => {
@@ -311,6 +323,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 setActivePeerUuid(null);
                 setActivePeerFallbackName("");
                 setConfirmDeleteThread(false);
+                setSelectedMsgId(null);
                 setSendError("");
                 onClearInitialPeer?.();
               }}
@@ -355,7 +368,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         {confirmDeleteThread && (
           <div className="amay-card rounded-2xl p-3.5 border border-[#D92D3A]/25 flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-semibold text-[#0B1B4D] dark:text-white">
-              Clear this chat from your list?
+              Delete this entire chat from your ID? It will remain in the other chat.
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -393,50 +406,51 @@ export const ChatView: React.FC<ChatViewProps> = ({
             ) : (
               activeMessages.map((m) => {
                 const isMine = m.sender_uuid === guestId;
-                return (
-                  <div
-                    key={m.id}
-                    className={`flex items-end gap-1.5 ${isMine ? "justify-end" : "justify-start"}`}
-                  >
-                    {isMine && (
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteOneMessage(m.id)}
-                        aria-label="Delete message"
-                        title="Delete message"
-                        className="p-1.5 rounded-lg text-[#5A6A92]/70 hover:text-[#D92D3A] cursor-pointer shrink-0"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+                const isSelected = isMine && selectedMsgId === m.id;
+                const isUnsending = unsendingMsgId === m.id;
 
-                    <div
-                      className={`max-w-[78%] rounded-[20px] px-3.5 py-2.5 text-sm leading-relaxed break-words ${
-                        isMine
-                          ? "bg-gradient-to-br from-[#2B7BFF] to-[#1457E0] text-white rounded-br-md shadow-sm"
-                          : "bg-white/85 dark:bg-[#131E3A] text-[#0B1B4D] dark:text-white border border-[#1846AA]/12 dark:border-white/10 rounded-bl-md"
+                if (!isMine) {
+                  return (
+                    <div key={m.id} className="flex items-end gap-1.5 justify-start">
+                      <div className="max-w-[78%] rounded-[20px] px-3.5 py-2.5 text-sm leading-relaxed break-words bg-white/85 dark:bg-[#131E3A] text-[#0B1B4D] dark:text-white border border-[#1846AA]/12 dark:border-white/10 rounded-bl-md">
+                        <p className="whitespace-pre-wrap">{m.body}</p>
+                        <span className="block text-[10px] font-mono-nums mt-1 text-[#5A6A92] dark:text-[#93A3CC]">
+                          {formatMsgTime(m.created_at)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={m.id} className="flex flex-col items-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedMsgId((prev) => (prev === m.id ? null : m.id))
+                      }
+                      aria-expanded={isSelected}
+                      className={`max-w-[78%] rounded-[20px] px-3.5 py-2.5 text-sm leading-relaxed break-words text-left bg-gradient-to-br from-[#2B7BFF] to-[#1457E0] text-white rounded-br-md shadow-sm cursor-pointer transition ${
+                        isSelected ? "ring-2 ring-[#1457E0]/40 dark:ring-[#5AA2FF]/60" : ""
                       }`}
                     >
                       <p className="whitespace-pre-wrap">{m.body}</p>
-                      <span
-                        className={`block text-[10px] font-mono-nums mt-1 ${
-                          isMine ? "text-white/75 text-right" : "text-[#5A6A92] dark:text-[#93A3CC]"
-                        }`}
-                      >
+                      <span className="block text-[10px] font-mono-nums mt-1 text-white/75 text-right">
                         {formatMsgTime(m.created_at)}
                       </span>
-                    </div>
+                    </button>
 
-                    {!isMine && (
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteOneMessage(m.id)}
-                        aria-label="Delete message"
-                        title="Delete message"
-                        className="p-1.5 rounded-lg text-[#5A6A92]/70 hover:text-[#D92D3A] cursor-pointer shrink-0"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    {isSelected && (
+                      <div className="flex items-center gap-1.5 pr-1">
+                        <button
+                          type="button"
+                          disabled={isUnsending}
+                          onClick={() => handleUnsendMessage(m.id)}
+                          className="px-3 py-1 rounded-xl bg-[#D92D3A] text-white text-xs font-bold shadow-sm hover:brightness-105 active:scale-[0.98] transition cursor-pointer disabled:opacity-60"
+                        >
+                          {isUnsending ? "Unsending…" : "Unsend"}
+                        </button>
+                      </div>
                     )}
                   </div>
                 );
@@ -480,7 +494,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           Messages
         </h1>
         <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
-          Text chats · Tap Help or click any name on Leaderboard to start a chat
+          Text messages only · Tap Help or search by name below
         </p>
       </div>
 
@@ -546,7 +560,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </h2>
           {searchMatches.length === 0 ? (
             <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] py-3 text-center">
-              No matching name found. You can also tap any name directly on Leaderboard.
+              No matching name found.
             </p>
           ) : (
             <div className="divide-y divide-[#1846AA]/10 dark:divide-white/10 max-h-[260px] overflow-y-auto">
@@ -586,7 +600,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </h2>
         {recentThreads.length === 0 ? (
           <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] py-6 text-center">
-            No chats yet. Tap Help above or tap any player&apos;s name on Ranks to start messaging.
+            No chats yet. Tap Help above or search a name to start messaging.
           </p>
         ) : (
           <div className="divide-y divide-[#1846AA]/10 dark:divide-white/10">

@@ -3093,7 +3093,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                                   >
                                     {isDeleted && (
                                       <span className="inline-block mb-1 px-1.5 py-0.5 rounded bg-[#D92D3A] text-white text-[10px] font-extrabold">
-                                        Deleted by student{m.deleted_for_everyone ? " (for everyone)" : ""}
+                                        {m.deleted_for_everyone ? "Unsent by sender" : "Deleted by student"}
                                       </span>
                                     )}
                                     <p className="whitespace-pre-wrap break-words">{m.body}</p>
@@ -3364,7 +3364,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         ) : (
                           chosen.messages.map((m) => {
                             const deleteReasons: string[] = [];
-                            if (m.deleted_for_everyone) deleteReasons.push("Deleted for everyone");
+                            if (m.deleted_for_everyone) deleteReasons.push("Unsent (for everyone)");
                             if (m.deleted_by_sender) deleteReasons.push("Deleted by sender");
                             if (m.deleted_by_recipient) deleteReasons.push("Deleted by recipient");
                             const isDeleted = deleteReasons.length > 0;
