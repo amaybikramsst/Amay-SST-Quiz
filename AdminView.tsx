@@ -34,7 +34,13 @@ import {
 } from "lucide-react";
 import { BENCHMARK_PLAYERS } from "../data/benchmarks";
 import type { AdminSubjectKey } from "../data/questions";
-import { getIstClock, resolveBotRoster, type ResolvedBotPlayer } from "../lib/botSimulator";
+import {
+  getCompetitionCeiling,
+  getIstClock,
+  reconstructBotDailyCeilingsFromAttempts,
+  resolveBotRoster,
+  type ResolvedBotPlayer,
+} from "../lib/botSimulator";
 import {
   classifyQuestionDifficulty,
   parseBulkQuestionFile,
@@ -61,6 +67,7 @@ import {
   adminLoadNotificationSeenMap,
   adminLoadStats,
   adminResetMsdSubmissions,
+  adminSaveBotDailyCeilings,
   adminSaveBotOverrides,
   adminSaveCandidateTodayOverrides,
   adminSaveLatestVideo,
@@ -74,6 +81,7 @@ import {
   DEFAULT_LATEST_VIDEO,
   DEFAULT_MSD_EVENT_CONFIG,
   deriveYouTubeThumbnail,
+  fetchBotDailyCeilings,
   fetchBotOverrides,
   fetchCandidateTodayOverrides,
   fetchDynamicQuestions,
@@ -82,11 +90,14 @@ import {
   fetchMsdLeaderboard,
   fetchNotifications,
   HELP_CHAT_UUID,
+  loadBotDailyCeilings,
   loadBotOverrides,
   loadCandidateTodayOverrides,
+  mergeBotDailyCeilingMaps,
   MSD_EVENT_DURATION_MS,
   MSD_QUESTION_TARGET,
   resolveMsdEventPhase,
+  saveBotDailyCeilings,
   saveBotOverrides,
   saveCandidateTodayOverrides,
   subscribeChatRealtime,
@@ -121,6 +132,7 @@ interface AdminViewProps {
   onBack: () => void;
   onQuestionsChanged: () => void;
   onBotsChanged: (overrides: Record<string, BotOverride>) => void;
+  onBotDailyCeilingsChanged?: (ceilings: Record<string, number>) => void;
   onCandidateTodayChanged?: (overrides: Record<string, CandidateTodayOverride>) => void;
   onLatestVideoChanged: (video: LatestVideoConfig) => void;
   onNotificationsChanged: (list: AppNotification[]) => void;
@@ -175,6 +187,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onBack,
   onQuestionsChanged,
   onBotsChanged,
+  onBotDailyCeilingsChanged,
   onCandidateTodayChanged,
   onLatestVideoChanged,
   onNotificationsChanged,
@@ -236,8 +249,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
-  // Bot overrides state + live 30s schedule tick
+  // Bot overrides + daily ceilings state + live 30s schedule tick
   const [botOverrides, setBotOverrides] = useState<Record<string, BotOverride>>(() => loadBotOverrides());
+  const [botDailyCeilings, setBotDailyCeilings] = useState<Record<string, number>>(() =>
+    loadBotDailyCeilings()
+  );
   const [candidateTodayOverrides, setCandidateTodayOverrides] = useState<
     Record<string, CandidateTodayOverride>
   >(() => loadCandidateTodayOverrides());
@@ -320,6 +336,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const loadAllAdminData = async () => {
     const localBots = loadBotOverrides();
     const localCandToday = loadCandidateTodayOverrides();
+    const localCeilings = loadBotDailyCeilings();
     const [
       st,
       dqs,
@@ -329,6 +346,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       vid,
       cloudBots,
       cloudCandToday,
+      cloudCeilings,
       installMap,
       notifs,
       seenMap,
@@ -344,6 +362,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       fetchLatestVideo(),
       fetchBotOverrides(),
       fetchCandidateTodayOverrides(),
+      fetchBotDailyCeilings(),
       adminLoadInstallStatusMap(),
       fetchNotifications(),
       adminLoadNotificationSeenMap(),
@@ -353,6 +372,42 @@ export const AdminView: React.FC<AdminViewProps> = ({
     ]);
     const mergedBots = { ...cloudBots, ...localBots };
     const mergedCandToday = { ...cloudCandToday, ...localCandToday };
+
+    // Reconstruct every historical IST day's bot competition ceiling from attempts + live today scores
+    // so XP earned by bots in Today mode permanently rolls into Overall XP after 12:00 AM IST.
+    const mergedCeilings = mergeBotDailyCeilingMaps(localCeilings, cloudCeilings);
+    const reconstructedCeilings = reconstructBotDailyCeilingsFromAttempts(atts, mergedCeilings);
+    const todayKey = getIstClock().dateKey;
+    const liveTodayByCand = new Map<string, number>();
+    for (const a of atts) {
+      const ms = Date.parse(a.created_at);
+      if (!Number.isFinite(ms) || getIstClock(ms).dateKey !== todayKey) continue;
+      const k = a.guest_uuid || a.candidate_name || "";
+      if (k) liveTodayByCand.set(k, (liveTodayByCand.get(k) || 0) + (Number(a.xp_earned) || 0));
+    }
+    const todayRealScores = cands
+      .filter((c) => !c.hidden)
+      .map((c) => {
+        const fromAtt = liveTodayByCand.get(c.guest_uuid) ?? liveTodayByCand.get(c.display_name) ?? 0;
+        const ov = mergedCandToday[c.guest_uuid];
+        const delta = ov && ov.dateKey === todayKey ? ov.delta : 0;
+        return Math.max(0, fromAtt + delta);
+      });
+    const liveTodayCeil = getCompetitionCeiling(todayRealScores);
+    if (liveTodayCeil > (reconstructedCeilings[todayKey] || 0)) {
+      reconstructedCeilings[todayKey] = liveTodayCeil;
+    }
+
+    const ceilingsChanged = Object.entries(reconstructedCeilings).some(
+      ([k, v]) => v > (cloudCeilings[k] || 0)
+    );
+    saveBotDailyCeilings(reconstructedCeilings);
+    setBotDailyCeilings(reconstructedCeilings);
+    onBotDailyCeilingsChanged?.(reconstructedCeilings);
+    if (ceilingsChanged) {
+      adminSaveBotDailyCeilings(reconstructedCeilings);
+    }
+
     setStats(st);
     setDynamicQuestions(dqs);
     setCandidates(cands);
@@ -533,10 +588,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
   };
 
   const handleSyncAllBotsToCloud = async () => {
-    const res = await adminSaveBotOverrides(botOverrides);
+    const [res] = await Promise.all([
+      adminSaveBotOverrides(botOverrides),
+      adminSaveBotDailyCeilings(botDailyCeilings),
+    ]);
     if (res.ok) {
       setNeedsBotTable(false);
       onBotsChanged(botOverrides);
+      onBotDailyCeilingsChanged?.(botDailyCeilings);
       setFeedback({ text: "Synced all bot XP & name updates to all candidates!", ok: true });
     } else if (res.needsTableSetup) {
       setNeedsBotTable(true);
@@ -1298,8 +1357,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const botSchedule = useMemo(() => {
     const realTodayScores = candidates.filter((c) => !c.hidden).map((c) => getCandidateTodayIstXp(c));
-    return resolveBotRoster(botOverrides, realTodayScores, botClockTick);
-  }, [botClockTick, botOverrides, candidates, istTodayXpMap]);
+    return resolveBotRoster(botOverrides, realTodayScores, botClockTick, botDailyCeilings);
+  }, [botClockTick, botDailyCeilings, botOverrides, candidateTodayOverrides, candidates, istTodayXpMap]);
+
+  useEffect(() => {
+    const key = botSchedule.clock.dateKey;
+    const ceil = botSchedule.competitionCeiling;
+    if (ceil > (botDailyCeilings[key] || 0)) {
+      const next = { ...botDailyCeilings, [key]: ceil };
+      setBotDailyCeilings(next);
+      saveBotDailyCeilings(next);
+      onBotDailyCeilingsChanged?.(next);
+    }
+  }, [botDailyCeilings, botSchedule.clock.dateKey, botSchedule.competitionCeiling, onBotDailyCeilingsChanged]);
 
   const filteredBots = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();

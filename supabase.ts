@@ -874,6 +874,91 @@ export async function adminSaveBotOverrides(map: Record<string, BotOverride>): P
   }
 }
 
+const BOT_DAILY_CEILINGS_KEY = "amaysst_bot_daily_ceilings_v1";
+
+export function loadBotDailyCeilings(): Record<string, number> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(BOT_DAILY_CEILINGS_KEY) || "{}");
+    if (!raw || typeof raw !== "object") return {};
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) out[k] = Math.round(n);
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function saveBotDailyCeilings(map: Record<string, number>): void {
+  try {
+    localStorage.setItem(BOT_DAILY_CEILINGS_KEY, JSON.stringify(map));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function mergeBotDailyCeilingMaps(
+  a: Record<string, number>,
+  b: Record<string, number>
+): Record<string, number> {
+  const out: Record<string, number> = { ...a };
+  for (const [k, v] of Object.entries(b)) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > (out[k] || 0)) {
+      out[k] = Math.round(n);
+    }
+  }
+  return out;
+}
+
+export async function fetchBotDailyCeilings(): Promise<Record<string, number>> {
+  const local = loadBotDailyCeilings();
+  try {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "bot_daily_ceilings")
+      .maybeSingle();
+
+    if (error || !data?.value || typeof data.value !== "object") {
+      return local;
+    }
+
+    const cloudMap: Record<string, number> = {};
+    for (const [k, v] of Object.entries(data.value as Record<string, unknown>)) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n > 0) cloudMap[k] = Math.round(n);
+    }
+    const merged = mergeBotDailyCeilingMaps(local, cloudMap);
+    saveBotDailyCeilings(merged);
+    return merged;
+  } catch {
+    return local;
+  }
+}
+
+export async function adminSaveBotDailyCeilings(
+  map: Record<string, number>
+): Promise<{ ok: boolean }> {
+  const merged = mergeBotDailyCeilingMaps(loadBotDailyCeilings(), map);
+  saveBotDailyCeilings(merged);
+  try {
+    const { error } = await supabase.from("app_settings").upsert(
+      {
+        key: "bot_daily_ceilings",
+        value: merged,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "key" }
+    );
+    return { ok: !error };
+  } catch {
+    return { ok: false };
+  }
+}
+
 // ============================================================
 // Candidate Today XP Overrides (IST day-scoped admin additions)
 // ============================================================

@@ -84,27 +84,51 @@ function snap5(val: number, minVal = 0): number {
   return Math.max(minVal, Math.round(val / 5) * 5);
 }
 
-// Deterministic full-day gain for any completed past date so Overall XP stays permanent & stable
-function computePastDayGain(dateKey: string, originalName: string, tierScore: number): number {
-  const rng = createRng(`past::${dateKey}::${originalName}`);
+// Deterministic daily target for any IST date so past days add the EXACT XP bots earned that day
+function computeBotDailyTarget(
+  dateKey: string,
+  originalName: string,
+  rankIdx: number,
+  totalBots: number,
+  competitionCeiling: number
+): number {
+  const rng = createRng(`today::${dateKey}::${originalName}`);
+  const tierScore = 1 - rankIdx / Math.max(1, totalBots - 1);
   const luck = rng();
-  const isToughGrinder = tierScore >= 0.88 || luck > 0.9;
-  const strength = isToughGrinder
-    ? 0.72 + rng() * 0.28
-    : Math.min(0.9, Math.max(0, tierScore * 0.62 + luck * 0.38));
-  const raw = 500 + 2100 * Math.pow(strength, 1.45);
-  return snap5(raw, 500);
+
+  // Keep a strong group of ~20 tough competitors near top real scores while others span 500..ceiling
+  const isToughCompetitor = rankIdx < 14 || luck > 0.9;
+  const strength = isToughCompetitor
+    ? 0.78 + rng() * 0.22
+    : Math.min(0.92, Math.max(0, tierScore * 0.55 + luck * 0.45));
+
+  const effectiveCeiling = Math.max(1600, competitionCeiling || 1600);
+  return snap5(
+    500 + (effectiveCeiling - 500) * Math.pow(strength, 1.35),
+    500
+  );
 }
 
-let cachedPastKey = "";
+let cachedPastSignature = "";
 let cachedPastMap: Map<string, number> = new Map();
 
-function getPastAccumulatedMap(todayKey: string): Map<string, number> {
-  if (cachedPastKey === todayKey) {
+function getPastAccumulatedMap(
+  todayKey: string,
+  botDailyCeilings: Record<string, number>
+): Map<string, number> {
+  const totalPastDays = daysBetween(BOT_SIM_START_DATE_IST, todayKey);
+  const pastDayCeilings: Array<{ dayKey: string; ceiling: number }> = [];
+  for (let d = 0; d < totalPastDays; d++) {
+    const dayKey = addDaysToDateKey(BOT_SIM_START_DATE_IST, d);
+    const ceiling = Math.max(1600, Number(botDailyCeilings[dayKey]) || 1600);
+    pastDayCeilings.push({ dayKey, ceiling });
+  }
+
+  const signature = `${todayKey}::${pastDayCeilings.map((p) => `${p.dayKey}=${p.ceiling}`).join(",")}`;
+  if (cachedPastSignature === signature) {
     return cachedPastMap;
   }
 
-  const totalPastDays = daysBetween(BOT_SIM_START_DATE_IST, todayKey);
   const map = new Map<string, number>();
   const totalBots = BENCHMARK_PLAYERS.length;
 
@@ -112,17 +136,15 @@ function getPastAccumulatedMap(todayKey: string): Map<string, number> {
     map.set(BENCHMARK_PLAYERS[i].name, 0);
   }
 
-  for (let d = 0; d < totalPastDays; d++) {
-    const dayKey = addDaysToDateKey(BOT_SIM_START_DATE_IST, d);
+  for (const { dayKey, ceiling } of pastDayCeilings) {
     for (let i = 0; i < totalBots; i++) {
       const name = BENCHMARK_PLAYERS[i].name;
-      const tierScore = 1 - i / Math.max(1, totalBots - 1);
-      const gain = computePastDayGain(dayKey, name, tierScore);
+      const gain = computeBotDailyTarget(dayKey, name, i, totalBots, ceiling);
       map.set(name, (map.get(name) || 0) + gain);
     }
   }
 
-  cachedPastKey = todayKey;
+  cachedPastSignature = signature;
   cachedPastMap = map;
   return map;
 }
@@ -135,19 +157,12 @@ function computeTodayTargetAndEarned(
   totalBots: number,
   competitionCeiling: number
 ): { dailyTarget: number; earnedToday: number } {
-  const rng = createRng(`today::${todayKey}::${originalName}`);
-  const tierScore = 1 - rankIdx / Math.max(1, totalBots - 1);
-  const luck = rng();
-
-  // Keep a strong group of ~20 tough competitors near top real scores while others span 500..ceiling
-  const isToughCompetitor = rankIdx < 14 || luck > 0.9;
-  const strength = isToughCompetitor
-    ? 0.78 + rng() * 0.22
-    : Math.min(0.92, Math.max(0, tierScore * 0.55 + luck * 0.45));
-
-  const dailyTarget = snap5(
-    500 + (competitionCeiling - 500) * Math.pow(strength, 1.35),
-    500
+  const dailyTarget = computeBotDailyTarget(
+    todayKey,
+    originalName,
+    rankIdx,
+    totalBots,
+    competitionCeiling
   );
 
   // 12:00 AM - 1:59 AM IST: freshly reset to 0
@@ -160,7 +175,8 @@ function computeTodayTargetAndEarned(
     return { dailyTarget, earnedToday: dailyTarget };
   }
 
-  // 2:00 AM - 10:59 PM IST: random staggered quiz sessions at different times per bot
+  // Advance RNG once so session timing uses a distinct slice after dailyTarget's initial luck draw
+  const rng = createRng(`sessions::${todayKey}::${originalName}`);
   const sessionCount = 8 + Math.floor(rng() * 9); // 8 to 16 quiz bursts across the day
   const span = BOT_ACTIVE_END_MINUTE - BOT_ACTIVE_START_MINUTE;
   const sessions: Array<{ minute: number; weight: number }> = [];
@@ -196,10 +212,46 @@ export function getCompetitionCeiling(realTodayScores: number[]): number {
   return Math.max(1600, snap5(maxReal * 1.08, 1600));
 }
 
+export function reconstructBotDailyCeilingsFromAttempts(
+  attempts: Array<{
+    guest_uuid?: string;
+    candidate_name?: string;
+    xp_earned?: number;
+    created_at: string;
+  }>,
+  existingCeilings: Record<string, number> = {}
+): Record<string, number> {
+  const perDayPlayer = new Map<string, Map<string, number>>();
+  for (const a of attempts) {
+    const ms = Date.parse(a.created_at);
+    if (!Number.isFinite(ms)) continue;
+    const dayKey = getIstClock(ms).dateKey;
+    const playerKey = a.guest_uuid || a.candidate_name || "";
+    if (!playerKey) continue;
+    let dayMap = perDayPlayer.get(dayKey);
+    if (!dayMap) {
+      dayMap = new Map<string, number>();
+      perDayPlayer.set(dayKey, dayMap);
+    }
+    dayMap.set(playerKey, (dayMap.get(playerKey) || 0) + (Number(a.xp_earned) || 0));
+  }
+
+  const out: Record<string, number> = { ...existingCeilings };
+  for (const [dayKey, dayMap] of perDayPlayer.entries()) {
+    const scores = Array.from(dayMap.values()).map((v) => Math.max(0, v));
+    const ceil = getCompetitionCeiling(scores);
+    if (ceil > (out[dayKey] || 0)) {
+      out[dayKey] = ceil;
+    }
+  }
+  return out;
+}
+
 export function resolveBotRoster(
   botOverrides: Record<string, BotOverride>,
   realTodayScores: number[],
-  nowMs = Date.now()
+  nowMs = Date.now(),
+  botDailyCeilings: Record<string, number> = {}
 ): {
   clock: IstClockInfo;
   maxRealTodayXp: number;
@@ -208,8 +260,9 @@ export function resolveBotRoster(
 } {
   const clock = getIstClock(nowMs);
   const maxRealTodayXp = realTodayScores.reduce((mx, v) => Math.max(mx, Number(v) || 0), 0);
-  const competitionCeiling = getCompetitionCeiling(realTodayScores);
-  const pastMap = getPastAccumulatedMap(clock.dateKey);
+  const liveCeiling = getCompetitionCeiling(realTodayScores);
+  const competitionCeiling = Math.max(liveCeiling, Number(botDailyCeilings[clock.dateKey]) || 0);
+  const pastMap = getPastAccumulatedMap(clock.dateKey, botDailyCeilings);
   const totalBots = BENCHMARK_PLAYERS.length;
 
   const bots: ResolvedBotPlayer[] = BENCHMARK_PLAYERS.map((b, idx) => {
