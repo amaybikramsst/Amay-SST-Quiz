@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, ChevronRight, Clock, Crown, Play, Share2, Trophy } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Clock, Crown, Play, Share2 } from "lucide-react";
 import { SOCIAL_LINKS } from "../data/benchmarks";
 import type { BadgeDesignSpec } from "../lib/badgeCanvas";
 import {
@@ -23,9 +23,8 @@ interface HomeViewProps {
   latestVideo: LatestVideoConfig;
   msdEventConfig?: MsdEventConfig;
   msdAttempt?: MsdSubmissionRow | null;
-  msdRank?: number;
   msdQuestionCount?: number;
-  onOpenMsd?: (tab?: "overview" | "board") => void;
+  onOpenMsd?: () => void;
   onStartNormalQuiz: () => void;
   onOpenSubjects: () => void;
   onOpenRank?: () => void;
@@ -39,7 +38,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
   latestVideo,
   msdEventConfig,
   msdAttempt = null,
-  msdRank,
   msdQuestionCount = 0,
   onOpenMsd,
   onStartNormalQuiz,
@@ -232,7 +230,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 MS Dhoni Retirement Special
               </h2>
               <p className="text-xs font-bold text-[#422006] dark:text-[#FDE047]/90">
-                20 Questions · 1 Attempt Only · Separate Rank Board &amp; Badge
+                20 Questions · 1 Attempt Only · Special #7 Photo Badge
               </p>
             </div>
           </div>
@@ -246,47 +244,30 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     {msdAttempt.score}/{msdAttempt.total}
                   </strong>
                 </span>
-                {msdRank ? (
-                  <span className="font-mono-nums px-2.5 py-0.5 rounded-full bg-[#0B1B4D] text-[#FACC15] dark:bg-[#FACC15] dark:text-[#0B1B4D]">
-                    Rank #{msdRank}
-                  </span>
-                ) : (
-                  <span className="text-[11px] opacity-85">Completed (1/1)</span>
-                )}
+                <span className="text-[11px] opacity-85">Completed (1/1)</span>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                {onOpenBadge && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onOpenBadge({
-                        kind: "msd",
-                        score: msdAttempt.score,
-                        total: msdAttempt.total,
-                        rank: msdRank,
-                        dateLabel: new Date(msdAttempt.created_at).toLocaleDateString("en-IN", {
-                          day: "numeric",
-                          month: "short",
-                          year: "numeric",
-                        }),
-                      })
-                    }
-                    className="h-11 px-3 rounded-2xl amay-msd-btn text-[#FACC15] dark:text-[#0B1B4D] font-extrabold text-xs sm:text-sm inline-flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Share2 className="w-3.5 h-3.5" />
-                    <span>Share #7 Badge</span>
-                  </button>
-                )}
+              {onOpenBadge && (
                 <button
                   type="button"
-                  onClick={() => onOpenMsd("board")}
-                  className="h-11 px-3 rounded-2xl bg-white/80 dark:bg-white/10 border border-[#0B1B4D]/20 dark:border-[#FACC15]/40 text-[#0B1B4D] dark:text-[#FEF08A] font-extrabold text-xs sm:text-sm inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                  onClick={() =>
+                    onOpenBadge({
+                      kind: "msd",
+                      score: msdAttempt.score,
+                      total: msdAttempt.total,
+                      dateLabel: new Date(msdAttempt.created_at).toLocaleDateString("en-IN", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      }),
+                    })
+                  }
+                  className="w-full h-11 px-4 rounded-2xl amay-msd-btn text-[#FACC15] dark:text-[#0B1B4D] font-extrabold text-xs sm:text-sm inline-flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  <Trophy className="w-3.5 h-3.5" />
-                  <span>Dhoni Rank Board</span>
+                  <Share2 className="w-4 h-4" />
+                  <span>Share #7 Badge</span>
                 </button>
-              </div>
+              )}
             </div>
           ) : msdPhaseInfo.phase === "coming_soon" ? (
             <div className="rounded-2xl bg-[#0B1B4D]/10 dark:bg-black/30 px-3.5 py-2.5 flex items-center justify-between gap-2">
@@ -298,35 +279,25 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </span>
             </div>
           ) : msdPhaseInfo.phase === "ended" ? (
+            <div className="rounded-2xl bg-[#0B1B4D]/10 dark:bg-black/30 px-3.5 py-2.5 flex items-center justify-between gap-2">
+              <span className="text-xs font-extrabold text-[#0B1B4D] dark:text-[#FEF08A]">
+                24-Hour Special Ended · Event closed
+              </span>
+              <span className="px-2.5 py-1 rounded-full bg-[#0B1B4D] text-[#FACC15] dark:bg-[#FACC15] dark:text-[#0B1B4D] text-[11px] font-extrabold shrink-0">
+                #7 Tribute
+              </span>
+            </div>
+          ) : (
             <button
               type="button"
-              onClick={() => onOpenMsd("board")}
-              className="w-full h-11 rounded-2xl amay-msd-btn text-[#FACC15] dark:text-[#0B1B4D] font-extrabold text-sm flex items-center justify-center gap-2 cursor-pointer"
+              onClick={() => onOpenMsd()}
+              className="w-full h-12 rounded-2xl amay-msd-btn text-[#FACC15] dark:text-[#0B1B4D] font-extrabold text-sm flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] transition-transform"
             >
-              <Trophy className="w-4 h-4" />
-              <span>View Final MS Dhoni Rank Board</span>
+              <Play className="w-4 h-4 fill-current" />
+              <span>
+                Play 20Q Special{msdQuestionCount > 0 && msdQuestionCount < 20 ? ` (${msdQuestionCount}Q)` : ""}
+              </span>
             </button>
-          ) : (
-            <div className="grid grid-cols-12 gap-2">
-              <button
-                type="button"
-                onClick={() => onOpenMsd("overview")}
-                className="col-span-8 h-12 rounded-2xl amay-msd-btn text-[#FACC15] dark:text-[#0B1B4D] font-extrabold text-sm flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] transition-transform"
-              >
-                <Play className="w-4 h-4 fill-current" />
-                <span>
-                  Play 20Q Special{msdQuestionCount > 0 && msdQuestionCount < 20 ? ` (${msdQuestionCount}Q)` : ""}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onOpenMsd("board")}
-                className="col-span-4 h-12 rounded-2xl bg-white/80 dark:bg-white/10 border border-[#0B1B4D]/20 dark:border-[#FACC15]/40 text-[#0B1B4D] dark:text-[#FEF08A] font-extrabold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Trophy className="w-3.5 h-3.5" />
-                <span>Ranks</span>
-              </button>
-            </div>
           )}
         </section>
       )}

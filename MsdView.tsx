@@ -1,16 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
-  Award,
   CheckCircle2,
   Clock,
   Crown,
   Lock,
   Play,
-  RefreshCw,
   Share2,
   ShieldCheck,
-  Trophy,
   XCircle,
 } from "lucide-react";
 import type { BadgeDesignSpec } from "../lib/badgeCanvas";
@@ -39,11 +36,8 @@ interface MsdViewProps {
   eventConfig: MsdEventConfig;
   msdQuestions: DynamicQuestionRow[];
   myAttempt: MsdSubmissionRow | null;
-  leaderboard: MsdSubmissionRow[];
-  initialTab?: "overview" | "board";
   onAttemptSubmitted: (row: MsdSubmissionRow) => void;
   onOpenMsdBadge: (spec: Extract<BadgeDesignSpec, { kind: "msd" }>) => void;
-  onRefreshLeaderboard: () => void;
   onPlayingChange?: (playing: boolean) => void;
   onBackHome: () => void;
 }
@@ -63,15 +57,11 @@ export const MsdView: React.FC<MsdViewProps> = ({
   eventConfig,
   msdQuestions,
   myAttempt,
-  leaderboard,
-  initialTab = "overview",
   onAttemptSubmitted,
   onOpenMsdBadge,
-  onRefreshLeaderboard,
   onPlayingChange,
   onBackHome,
 }) => {
-  const [subTab, setSubTab] = useState<"overview" | "board">(initialTab);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   // Quiz session state (strictly single-attempt)
@@ -89,10 +79,6 @@ export const MsdView: React.FC<MsdViewProps> = ({
   const submittedOnceRef = useRef(false);
 
   useEffect(() => {
-    setSubTab(initialTab);
-  }, [initialTab]);
-
-  useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
@@ -108,30 +94,6 @@ export const MsdView: React.FC<MsdViewProps> = ({
     () => resolveMsdEventPhase(eventConfig, nowMs),
     [eventConfig, nowMs]
   );
-
-  const sortedBoard = useMemo(() => {
-    const map = new Map<string, MsdSubmissionRow>();
-    for (const row of leaderboard) {
-      map.set(row.guest_uuid, row);
-    }
-    if (myAttempt) {
-      map.set(myAttempt.guest_uuid, {
-        ...myAttempt,
-        candidate_name: profileName || myAttempt.candidate_name,
-      });
-    }
-    return Array.from(map.values()).sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (a.time_taken_sec !== b.time_taken_sec) return a.time_taken_sec - b.time_taken_sec;
-      return Date.parse(a.created_at) - Date.parse(b.created_at);
-    });
-  }, [leaderboard, myAttempt, profileName]);
-
-  const myBoardRank = useMemo(() => {
-    if (!myAttempt) return undefined;
-    const idx = sortedBoard.findIndex((r) => r.guest_uuid === myAttempt.guest_uuid);
-    return idx >= 0 ? idx + 1 : undefined;
-  }, [myAttempt, sortedBoard]);
 
   const finalizeAndSubmit = async (
     qs: PreparedMsdQuestion[],
@@ -170,7 +132,6 @@ export const MsdView: React.FC<MsdViewProps> = ({
     if (res.error) {
       setSubmitError(res.error);
     }
-    setSubTab("overview");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -351,13 +312,12 @@ export const MsdView: React.FC<MsdViewProps> = ({
     );
   }
 
-  // OVERVIEW / COMPLETED RESULT / SEPARATE RANK BOARD
+  // OVERVIEW / COMPLETED RESULT
   const badgeSpec: Extract<BadgeDesignSpec, { kind: "msd" }> | null = myAttempt
     ? {
         kind: "msd",
         score: myAttempt.score,
         total: myAttempt.total,
-        rank: myBoardRank,
         dateLabel: new Date(myAttempt.created_at).toLocaleDateString("en-IN", {
           day: "numeric",
           month: "short",
@@ -377,34 +337,6 @@ export const MsdView: React.FC<MsdViewProps> = ({
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Back</span>
         </button>
-
-        <div className="inline-flex p-0.5 rounded-full bg-[#FACC15]/25 dark:bg-white/10 text-xs font-extrabold border border-[#CA8A04]/25">
-          <button
-            type="button"
-            onClick={() => setSubTab("overview")}
-            className={`px-3.5 py-1.5 rounded-full transition-colors cursor-pointer ${
-              subTab === "overview"
-                ? "bg-[#0B1B4D] text-[#FACC15] dark:bg-[#FACC15] dark:text-[#0B1B4D]"
-                : "text-[#78350F] dark:text-[#FDE047]"
-            }`}
-          >
-            #7 Tribute
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setSubTab("board");
-              onRefreshLeaderboard();
-            }}
-            className={`px-3.5 py-1.5 rounded-full transition-colors cursor-pointer ${
-              subTab === "board"
-                ? "bg-[#0B1B4D] text-[#FACC15] dark:bg-[#FACC15] dark:text-[#0B1B4D]"
-                : "text-[#78350F] dark:text-[#FDE047]"
-            }`}
-          >
-            Dhoni Ranks ({sortedBoard.length})
-          </button>
-        </div>
       </div>
 
       {/* CSK Hero Banner */}
@@ -432,7 +364,7 @@ export const MsdView: React.FC<MsdViewProps> = ({
               MS Dhoni #7 Tribute
             </h1>
             <p className="text-xs font-bold text-[#422006] dark:text-[#FDE047]/90">
-              20 Questions · 1 Attempt Per Candidate · Separate Trophy Board
+              20 Questions · 1 Attempt Per Candidate · 7-Minute Timer
             </p>
           </div>
         </div>
@@ -444,8 +376,7 @@ export const MsdView: React.FC<MsdViewProps> = ({
         </div>
       )}
 
-      {subTab === "overview" ? (
-        <div className="space-y-4">
+      <div className="space-y-4">
           {myAttempt && badgeSpec ? (
             <>
               {/* Completed / Locked Card */}
@@ -455,11 +386,6 @@ export const MsdView: React.FC<MsdViewProps> = ({
                     <ShieldCheck className="w-4 h-4 shrink-0" />
                     <span>Attempt Recorded (1/1 Used · Locked)</span>
                   </div>
-                  {myBoardRank && (
-                    <span className="px-2.5 py-1 rounded-full bg-[#FACC15] text-[#0B1B4D] text-xs font-extrabold font-mono-nums">
-                      Dhoni Rank #{myBoardRank}
-                    </span>
-                  )}
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 text-center">
@@ -490,30 +416,17 @@ export const MsdView: React.FC<MsdViewProps> = ({
                 </div>
 
                 <p className="text-xs font-semibold text-[#5A6A92] dark:text-[#93A3CC]">
-                  Your MS Dhoni #7 score stays on the separate CSK Yellow Tribute Board and is not added to normal Daily or Overall XP.
+                  Your MS Dhoni #7 score stays saved to your tribute badge and is not added to normal Daily or Overall XP.
                 </p>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => onOpenMsdBadge(badgeSpec)}
-                    className="h-12 px-4 rounded-2xl bg-[#FACC15] hover:bg-[#EAB308] text-[#0B1B4D] font-extrabold text-sm inline-flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-                  >
-                    <Share2 className="w-4 h-4" />
-                    <span>Share #7 Badge</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSubTab("board");
-                      onRefreshLeaderboard();
-                    }}
-                    className="h-12 px-4 rounded-2xl amay-msd-btn text-[#FACC15] dark:text-[#0B1B4D] font-extrabold text-sm inline-flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Trophy className="w-4 h-4" />
-                    <span>Dhoni Rank Board</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => onOpenMsdBadge(badgeSpec)}
+                  className="w-full h-12 px-4 rounded-2xl amay-msd-btn text-[#FACC15] dark:text-[#0B1B4D] font-extrabold text-sm inline-flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>Share #7 Badge</span>
+                </button>
               </div>
 
               {reviewQs && (
@@ -570,23 +483,20 @@ export const MsdView: React.FC<MsdViewProps> = ({
           ) : eventStatus.phase === "ended" ? (
             <div className="amay-card rounded-[28px] p-6 text-center space-y-3 border-2 border-[#FACC15]/60">
               <div className="w-12 h-12 rounded-2xl bg-[#FACC15]/25 text-[#B45309] dark:text-[#FACC15] grid place-items-center mx-auto">
-                <Trophy className="w-6 h-6" />
+                <Clock className="w-6 h-6" />
               </div>
               <h2 className="text-xl font-extrabold text-[#0B1B4D] dark:text-white">
                 24-Hour Special Ended
               </h2>
               <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC]">
-                The competition window has closed. Open the Dhoni Rank Board to see the final champions.
+                The 24-hour competition window has closed. Thank you for celebrating Captain Cool!
               </p>
               <button
                 type="button"
-                onClick={() => {
-                  setSubTab("board");
-                  onRefreshLeaderboard();
-                }}
+                onClick={onBackHome}
                 className="h-11 px-6 rounded-2xl amay-msd-btn text-[#FACC15] dark:text-[#0B1B4D] font-extrabold text-sm cursor-pointer"
               >
-                View Final Standings
+                Back to Dashboard
               </button>
             </div>
           ) : (
@@ -610,7 +520,7 @@ export const MsdView: React.FC<MsdViewProps> = ({
                 <li className="flex items-start gap-2">
                   <span className="font-extrabold text-[#CA8A04] dark:text-[#FACC15]">3.</span>
                   <span>
-                    <strong>Separate Rank Board:</strong> Scores do not affect your normal Daily or Overall XP.
+                    <strong>Separate Score:</strong> Your MS Dhoni score is kept separate and does not affect your normal Daily or Overall XP.
                   </span>
                 </li>
                 <li className="flex items-start gap-2">
@@ -638,79 +548,7 @@ export const MsdView: React.FC<MsdViewProps> = ({
               )}
             </div>
           )}
-        </div>
-      ) : (
-        /* SEPARATE MS DHONI RANK BOARD */
-        <div className="amay-card rounded-[28px] p-4 sm:p-5 space-y-3 border-2 border-[#FACC15]/60 dark:border-[#FACC15]/40">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-white flex items-center gap-2">
-                <Award className="w-5 h-5 text-[#CA8A04] dark:text-[#FACC15]" />
-                <span>MS Dhoni Trophy Board</span>
-              </h2>
-              <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
-                Ranked by Score / {eventConfig.questionCount || 20} · Fastest time breaks ties
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onRefreshLeaderboard}
-              className="w-9 h-9 rounded-xl amay-card flex items-center justify-center text-[#0B1B4D] dark:text-[#FACC15] cursor-pointer"
-              aria-label="Refresh leaderboard"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-          </div>
-
-          {sortedBoard.length === 0 ? (
-            <div className="py-10 text-center space-y-2">
-              <p className="text-sm font-bold text-[#0B1B4D] dark:text-white">
-                No submissions yet
-              </p>
-              <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
-                Be the first on the MS Dhoni Trophy Board!
-              </p>
-            </div>
-          ) : (
-            <div className="divide-y divide-[#CA8A04]/15 dark:divide-white/10">
-              {sortedBoard.map((row, idx) => {
-                const rank = idx + 1;
-                const isMe = row.guest_uuid === guestId;
-                const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `#${rank}`;
-                return (
-                  <div
-                    key={row.guest_uuid}
-                    className={`py-3 px-2.5 rounded-xl flex items-center justify-between gap-2 ${
-                      isMe ? "bg-[#FACC15]/25 dark:bg-[#FACC15]/15 font-extrabold" : ""
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <span className="w-9 text-center font-mono-nums text-sm font-extrabold text-[#0B1B4D] dark:text-[#FACC15] shrink-0">
-                        {medal}
-                      </span>
-                      <div className="min-w-0">
-                        <strong className="block text-sm text-[#0B1B4D] dark:text-white truncate">
-                          {row.candidate_name}
-                          {isMe ? " (You)" : ""}
-                        </strong>
-                        <span className="block text-[11px] font-mono-nums text-[#5A6A92] dark:text-[#93A3CC]">
-                          {formatDurationSec(row.time_taken_sec)}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="text-right shrink-0">
-                      <strong className="font-mono-nums text-base font-extrabold text-[#B45309] dark:text-[#FACC15]">
-                        {row.score} / {row.total}
-                      </strong>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
+      </div>
     </div>
   );
 };

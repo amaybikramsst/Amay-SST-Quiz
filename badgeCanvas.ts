@@ -3,7 +3,7 @@ import { getHighestOverallMilestone, type OverallBadgeMilestone } from "./quizEn
 export type BadgeDesignSpec =
   | { kind: "overall"; milestone: OverallBadgeMilestone }
   | { kind: "daily"; rank: 1 | 2 | 3; dateLabel?: string; xpToday?: number }
-  | { kind: "msd"; score: number; total: number; rank?: number; dateLabel?: string };
+  | { kind: "msd"; score: number; total: number; dateLabel?: string };
 
 function roundRect(
   ctx: CanvasRenderingContext2D,
@@ -436,13 +436,7 @@ async function generateMsdBadgePng(
   c.font = font(800, 68);
   c.fillText(`${score} / ${total}`, cx, cardY + 122);
 
-  const subMeta = [
-    `${pct}% Accuracy`,
-    spec.rank ? `Dhoni Board #${spec.rank}` : null,
-    dateLabel,
-  ]
-    .filter(Boolean)
-    .join("  ·  ");
+  const subMeta = `${pct}% Accuracy  ·  ${dateLabel}`;
 
   c.fillStyle = "#DCE6F7";
   c.font = font(600, 22);

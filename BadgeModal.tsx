@@ -51,9 +51,7 @@ export const BadgeModal: React.FC<BadgeModalProps> = ({
           {
             key: `msd-${resolvedMsd.score}-${resolvedMsd.total}`,
             label: `MS Dhoni #7 (${resolvedMsd.score}/${resolvedMsd.total})`,
-            shareText: `I scored ${resolvedMsd.score}/${resolvedMsd.total}${
-              resolvedMsd.rank ? ` (Rank #${resolvedMsd.rank})` : ""
-            } in the MS Dhoni 24-Hour Special Tribute Quiz on AmaySST Quiz!`,
+            shareText: `I scored ${resolvedMsd.score}/${resolvedMsd.total} in the MS Dhoni 24-Hour Special Tribute Quiz on AmaySST Quiz!`,
             spec: resolvedMsd,
           },
         ]

@@ -54,7 +54,6 @@ import {
   fetchDynamicQuestions,
   fetchLatestVideo,
   fetchMsdEventConfig,
-  fetchMsdLeaderboard,
   fetchMyMsdAttempt,
   fetchNotifications,
   getChatDirectory,
@@ -123,9 +122,7 @@ export default function App() {
     mergeDynamicQuestions([])
   );
   const [msdEventConfig, setMsdEventConfig] = useState<MsdEventConfig>(() => loadLocalMsdEventConfig());
-  const [msdLeaderboard, setMsdLeaderboard] = useState<MsdSubmissionRow[]>([]);
   const [myMsdAttempt, setMyMsdAttempt] = useState<MsdSubmissionRow | null>(null);
-  const [msdInitialTab, setMsdInitialTab] = useState<"overview" | "board">("overview");
   const [msdPlaying, setMsdPlaying] = useState(false);
 
   const [livePlayers, setLivePlayers] = useState<LiveLeaderRow[]>([]);
@@ -424,13 +421,11 @@ export default function App() {
   const refreshMsdData = useCallback(
     async (targetGuest?: string) => {
       const gId = targetGuest ?? effectiveGuestId;
-      const [cfg, lbRes, mine] = await Promise.all([
+      const [cfg, mine] = await Promise.all([
         fetchMsdEventConfig(),
-        fetchMsdLeaderboard(gId),
         fetchMyMsdAttempt(gId),
       ]);
       setMsdEventConfig(cfg);
-      setMsdLeaderboard(lbRes.rows);
       setMyMsdAttempt(mine);
     },
     [effectiveGuestId]
@@ -1178,37 +1173,19 @@ export default function App() {
     [recordTap]
   );
 
-  const { resolvedMsdBoard, myMsdRank, myMsdBadgeSpec } = useMemo(() => {
-    const map = new Map<string, MsdSubmissionRow>();
-    for (const row of msdLeaderboard) {
-      map.set(row.guest_uuid, row);
-    }
-    if (myMsdAttempt) {
-      map.set(myMsdAttempt.guest_uuid, myMsdAttempt);
-    }
-    const sorted = Array.from(map.values()).sort(
-      (a, b) =>
-        b.score - a.score ||
-        a.time_taken_sec - b.time_taken_sec ||
-        Date.parse(a.created_at) - Date.parse(b.created_at)
-    );
-    const rankIdx = sorted.findIndex((r) => r.guest_uuid === effectiveGuestId);
-    const rank = rankIdx >= 0 ? rankIdx + 1 : undefined;
-    const badgeSpec: Extract<BadgeDesignSpec, { kind: "msd" }> | null = myMsdAttempt
-      ? {
-          kind: "msd",
-          score: myMsdAttempt.score,
-          total: myMsdAttempt.total,
-          rank,
-          dateLabel: new Date(myMsdAttempt.created_at).toLocaleDateString("en-IN", {
-            day: "numeric",
-            month: "short",
-            year: "numeric",
-          }),
-        }
-      : null;
-    return { resolvedMsdBoard: sorted, myMsdRank: rank, myMsdBadgeSpec: badgeSpec };
-  }, [effectiveGuestId, msdLeaderboard, myMsdAttempt]);
+  const myMsdBadgeSpec = useMemo<Extract<BadgeDesignSpec, { kind: "msd" }> | null>(() => {
+    if (!myMsdAttempt) return null;
+    return {
+      kind: "msd",
+      score: myMsdAttempt.score,
+      total: myMsdAttempt.total,
+      dateLabel: new Date(myMsdAttempt.created_at).toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      }),
+    };
+  }, [myMsdAttempt]);
 
   const mustCompleteGate = view !== "admin" && !impersonated && !hasCompleteAccount;
   const effectiveView: AppRoute = mustCompleteGate ? "gate" : view;
@@ -1306,11 +1283,9 @@ export default function App() {
               latestVideo={latestVideo}
               msdEventConfig={msdEventConfig}
               msdAttempt={myMsdAttempt}
-              msdRank={myMsdRank}
               msdQuestionCount={msdQuestions.length}
-              onOpenMsd={(tab = "overview") => {
-                recordTap("MS Dhoni Special", `Opened ${tab}`, "home");
-                setMsdInitialTab(tab);
+              onOpenMsd={() => {
+                recordTap("MS Dhoni Special", "Opened #7 tribute", "home");
                 setMsdPlaying(false);
                 setQuiz(null);
                 setView("msd");
@@ -1330,19 +1305,10 @@ export default function App() {
               eventConfig={msdEventConfig}
               msdQuestions={msdQuestions}
               myAttempt={myMsdAttempt}
-              leaderboard={resolvedMsdBoard}
-              initialTab={msdInitialTab}
               onAttemptSubmitted={(row) => {
                 setMyMsdAttempt(row);
-                setMsdLeaderboard((prev) =>
-                  prev.some((r) => r.guest_uuid === row.guest_uuid)
-                    ? prev.map((r) => (r.guest_uuid === row.guest_uuid ? row : r))
-                    : [...prev, row]
-                );
-                fetchMsdLeaderboard(effectiveGuestId).then((res) => setMsdLeaderboard(res.rows));
               }}
               onOpenMsdBadge={(spec) => openBadgeModal(spec, "msd")}
-              onRefreshLeaderboard={() => refreshMsdData(effectiveGuestId)}
               onPlayingChange={(playing) => setMsdPlaying(playing)}
               onBackHome={() => {
                 setMsdPlaying(false);
