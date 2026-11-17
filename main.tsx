@@ -9,7 +9,11 @@ registerSW({
     if (!registration) return;
     const checkForUpdate = () => {
       registration.update().catch(() => {});
+      if (navigator.onLine) {
+        fetch('./manifest.webmanifest', { cache: 'reload' }).catch(() => {});
+      }
     };
+    checkForUpdate();
     window.addEventListener('focus', checkForUpdate);
     window.addEventListener('online', checkForUpdate);
     document.addEventListener('visibilitychange', () => {
