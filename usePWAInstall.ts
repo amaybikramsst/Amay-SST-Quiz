@@ -10,7 +10,6 @@ interface NavigatorWithRelatedApps extends Navigator {
 }
 
 const INSTALLED_STORAGE_KEY = "amaysst_pwa_installed";
-const REPORTED_INSTALL_KEY = "amaysst_reported_install";
 
 function checkStandalone(): boolean {
   if (typeof window === "undefined") return false;
@@ -23,10 +22,7 @@ function checkStandalone(): boolean {
 
 function hasSavedInstallFlag(): boolean {
   try {
-    return (
-      localStorage.getItem(INSTALLED_STORAGE_KEY) === "1" ||
-      localStorage.getItem(REPORTED_INSTALL_KEY) === "1"
-    );
+    return localStorage.getItem(INSTALLED_STORAGE_KEY) === "1";
   } catch {
     return false;
   }
@@ -35,6 +31,14 @@ function hasSavedInstallFlag(): boolean {
 function markInstalledInStorage(): void {
   try {
     localStorage.setItem(INSTALLED_STORAGE_KEY, "1");
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function clearInstalledInStorage(): void {
+  try {
+    localStorage.removeItem(INSTALLED_STORAGE_KEY);
   } catch {
     // ignore storage errors
   }
@@ -49,19 +53,25 @@ export function usePWAInstall() {
   const [isIOS, setIsIOS] = useState(false);
 
   useEffect(() => {
-    if (checkStandalone() || hasSavedInstallFlag()) {
+    if (checkStandalone()) {
       setIsInstalled(true);
-      if (checkStandalone()) {
-        markInstalledInStorage();
-      }
+      markInstalledInStorage();
+    } else if (hasSavedInstallFlag()) {
+      setIsInstalled(true);
     }
 
     const ua = window.navigator.userAgent.toLowerCase();
     setIsIOS(/iphone|ipad|ipod/.test(ua));
 
-    // On Android Chrome, detect if the PWA is already installed even if localStorage was cleared
-    const nav = window.navigator as NavigatorWithRelatedApps;
-    if (typeof nav.getInstalledRelatedApps === "function") {
+    // Check Android Chrome's actual installed WebAPK list so uninstalling restores the Install button
+    const syncRelatedApps = () => {
+      if (checkStandalone()) {
+        setIsInstalled(true);
+        markInstalledInStorage();
+        return;
+      }
+      const nav = window.navigator as NavigatorWithRelatedApps;
+      if (typeof nav.getInstalledRelatedApps !== "function") return;
       nav
         .getInstalledRelatedApps()
         .then((apps) => {
@@ -69,21 +79,33 @@ export function usePWAInstall() {
             setIsInstalled(true);
             setDeferredPrompt(null);
             markInstalledInStorage();
+          } else if (
+            Array.isArray(apps) &&
+            apps.length === 0 &&
+            /android/i.test(window.navigator.userAgent) &&
+            window.location.hostname.endsWith("github.io")
+          ) {
+            clearInstalledInStorage();
+            setIsInstalled(false);
           }
         })
         .catch(() => {
           // ignore browser API errors
         });
-    }
+    };
+
+    syncRelatedApps();
 
     const onBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
-      // Never clear existing install state — prevents Install button re-emerging & creating a duplicate 2nd app
-      if (checkStandalone() || hasSavedInstallFlag()) {
+      if (checkStandalone()) {
         setIsInstalled(true);
         setDeferredPrompt(null);
         return;
       }
+      // Browser only fires beforeinstallprompt when the PWA is NOT currently installed
+      clearInstalledInStorage();
+      setIsInstalled(false);
       setDeferredPrompt(e as BeforeInstallPromptEvent);
     };
 
@@ -100,13 +122,23 @@ export function usePWAInstall() {
       }
     };
 
+    const onVisibilityOrFocus = () => {
+      if (document.visibilityState === "visible") {
+        syncRelatedApps();
+      }
+    };
+
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
     window.addEventListener("appinstalled", onAppInstalled);
+    window.addEventListener("focus", syncRelatedApps);
+    document.addEventListener("visibilitychange", onVisibilityOrFocus);
     mediaQuery.addEventListener?.("change", onDisplayModeChange);
 
     return () => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
       window.removeEventListener("appinstalled", onAppInstalled);
+      window.removeEventListener("focus", syncRelatedApps);
+      document.removeEventListener("visibilitychange", onVisibilityOrFocus);
       mediaQuery.removeEventListener?.("change", onDisplayModeChange);
     };
   }, []);
