@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Download, Share2, X } from "lucide-react";
+import { Download, MessageCircle, Share2, X } from "lucide-react";
 import { generateBadgePng, type BadgeDesignSpec } from "../lib/badgeCanvas";
 import {
   getHighestOverallMilestone,
@@ -11,6 +11,7 @@ interface BadgeModalProps {
   xp: number;
   name: string;
   earnedDailyBadges?: DailyBadgeRecord[];
+  msdSpec?: Extract<BadgeDesignSpec, { kind: "msd" }> | null;
   initialSpec?: BadgeDesignSpec | null;
   onClose: () => void;
 }
@@ -37,10 +38,27 @@ export const BadgeModal: React.FC<BadgeModalProps> = ({
   xp,
   name,
   earnedDailyBadges = [],
+  msdSpec = null,
   initialSpec = null,
   onClose,
 }) => {
   const choices = useMemo<BadgeChoice[]>(() => {
+    const resolvedMsd =
+      initialSpec?.kind === "msd" ? initialSpec : msdSpec;
+
+    const msdChoices: BadgeChoice[] = resolvedMsd
+      ? [
+          {
+            key: `msd-${resolvedMsd.score}-${resolvedMsd.total}`,
+            label: `MS Dhoni #7 (${resolvedMsd.score}/${resolvedMsd.total})`,
+            shareText: `I scored ${resolvedMsd.score}/${resolvedMsd.total}${
+              resolvedMsd.rank ? ` (Rank #${resolvedMsd.rank})` : ""
+            } in the MS Dhoni 24-Hour Special Tribute Quiz on AmaySST Quiz!`,
+            spec: resolvedMsd,
+          },
+        ]
+      : [];
+
     const overallUnlocked = getUnlockedOverallMilestones(xp);
     const overallChoices: BadgeChoice[] = overallUnlocked.map((milestone) => ({
       key: `overall-${milestone}`,
@@ -65,7 +83,7 @@ export const BadgeModal: React.FC<BadgeModalProps> = ({
       };
     });
 
-    const combined = [...dailyChoices, ...overallChoices];
+    const combined = [...msdChoices, ...dailyChoices, ...overallChoices];
     if (combined.length === 0) {
       const fallbackMilestone = getHighestOverallMilestone(xp) ?? 100;
       return [
@@ -78,9 +96,13 @@ export const BadgeModal: React.FC<BadgeModalProps> = ({
       ];
     }
     return combined;
-  }, [earnedDailyBadges, xp]);
+  }, [earnedDailyBadges, initialSpec, msdSpec, xp]);
 
   const initialKey = useMemo(() => {
+    if (initialSpec?.kind === "msd") {
+      const match = choices.find((c) => c.spec.kind === "msd");
+      if (match) return match.key;
+    }
     if (initialSpec?.kind === "overall") {
       const match = choices.find(
         (c) => c.spec.kind === "overall" && c.spec.milestone === initialSpec.milestone
@@ -171,7 +193,7 @@ export const BadgeModal: React.FC<BadgeModalProps> = ({
         if ((err as Error)?.name === "AbortError") return;
       }
     }
-    setStatus("Direct sharing isn't supported in this browser. Save the image and post it manually.");
+    setStatus("Tap Save PNG below, then upload the image to Instagram Story or WhatsApp Status!");
   };
 
   const handleDownload = () => {
@@ -182,6 +204,27 @@ export const BadgeModal: React.FC<BadgeModalProps> = ({
     document.body.appendChild(a);
     a.click();
     a.remove();
+  };
+
+  const handleWhatsAppShare = async () => {
+    if (!blob) return;
+    const file = new File([blob], `amaysst-${activeChoice.key}.png`, { type: "image/png" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: "AmaySST Quiz",
+          text: activeChoice.shareText,
+        });
+        return;
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") return;
+      }
+    }
+    handleDownload();
+    const shareUrl = `${window.location.origin}${window.location.pathname}`;
+    const waText = encodeURIComponent(`${activeChoice.shareText}\nPlay on AmaySST Quiz: ${shareUrl}`);
+    window.location.href = `https://wa.me/?text=${waText}`;
   };
 
   return (
@@ -243,24 +286,38 @@ export const BadgeModal: React.FC<BadgeModalProps> = ({
           />
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div className="space-y-2">
           {url && (
             <>
-              <button
-                type="button"
-                onClick={handleShare}
-                className="h-11 px-4 rounded-xl bg-[#1457E0] hover:bg-[#0F46BA] text-white font-bold text-sm inline-flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Share2 className="w-4 h-4" />
-                <span>Share</span>
-              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleShare}
+                  className={`h-11 px-4 rounded-xl font-bold text-sm inline-flex items-center justify-center gap-2 cursor-pointer ${
+                    activeChoice.spec.kind === "msd"
+                      ? "bg-[#FACC15] hover:bg-[#EAB308] text-[#0B1B4D]"
+                      : "bg-[#1457E0] hover:bg-[#0F46BA] text-white"
+                  }`}
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>Share (Insta / Apps)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleWhatsAppShare}
+                  className="h-11 px-4 rounded-xl bg-[#16A34A] hover:bg-[#15803D] text-white font-bold text-sm inline-flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  <span>WhatsApp</span>
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={handleDownload}
-                className="h-11 px-4 rounded-xl border border-slate-200 dark:border-slate-700 text-[#0B1B4D] dark:text-white font-bold text-sm inline-flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-800/70 cursor-pointer"
+                className="w-full h-10 px-4 rounded-xl border border-slate-200 dark:border-slate-700 text-[#0B1B4D] dark:text-white font-bold text-xs inline-flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-800/70 cursor-pointer"
               >
                 <Download className="w-4 h-4" />
-                <span>Save PNG</span>
+                <span>Save PNG for Instagram Story / Status</span>
               </button>
             </>
           )}

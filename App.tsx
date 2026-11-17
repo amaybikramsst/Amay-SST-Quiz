@@ -7,6 +7,7 @@ import { GateView } from "./components/GateView";
 import { Header, type AppRoute } from "./components/Header";
 import { HomeView } from "./components/HomeView";
 import { LaunchSplash } from "./components/LaunchSplash";
+import { MsdView } from "./components/MsdView";
 import { NotificationInboxModal, NotificationPopupModal } from "./components/NotificationModal";
 import { ProfileView } from "./components/ProfileView";
 import { PWAInstallModal } from "./components/PWAInstallModal";
@@ -52,6 +53,9 @@ import {
   fetchCandidateTodayOverrides,
   fetchDynamicQuestions,
   fetchLatestVideo,
+  fetchMsdEventConfig,
+  fetchMsdLeaderboard,
+  fetchMyMsdAttempt,
   fetchNotifications,
   getChatDirectory,
   getLeaderboard,
@@ -62,6 +66,7 @@ import {
   loadBotOverrides,
   loadCandidateTodayOverrides,
   loadLocalLatestVideo,
+  loadLocalMsdEventConfig,
   loadLocalNotifications,
   logCandidateTap,
   loginWithCredentials,
@@ -77,8 +82,11 @@ import {
   type CandidateTodayOverride,
   type ChatDirectoryUser,
   type CloudStats,
+  type DynamicQuestionRow,
   type LatestVideoConfig,
   type LiveLeaderRow,
+  type MsdEventConfig,
+  type MsdSubmissionRow,
 } from "./lib/supabase";
 
 function isSecretAdminUrl(): boolean {
@@ -106,9 +114,20 @@ export default function App() {
   });
   const [showLaunchSplash, setShowLaunchSplash] = useState<boolean>(() => !isSecretAdminUrl());
 
+  const [allDynamicRows, setAllDynamicRows] = useState<DynamicQuestionRow[]>([]);
+  const msdQuestions = useMemo(
+    () => allDynamicRows.filter((r) => r.subject === "msd"),
+    [allDynamicRows]
+  );
   const [mergedBank, setMergedBank] = useState<Record<SubjectKey, RawQuestion[]>>(() =>
     mergeDynamicQuestions([])
   );
+  const [msdEventConfig, setMsdEventConfig] = useState<MsdEventConfig>(() => loadLocalMsdEventConfig());
+  const [msdLeaderboard, setMsdLeaderboard] = useState<MsdSubmissionRow[]>([]);
+  const [myMsdAttempt, setMyMsdAttempt] = useState<MsdSubmissionRow | null>(null);
+  const [msdInitialTab, setMsdInitialTab] = useState<"overview" | "board">("overview");
+  const [msdPlaying, setMsdPlaying] = useState(false);
+
   const [livePlayers, setLivePlayers] = useState<LiveLeaderRow[]>([]);
   const [liveLeaderboardIstSynced, setLiveLeaderboardIstSynced] = useState(false);
   const [botOverrides, setBotOverrides] = useState<Record<string, BotOverride>>(() => loadBotOverrides());
@@ -171,13 +190,14 @@ export default function App() {
       showInstallModal ||
       showBadgeModal ||
       view === "quiz" ||
+      (view === "msd" && msdPlaying) ||
       view === "gate" ||
       view === "admin"
     ) {
       return null;
     }
     return myNotifications.find((n) => !seenNotifIds.includes(n.id)) || null;
-  }, [hasCompleteAccount, impersonated, myNotifications, seenNotifIds, showBadgeModal, showInstallModal, showLaunchSplash, showNotifInbox, view]);
+  }, [hasCompleteAccount, impersonated, msdPlaying, myNotifications, seenNotifIds, showBadgeModal, showInstallModal, showLaunchSplash, showNotifInbox, view]);
 
   const markNotifsSeen = useCallback(
     (ids: string[]) => {
@@ -266,7 +286,16 @@ export default function App() {
 
   // Show install popup within the first 30 seconds to anyone who hasn't installed the app yet
   useEffect(() => {
-    if (isInstalled || view === "admin" || view === "quiz" || view === "gate" || (!impersonated && !hasCompleteAccount)) return;
+    if (
+      isInstalled ||
+      view === "admin" ||
+      view === "quiz" ||
+      (view === "msd" && msdPlaying) ||
+      view === "gate" ||
+      (!impersonated && !hasCompleteAccount)
+    ) {
+      return;
+    }
     try {
       if (sessionStorage.getItem("amaysst_install_prompted") === "1") return;
     } catch {
@@ -283,7 +312,7 @@ export default function App() {
     }, 6000);
 
     return () => window.clearTimeout(timer);
-  }, [hasCompleteAccount, impersonated, isInstalled, view]);
+  }, [hasCompleteAccount, impersonated, isInstalled, msdPlaying, view]);
 
   const handleInstallClick = useCallback(async () => {
     recordTap("Install App", "Tapped Install App button", view);
@@ -388,8 +417,24 @@ export default function App() {
 
   const refreshDynamicQuestions = useCallback(async () => {
     const rows = await fetchDynamicQuestions();
+    setAllDynamicRows(rows);
     setMergedBank(mergeDynamicQuestions(rows));
   }, []);
+
+  const refreshMsdData = useCallback(
+    async (targetGuest?: string) => {
+      const gId = targetGuest ?? effectiveGuestId;
+      const [cfg, lbRes, mine] = await Promise.all([
+        fetchMsdEventConfig(),
+        fetchMsdLeaderboard(gId),
+        fetchMyMsdAttempt(gId),
+      ]);
+      setMsdEventConfig(cfg);
+      setMsdLeaderboard(lbRes.rows);
+      setMyMsdAttempt(mine);
+    },
+    [effectiveGuestId]
+  );
 
   const refreshLeaderboard = useCallback(
     async (force = false, guestOverride?: string) => {
@@ -455,6 +500,7 @@ export default function App() {
     fetchLatestVideo().then((v) => setLatestVideo(v));
     fetchBotOverrides().then((ov) => setBotOverrides(ov));
     fetchNotifications().then((list) => setAllNotifications(list));
+    refreshMsdData(guestId);
 
     const initCloud = async () => {
       let current = loadProfile();
@@ -503,6 +549,7 @@ export default function App() {
     const onFocusSync = () => {
       setBotClockTick(Date.now());
       refreshNotifs();
+      fetchMsdEventConfig().then((cfg) => setMsdEventConfig(cfg));
     };
 
     const onOnline = () => {
@@ -510,6 +557,7 @@ export default function App() {
       setBotClockTick(Date.now());
       flushQueue();
       refreshDynamicQuestions();
+      refreshMsdData(guestId);
       fetchLatestVideo().then((v) => setLatestVideo(v));
       fetchBotOverrides().then((ov) => setBotOverrides(ov));
       fetchCandidateTodayOverrides().then((ov) => setCandidateTodayOverrides(ov));
@@ -531,7 +579,7 @@ export default function App() {
       window.removeEventListener("focus", onFocusSync);
       if (retryTimerRef.current) window.clearTimeout(retryTimerRef.current);
     };
-  }, [applyCloudStats, flushQueue, guestId, refreshDynamicQuestions, refreshLeaderboard, syncIdentity]);
+  }, [applyCloudStats, flushQueue, guestId, refreshDynamicQuestions, refreshLeaderboard, refreshMsdData, syncIdentity]);
 
   // Real-time unread chat badge sync across all screens
   useEffect(() => {
@@ -681,6 +729,7 @@ export default function App() {
       return;
     }
     recordTap("Navigate", `Opened ${nextView}`, nextView);
+    setMsdPlaying(false);
     setQuiz(null);
     setView(nextView);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -720,6 +769,7 @@ export default function App() {
     logCandidateTap(assignedId, next.name, "Joined", `Registered @${next.username}`, "gate");
     setView("home");
     refreshLeaderboard(true, assignedId);
+    refreshMsdData(assignedId);
     getChatDirectory(assignedId).then((dirRes) => {
       if (dirRes.users.length > 0) setChatDirectory(dirRes.users);
     });
@@ -820,6 +870,7 @@ export default function App() {
     logCandidateTap(signedId, next.name, "Signed In", `Logged in as @${next.username}`, "gate");
     setView("home");
     refreshLeaderboard(true, signedId);
+    refreshMsdData(signedId);
     return null;
   };
 
@@ -845,6 +896,8 @@ export default function App() {
     setImpersonated(null);
     setPendingChatPeer(null);
     setQuiz(null);
+    setMyMsdAttempt(null);
+    setMsdPlaying(false);
     setUnreadChatCount(0);
     setGuestId(freshId);
     setProfile(loadProfile());
@@ -883,14 +936,16 @@ export default function App() {
       });
       setPendingChatPeer(null);
       setQuiz(null);
+      setMsdPlaying(false);
       setView("home");
       window.scrollTo({ top: 0, behavior: "smooth" });
       refreshLeaderboard(true, target.guestUuid);
+      refreshMsdData(target.guestUuid);
       getChatDirectory(target.guestUuid).then((dirRes) => {
         if (dirRes.users.length > 0) setChatDirectory(dirRes.users);
       });
     },
-    [profile.theme, refreshLeaderboard]
+    [profile.theme, refreshLeaderboard, refreshMsdData]
   );
 
   const handleUpdateName = (name: string) => {
@@ -1123,10 +1178,47 @@ export default function App() {
     [recordTap]
   );
 
+  const { resolvedMsdBoard, myMsdRank, myMsdBadgeSpec } = useMemo(() => {
+    const map = new Map<string, MsdSubmissionRow>();
+    for (const row of msdLeaderboard) {
+      map.set(row.guest_uuid, row);
+    }
+    if (myMsdAttempt) {
+      map.set(myMsdAttempt.guest_uuid, myMsdAttempt);
+    }
+    const sorted = Array.from(map.values()).sort(
+      (a, b) =>
+        b.score - a.score ||
+        a.time_taken_sec - b.time_taken_sec ||
+        Date.parse(a.created_at) - Date.parse(b.created_at)
+    );
+    const rankIdx = sorted.findIndex((r) => r.guest_uuid === effectiveGuestId);
+    const rank = rankIdx >= 0 ? rankIdx + 1 : undefined;
+    const badgeSpec: Extract<BadgeDesignSpec, { kind: "msd" }> | null = myMsdAttempt
+      ? {
+          kind: "msd",
+          score: myMsdAttempt.score,
+          total: myMsdAttempt.total,
+          rank,
+          dateLabel: new Date(myMsdAttempt.created_at).toLocaleDateString("en-IN", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          }),
+        }
+      : null;
+    return { resolvedMsdBoard: sorted, myMsdRank: rank, myMsdBadgeSpec: badgeSpec };
+  }, [effectiveGuestId, msdLeaderboard, myMsdAttempt]);
+
   const mustCompleteGate = view !== "admin" && !impersonated && !hasCompleteAccount;
   const effectiveView: AppRoute = mustCompleteGate ? "gate" : view;
-  const hideHeader = effectiveView === "quiz" || effectiveView === "admin";
-  const hideNav = effectiveView === "quiz" || effectiveView === "gate" || effectiveView === "admin";
+  const hideHeader =
+    effectiveView === "quiz" || effectiveView === "admin" || (effectiveView === "msd" && msdPlaying);
+  const hideNav =
+    effectiveView === "quiz" ||
+    effectiveView === "gate" ||
+    effectiveView === "admin" ||
+    (effectiveView === "msd" && msdPlaying);
 
   return (
     <div className="min-h-screen relative flex flex-col">
@@ -1148,8 +1240,10 @@ export default function App() {
                 setImpersonated(null);
                 setPendingChatPeer(null);
                 setQuiz(null);
+                setMsdPlaying(false);
                 setView("admin");
                 refreshLeaderboard(true, guestId);
+                refreshMsdData(guestId);
               }}
               className="shrink-0 px-3 py-1 rounded-lg bg-white text-[#0B1B4D] font-extrabold text-[11px] cursor-pointer"
             >
@@ -1210,10 +1304,50 @@ export default function App() {
               allTimeEntries={allTimeEntries}
               todayEntries={todayEntries}
               latestVideo={latestVideo}
+              msdEventConfig={msdEventConfig}
+              msdAttempt={myMsdAttempt}
+              msdRank={myMsdRank}
+              msdQuestionCount={msdQuestions.length}
+              onOpenMsd={(tab = "overview") => {
+                recordTap("MS Dhoni Special", `Opened ${tab}`, "home");
+                setMsdInitialTab(tab);
+                setMsdPlaying(false);
+                setQuiz(null);
+                setView("msd");
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
               onStartNormalQuiz={() => openSubjectConfig("mix")}
               onOpenSubjects={() => navigate("subs")}
               onOpenRank={() => navigate("rank")}
-              onOpenBadge={() => openBadgeModal(undefined, "home")}
+              onOpenBadge={(spec) => openBadgeModal(spec, "home")}
+            />
+          )}
+
+          {effectiveView === "msd" && (
+            <MsdView
+              profileName={effectiveProfile.name || "Player"}
+              guestId={effectiveGuestId}
+              eventConfig={msdEventConfig}
+              msdQuestions={msdQuestions}
+              myAttempt={myMsdAttempt}
+              leaderboard={resolvedMsdBoard}
+              initialTab={msdInitialTab}
+              onAttemptSubmitted={(row) => {
+                setMyMsdAttempt(row);
+                setMsdLeaderboard((prev) =>
+                  prev.some((r) => r.guest_uuid === row.guest_uuid)
+                    ? prev.map((r) => (r.guest_uuid === row.guest_uuid ? row : r))
+                    : [...prev, row]
+                );
+                fetchMsdLeaderboard(effectiveGuestId).then((res) => setMsdLeaderboard(res.rows));
+              }}
+              onOpenMsdBadge={(spec) => openBadgeModal(spec, "msd")}
+              onRefreshLeaderboard={() => refreshMsdData(effectiveGuestId)}
+              onPlayingChange={(playing) => setMsdPlaying(playing)}
+              onBackHome={() => {
+                setMsdPlaying(false);
+                navigate("home");
+              }}
             />
           )}
 
@@ -1330,6 +1464,7 @@ export default function App() {
               onCandidateTodayChanged={(ov) => setCandidateTodayOverrides(ov)}
               onLatestVideoChanged={(v) => setLatestVideo(v)}
               onNotificationsChanged={(list) => setAllNotifications(list)}
+              onMsdEventChanged={(cfg) => setMsdEventConfig(cfg)}
               onOpenCandidateId={handleOpenCandidateId}
             />
           )}
@@ -1345,6 +1480,7 @@ export default function App() {
           xp={effectiveProfile.xp}
           name={effectiveProfile.name}
           earnedDailyBadges={effectiveProfile.earnedDailyBadges}
+          msdSpec={myMsdBadgeSpec}
           initialSpec={selectedBadgeSpec}
           onClose={() => {
             setShowBadgeModal(false);

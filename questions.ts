@@ -1,4 +1,5 @@
 export type SubjectKey = "math" | "sci" | "sst" | "eng" | "hin" | "ca";
+export type AdminSubjectKey = SubjectKey | "msd";
 export type QuizKey = SubjectKey | "mix";
 
 // [question, [optA, optB, optC, optD], correctIndex, explanation, levelIndex(0..3)]

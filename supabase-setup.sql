@@ -605,12 +605,11 @@ as $$
 begin
   update public.chat_messages
   set
-    deleted_by_sender = case when sender_uuid = p_guest then true else deleted_by_sender end,
-    deleted_by_recipient = case when recipient_uuid = p_guest then true else deleted_by_recipient end,
-    deleted_for_everyone = case when sender_uuid = p_guest then true else deleted_for_everyone end,
+    deleted_by_sender = true,
+    deleted_for_everyone = true,
     deleted_at = coalesce(deleted_at, now())
   where id = p_message_id
-    and (sender_uuid = p_guest or recipient_uuid = p_guest);
+    and sender_uuid = p_guest;
   return found;
 end;
 $$;
@@ -642,3 +641,125 @@ end;
 $$;
 
 grant execute on function public.delete_chat_thread(text, text) to anon, authenticated;
+
+-- ============================================================
+-- 10. MS Dhoni Special 24-Hour Tribute Quiz (Separate Leaderboard, 1 Attempt Per Member)
+-- ============================================================
+create table if not exists public.msd_submissions (
+  guest_uuid text primary key,
+  candidate_name text not null,
+  score integer not null check (score >= 0 and score <= 20),
+  total integer not null check (total > 0 and total <= 20),
+  time_taken_sec integer not null default 0 check (time_taken_sec >= 0),
+  created_at timestamptz not null default now()
+);
+
+alter table public.msd_submissions enable row level security;
+
+drop policy if exists "Allow public read msd_submissions" on public.msd_submissions;
+create policy "Allow public read msd_submissions"
+  on public.msd_submissions
+  for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "Allow authenticated manage msd_submissions" on public.msd_submissions;
+create policy "Allow authenticated manage msd_submissions"
+  on public.msd_submissions
+  for all
+  to authenticated
+  using (true)
+  with check (true);
+
+create or replace function public.submit_msd_quiz(
+  p_guest text,
+  p_name text,
+  p_score integer,
+  p_total integer,
+  p_time_sec integer default 0
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_existing public.msd_submissions%rowtype;
+  v_inserted public.msd_submissions%rowtype;
+  v_clean_name text := btrim(coalesce(p_name, ''));
+begin
+  if btrim(coalesce(p_guest, '')) = '' or v_clean_name = '' then
+    return jsonb_build_object('ok', false, 'error', 'Missing candidate identity.');
+  end if;
+
+  if p_total <= 0 or p_total > 20 or p_score < 0 or p_score > p_total then
+    return jsonb_build_object('ok', false, 'error', 'Invalid score.');
+  end if;
+
+  select * into v_existing
+  from public.msd_submissions
+  where guest_uuid = p_guest
+  limit 1;
+
+  if found then
+    return jsonb_build_object(
+      'ok', false,
+      'already_attempted', true,
+      'row', to_jsonb(v_existing)
+    );
+  end if;
+
+  insert into public.msd_submissions (
+    guest_uuid,
+    candidate_name,
+    score,
+    total,
+    time_taken_sec
+  )
+  values (
+    p_guest,
+    v_clean_name,
+    p_score,
+    p_total,
+    greatest(0, coalesce(p_time_sec, 0))
+  )
+  returning * into v_inserted;
+
+  return jsonb_build_object(
+    'ok', true,
+    'already_attempted', false,
+    'row', to_jsonb(v_inserted)
+  );
+end;
+$$;
+
+grant execute on function public.submit_msd_quiz(text, text, integer, integer, integer) to anon, authenticated;
+
+create or replace function public.get_msd_leaderboard()
+returns table (
+  guest_uuid text,
+  candidate_name text,
+  score integer,
+  total integer,
+  time_taken_sec integer,
+  created_at timestamptz
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select
+    m.guest_uuid,
+    coalesce(nullif(btrim(c.display_name), ''), m.candidate_name) as candidate_name,
+    m.score,
+    m.total,
+    m.time_taken_sec,
+    m.created_at
+  from public.msd_submissions m
+  left join public.candidates c on c.guest_uuid = m.guest_uuid
+  order by m.score desc, m.time_taken_sec asc, m.created_at asc
+  limit 300;
+$$;
+
+grant execute on function public.get_msd_leaderboard() to anon, authenticated;
+

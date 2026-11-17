@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import type { SubjectKey } from "../data/questions";
+import type { AdminSubjectKey } from "../data/questions";
 
 const SB_URL = "https://mhlsezufxyypvgygqgiz.supabase.co";
 const SB_KEY = "sb_publishable_PwaUNHsURR2mGKxKBtagBw_MzNtJ0yd";
@@ -22,7 +22,7 @@ export interface LiveLeaderRow {
 
 export interface DynamicQuestionRow {
   id: string;
-  subject: SubjectKey;
+  subject: AdminSubjectKey;
   level: number;
   question_text: string;
   option_a: string;
@@ -309,7 +309,44 @@ export async function getLeaderboard(guestId: string): Promise<LeaderboardFetchR
   }
 }
 
-export async function fetchDynamicQuestions(): Promise<DynamicQuestionRow[]> {
+const LOCAL_MSD_QUESTIONS_KEY = "amaysst_msd_questions_v1";
+
+function loadLocalMsdFallbackQuestions(): DynamicQuestionRow[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LOCAL_MSD_QUESTIONS_KEY) || "[]");
+    return Array.isArray(parsed) ? (parsed as DynamicQuestionRow[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalMsdFallbackQuestions(rows: DynamicQuestionRow[]): void {
+  try {
+    localStorage.setItem(LOCAL_MSD_QUESTIONS_KEY, JSON.stringify(rows));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+async function fetchMsdFallbackQuestions(): Promise<DynamicQuestionRow[]> {
+  try {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "msd_questions")
+      .maybeSingle();
+    if (!error && Array.isArray(data?.value)) {
+      const list = data.value as DynamicQuestionRow[];
+      saveLocalMsdFallbackQuestions(list);
+      return list;
+    }
+  } catch {
+    // ignore errors
+  }
+  return loadLocalMsdFallbackQuestions();
+}
+
+async function fetchDynamicTableRows(): Promise<DynamicQuestionRow[]> {
   try {
     const { data, error } = await supabase
       .from("dynamic_questions")
@@ -320,6 +357,23 @@ export async function fetchDynamicQuestions(): Promise<DynamicQuestionRow[]> {
   } catch {
     return [];
   }
+}
+
+export async function fetchDynamicQuestions(): Promise<DynamicQuestionRow[]> {
+  const [tableRes, msdFallback] = await Promise.all([
+    fetchDynamicTableRows(),
+    fetchMsdFallbackQuestions(),
+  ]);
+
+  if (msdFallback.length === 0) return tableRes;
+  const seen = new Set(tableRes.map((r) => r.id));
+  const combined = [...tableRes];
+  for (const row of msdFallback) {
+    if (!seen.has(row.id)) {
+      combined.push(row);
+    }
+  }
+  return combined;
 }
 
 // Local + Supabase tap activity logging
@@ -407,11 +461,72 @@ export async function adminLoadStats() {
   };
 }
 
+async function saveMsdFallbackQuestionsList(rows: DynamicQuestionRow[]): Promise<{ error: { message: string } | null }> {
+  saveLocalMsdFallbackQuestions(rows);
+  try {
+    const { error } = await supabase.from("app_settings").upsert(
+      {
+        key: "msd_questions",
+        value: rows,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "key" }
+    );
+    return { error: error ? { message: error.message } : null };
+  } catch (err) {
+    return { error: { message: (err as Error)?.message || "Network error" } };
+  }
+}
+
 export async function adminInsertQuestion(payload: Omit<DynamicQuestionRow, "id" | "created_at">) {
-  return supabase.from("dynamic_questions").insert([payload]);
+  const res = await supabase.from("dynamic_questions").insert([payload]);
+  if (!res.error) return res;
+
+  // If DB has a CHECK constraint on dynamic_questions.subject, seamlessly store "msd" questions in app_settings
+  if (payload.subject === "msd" && /check constraint|violates check/i.test(res.error.message)) {
+    const current = await fetchMsdFallbackQuestions();
+    const row: DynamicQuestionRow = {
+      ...payload,
+      id: `msd_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      created_at: new Date().toISOString(),
+    };
+    const next = [row, ...current];
+    return saveMsdFallbackQuestionsList(next);
+  }
+  return res;
+}
+
+export async function adminBulkInsertQuestions(
+  rows: Array<Omit<DynamicQuestionRow, "id" | "created_at">>
+): Promise<{ error: { message: string } | null }> {
+  if (rows.length === 0) return { error: null };
+  const res = await supabase.from("dynamic_questions").insert(rows);
+  if (!res.error) return { error: null };
+
+  const msdRows = rows.filter((r) => r.subject === "msd");
+  const stdRows = rows.filter((r) => r.subject !== "msd");
+  if (msdRows.length > 0 && /check constraint|violates check/i.test(res.error.message)) {
+    if (stdRows.length > 0) {
+      const stdRes = await supabase.from("dynamic_questions").insert(stdRows);
+      if (stdRes.error) return { error: { message: stdRes.error.message } };
+    }
+    const current = await fetchMsdFallbackQuestions();
+    const stamped: DynamicQuestionRow[] = msdRows.map((r, idx) => ({
+      ...r,
+      id: `msd_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+      created_at: new Date().toISOString(),
+    }));
+    return saveMsdFallbackQuestionsList([...stamped, ...current]);
+  }
+  return { error: { message: res.error.message } };
 }
 
 export async function adminDeleteQuestion(id: string) {
+  if (id.startsWith("msd_")) {
+    const current = await fetchMsdFallbackQuestions();
+    const next = current.filter((r) => r.id !== id);
+    return saveMsdFallbackQuestionsList(next);
+  }
   return supabase.from("dynamic_questions").delete().eq("id", id);
 }
 
@@ -1322,6 +1437,351 @@ export async function adminSendMessageAs(
   }
 }
 
+// ============================================================
+// MS Dhoni Special 24-Hour Tribute Quiz & Separate Leaderboard
+// ============================================================
 
+export interface MsdEventConfig {
+  status: "coming_soon" | "live" | "ended";
+  liveStartedAt: string | null;
+  expiresAt: string | null;
+  questionCount: number;
+}
 
+export interface MsdSubmissionRow {
+  guest_uuid: string;
+  candidate_name: string;
+  score: number;
+  total: number;
+  time_taken_sec: number;
+  created_at: string;
+}
 
+export const MSD_EVENT_DURATION_MS = 24 * 60 * 60 * 1000;
+export const MSD_QUESTION_TARGET = 20;
+
+export const DEFAULT_MSD_EVENT_CONFIG: MsdEventConfig = {
+  status: "coming_soon",
+  liveStartedAt: null,
+  expiresAt: null,
+  questionCount: MSD_QUESTION_TARGET,
+};
+
+const LOCAL_MSD_CONFIG_KEY = "amaysst_msd_event_config_v1";
+const LOCAL_MSD_ATTEMPT_PREFIX = "amaysst_msd_attempt_v1_";
+
+export function loadLocalMsdEventConfig(): MsdEventConfig {
+  try {
+    const raw = localStorage.getItem(LOCAL_MSD_CONFIG_KEY);
+    if (!raw) return DEFAULT_MSD_EVENT_CONFIG;
+    const parsed = JSON.parse(raw) as Partial<MsdEventConfig>;
+    return {
+      status:
+        parsed.status === "live" || parsed.status === "ended" ? parsed.status : "coming_soon",
+      liveStartedAt: typeof parsed.liveStartedAt === "string" ? parsed.liveStartedAt : null,
+      expiresAt: typeof parsed.expiresAt === "string" ? parsed.expiresAt : null,
+      questionCount:
+        typeof parsed.questionCount === "number" && parsed.questionCount > 0
+          ? Math.min(20, parsed.questionCount)
+          : MSD_QUESTION_TARGET,
+    };
+  } catch {
+    return DEFAULT_MSD_EVENT_CONFIG;
+  }
+}
+
+export function saveLocalMsdEventConfig(config: MsdEventConfig): void {
+  try {
+    localStorage.setItem(LOCAL_MSD_CONFIG_KEY, JSON.stringify(config));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function resolveMsdEventPhase(
+  config: MsdEventConfig,
+  nowMs = Date.now()
+): { phase: "coming_soon" | "live" | "ended"; remainingMs: number; remainingLabel: string } {
+  if (config.status === "coming_soon") {
+    return { phase: "coming_soon", remainingMs: 0, remainingLabel: "Coming Soon" };
+  }
+  if (config.status === "ended") {
+    return { phase: "ended", remainingMs: 0, remainingLabel: "Ended" };
+  }
+  const expMs = config.expiresAt ? Date.parse(config.expiresAt) : 0;
+  if (!Number.isFinite(expMs) || expMs <= 0) {
+    return { phase: "live", remainingMs: MSD_EVENT_DURATION_MS, remainingLabel: "24h 00m 00s" };
+  }
+  const diff = expMs - nowMs;
+  if (diff <= 0) {
+    return { phase: "ended", remainingMs: 0, remainingLabel: "Ended" };
+  }
+  const totalSec = Math.floor(diff / 1000);
+  const hrs = Math.floor(totalSec / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+  return {
+    phase: "live",
+    remainingMs: diff,
+    remainingLabel: `${String(hrs).padStart(2, "0")}h ${String(mins).padStart(2, "0")}m ${String(secs).padStart(2, "0")}s`,
+  };
+}
+
+export async function fetchMsdEventConfig(): Promise<MsdEventConfig> {
+  try {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "msd_event_config")
+      .maybeSingle();
+
+    if (error || !data?.value) {
+      return loadLocalMsdEventConfig();
+    }
+    const val = data.value as Partial<MsdEventConfig>;
+    const resolved: MsdEventConfig = {
+      status: val.status === "live" || val.status === "ended" ? val.status : "coming_soon",
+      liveStartedAt: typeof val.liveStartedAt === "string" ? val.liveStartedAt : null,
+      expiresAt: typeof val.expiresAt === "string" ? val.expiresAt : null,
+      questionCount:
+        typeof val.questionCount === "number" && val.questionCount > 0
+          ? Math.min(20, val.questionCount)
+          : MSD_QUESTION_TARGET,
+    };
+    saveLocalMsdEventConfig(resolved);
+    return resolved;
+  } catch {
+    return loadLocalMsdEventConfig();
+  }
+}
+
+export async function adminSaveMsdEventConfig(config: MsdEventConfig): Promise<{
+  ok: boolean;
+  needsTableSetup: boolean;
+  errorMessage?: string;
+}> {
+  saveLocalMsdEventConfig(config);
+  try {
+    const { error } = await supabase.from("app_settings").upsert(
+      {
+        key: "msd_event_config",
+        value: config,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "key" }
+    );
+    if (error) {
+      const missing = /could not find the table|relation.*does not exist/i.test(error.message);
+      return { ok: false, needsTableSetup: missing, errorMessage: error.message };
+    }
+    return { ok: true, needsTableSetup: false };
+  } catch (err) {
+    return {
+      ok: false,
+      needsTableSetup: false,
+      errorMessage: (err as Error)?.message || "Network error",
+    };
+  }
+}
+
+export function loadLocalMsdAttempt(guestUuid: string): MsdSubmissionRow | null {
+  if (!guestUuid) return null;
+  try {
+    const raw = localStorage.getItem(`${LOCAL_MSD_ATTEMPT_PREFIX}${guestUuid}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<MsdSubmissionRow>;
+    if (typeof parsed.score !== "number" || typeof parsed.total !== "number") return null;
+    return {
+      guest_uuid: parsed.guest_uuid || guestUuid,
+      candidate_name: parsed.candidate_name || "Player",
+      score: parsed.score,
+      total: parsed.total,
+      time_taken_sec: Number(parsed.time_taken_sec) || 0,
+      created_at: parsed.created_at || new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function saveLocalMsdAttempt(guestUuid: string, row: MsdSubmissionRow): void {
+  if (!guestUuid) return;
+  try {
+    localStorage.setItem(`${LOCAL_MSD_ATTEMPT_PREFIX}${guestUuid}`, JSON.stringify(row));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export async function fetchMyMsdAttempt(guestUuid: string): Promise<MsdSubmissionRow | null> {
+  const local = loadLocalMsdAttempt(guestUuid);
+  if (!guestUuid) return null;
+  try {
+    const { data, error } = await supabase
+      .from("msd_submissions")
+      .select("*")
+      .eq("guest_uuid", guestUuid)
+      .maybeSingle();
+    if (!error && data) {
+      const row = data as MsdSubmissionRow;
+      saveLocalMsdAttempt(guestUuid, row);
+      return row;
+    }
+  } catch {
+    // fallback to local
+  }
+  return local;
+}
+
+export async function submitMsdAttempt(
+  guestUuid: string,
+  candidateName: string,
+  score: number,
+  total: number,
+  timeTakenSec: number
+): Promise<{
+  ok: boolean;
+  alreadyAttempted?: boolean;
+  row: MsdSubmissionRow;
+  needsSql?: boolean;
+  error?: string;
+}> {
+  const existingLocal = loadLocalMsdAttempt(guestUuid);
+  if (existingLocal) {
+    return { ok: false, alreadyAttempted: true, row: existingLocal };
+  }
+
+  const fallbackRow: MsdSubmissionRow = {
+    guest_uuid: guestUuid,
+    candidate_name: candidateName || "Player",
+    score,
+    total,
+    time_taken_sec: Math.max(0, Math.round(timeTakenSec)),
+    created_at: new Date().toISOString(),
+  };
+
+  try {
+    const { data, error } = await supabase.rpc("submit_msd_quiz", {
+      p_guest: guestUuid,
+      p_name: candidateName || "Player",
+      p_score: score,
+      p_total: total,
+      p_time_sec: Math.max(0, Math.round(timeTakenSec)),
+    });
+
+    if (error) {
+      const missing = /could not find the function|relation.*does not exist/i.test(error.message);
+      if (missing) {
+        saveLocalMsdAttempt(guestUuid, fallbackRow);
+        await logCandidateTap(
+          guestUuid,
+          candidateName,
+          "MSD Quiz Score",
+          `${score}/${total} (${fallbackRow.time_taken_sec}s)`,
+          "msd"
+        );
+        return { ok: true, row: fallbackRow, needsSql: true };
+      }
+      return { ok: false, row: fallbackRow, error: error.message };
+    }
+
+    const parsed = (data || {}) as {
+      ok?: boolean;
+      already_attempted?: boolean;
+      row?: MsdSubmissionRow;
+      error?: string;
+    };
+
+    const resolvedRow = parsed.row || fallbackRow;
+    saveLocalMsdAttempt(guestUuid, resolvedRow);
+
+    if (parsed.already_attempted) {
+      return { ok: false, alreadyAttempted: true, row: resolvedRow };
+    }
+    if (!parsed.ok) {
+      return { ok: false, row: resolvedRow, error: parsed.error || "Could not submit." };
+    }
+    return { ok: true, row: resolvedRow };
+  } catch {
+    saveLocalMsdAttempt(guestUuid, fallbackRow);
+    await logCandidateTap(
+      guestUuid,
+      candidateName,
+      "MSD Quiz Score",
+      `${score}/${total} (${fallbackRow.time_taken_sec}s)`,
+      "msd"
+    );
+    return { ok: true, row: fallbackRow, needsSql: false };
+  }
+}
+
+export async function fetchMsdLeaderboard(guestUuid?: string): Promise<{
+  rows: MsdSubmissionRow[];
+  needsSql: boolean;
+}> {
+  try {
+    const { data, error } = await supabase.rpc("get_msd_leaderboard");
+    if (!error && Array.isArray(data)) {
+      return { rows: data as MsdSubmissionRow[], needsSql: false };
+    }
+
+    if (error) {
+      const missing = /could not find the function|relation.*does not exist/i.test(error.message);
+      if (!missing) {
+        const direct = await supabase
+          .from("msd_submissions")
+          .select("*")
+          .order("score", { ascending: false })
+          .order("time_taken_sec", { ascending: true })
+          .order("created_at", { ascending: true })
+          .limit(300);
+        if (!direct.error && Array.isArray(direct.data)) {
+          return { rows: direct.data as MsdSubmissionRow[], needsSql: false };
+        }
+      }
+      const local = guestUuid ? loadLocalMsdAttempt(guestUuid) : null;
+      return { rows: local ? [local] : [], needsSql: missing };
+    }
+  } catch {
+    // fallback below
+  }
+
+  const local = guestUuid ? loadLocalMsdAttempt(guestUuid) : null;
+  return { rows: local ? [local] : [], needsSql: false };
+}
+
+export async function adminResetMsdSubmissions(): Promise<{
+  ok: boolean;
+  errorMessage?: string;
+}> {
+  try {
+    const { error } = await supabase
+      .from("msd_submissions")
+      .delete()
+      .neq("guest_uuid", "__never__");
+    if (error) {
+      return { ok: false, errorMessage: error.message };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, errorMessage: (err as Error)?.message || "Network error" };
+  }
+}
+
+export async function adminDeleteSingleMsdSubmission(guestUuid: string): Promise<{
+  ok: boolean;
+  errorMessage?: string;
+}> {
+  try {
+    const { error } = await supabase
+      .from("msd_submissions")
+      .delete()
+      .eq("guest_uuid", guestUuid);
+    if (error) {
+      return { ok: false, errorMessage: error.message };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, errorMessage: (err as Error)?.message || "Network error" };
+  }
+}

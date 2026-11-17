@@ -17,6 +17,7 @@ export default defineConfig(() => {
         registerType: 'autoUpdate',
         includeAssets: [
           'amay-avatar.jpg',
+          'msd-badge.jpg',
           'apple-touch-icon.png',
           'icon-192.png',
           'icon-512.png',

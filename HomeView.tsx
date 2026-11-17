@@ -1,12 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, ChevronRight, Crown, Play } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Clock, Crown, Play, Share2, Trophy } from "lucide-react";
 import { SOCIAL_LINKS } from "../data/benchmarks";
+import type { BadgeDesignSpec } from "../lib/badgeCanvas";
 import {
   computeRankSnapshot,
   todayIST,
   type StudentProfile,
 } from "../lib/quizEngine";
-import { deriveYouTubeThumbnail, type LatestVideoConfig } from "../lib/supabase";
+import {
+  deriveYouTubeThumbnail,
+  resolveMsdEventPhase,
+  type LatestVideoConfig,
+  type MsdEventConfig,
+  type MsdSubmissionRow,
+} from "../lib/supabase";
 import type { RankEntry } from "./RankView";
 
 interface HomeViewProps {
@@ -14,10 +21,15 @@ interface HomeViewProps {
   allTimeEntries: RankEntry[];
   todayEntries: RankEntry[];
   latestVideo: LatestVideoConfig;
+  msdEventConfig?: MsdEventConfig;
+  msdAttempt?: MsdSubmissionRow | null;
+  msdRank?: number;
+  msdQuestionCount?: number;
+  onOpenMsd?: (tab?: "overview" | "board") => void;
   onStartNormalQuiz: () => void;
   onOpenSubjects: () => void;
   onOpenRank?: () => void;
-  onOpenBadge?: () => void;
+  onOpenBadge?: (spec?: BadgeDesignSpec) => void;
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
@@ -25,12 +37,33 @@ export const HomeView: React.FC<HomeViewProps> = ({
   allTimeEntries,
   todayEntries,
   latestVideo,
+  msdEventConfig,
+  msdAttempt = null,
+  msdRank,
+  msdQuestionCount = 0,
+  onOpenMsd,
   onStartNormalQuiz,
   onOpenSubjects,
+  onOpenBadge,
 }) => {
   const [raceMode, setRaceMode] = useState<"td" | "all">("td");
   const [fillReady, setFillReady] = useState(false);
   const [failedThumbSrc, setFailedThumbSrc] = useState<string | null>(null);
+  const [msdNowMs, setMsdNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!msdEventConfig || msdEventConfig.status !== "live") return;
+    const id = window.setInterval(() => setMsdNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [msdEventConfig]);
+
+  const msdPhaseInfo = useMemo(
+    () =>
+      msdEventConfig
+        ? resolveMsdEventPhase(msdEventConfig, msdNowMs)
+        : { phase: "coming_soon" as const, remainingMs: 0, remainingLabel: "Coming Soon" },
+    [msdEventConfig, msdNowMs]
+  );
 
   const candidateThumb = latestVideo.thumbnailUrl || deriveYouTubeThumbnail(latestVideo.url);
   const resolvedThumb = failedThumbSrc !== candidateThumb ? candidateThumb : "";
@@ -162,6 +195,141 @@ export const HomeView: React.FC<HomeViewProps> = ({
           Let&apos;s test your knowledge today
         </p>
       </div>
+
+      {/* MS Dhoni 24-Hour Special Tribute Card (CSK Yellow Theme · Front of Dashboard) */}
+      {onOpenMsd && (
+        <section className="amay-msd-card rounded-[28px] p-4 sm:p-5 space-y-3 overflow-hidden text-[#0B1B4D] dark:text-[#FEF08A]">
+          <div className="flex items-center gap-3.5">
+            <div className="w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-2xl overflow-hidden border-[2.5px] border-[#0B1B4D] dark:border-[#FACC15] shadow-sm shrink-0 bg-[#071230]">
+              <img
+                src="./msd-badge.jpg"
+                alt="MS Dhoni #7 Special"
+                className="w-full h-full object-cover"
+              />
+            </div>
+
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#0B1B4D] text-[#FACC15] dark:bg-[#FACC15] dark:text-[#0B1B4D] text-[10px] font-extrabold uppercase tracking-wider">
+                  <Crown className="w-3 h-3" />
+                  <span>
+                    {msdPhaseInfo.phase === "coming_soon"
+                      ? "Coming Soon"
+                      : msdPhaseInfo.phase === "live"
+                        ? "24h Special · Live"
+                        : "24h Special Ended"}
+                  </span>
+                </span>
+                {msdPhaseInfo.phase === "live" && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-extrabold font-mono-nums text-[#78350F] dark:text-[#FDE047]">
+                    <Clock className="w-3 h-3" />
+                    <span>{msdPhaseInfo.remainingLabel}</span>
+                  </span>
+                )}
+              </div>
+
+              <h2 className="font-display text-[19px] sm:text-[21px] font-extrabold leading-tight tracking-tight text-[#0B1B4D] dark:text-white">
+                MS Dhoni Retirement Special
+              </h2>
+              <p className="text-xs font-bold text-[#422006] dark:text-[#FDE047]/90">
+                20 Questions · 1 Attempt Only · Separate Rank Board &amp; Badge
+              </p>
+            </div>
+          </div>
+
+          {msdAttempt ? (
+            <div className="space-y-2.5 pt-0.5">
+              <div className="rounded-2xl bg-[#0B1B4D]/10 dark:bg-black/30 px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs font-extrabold">
+                <span>
+                  Your Score:{" "}
+                  <strong className="font-mono-nums text-sm text-[#0B1B4D] dark:text-[#FACC15]">
+                    {msdAttempt.score}/{msdAttempt.total}
+                  </strong>
+                </span>
+                {msdRank ? (
+                  <span className="font-mono-nums px-2.5 py-0.5 rounded-full bg-[#0B1B4D] text-[#FACC15] dark:bg-[#FACC15] dark:text-[#0B1B4D]">
+                    Rank #{msdRank}
+                  </span>
+                ) : (
+                  <span className="text-[11px] opacity-85">Completed (1/1)</span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                {onOpenBadge && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenBadge({
+                        kind: "msd",
+                        score: msdAttempt.score,
+                        total: msdAttempt.total,
+                        rank: msdRank,
+                        dateLabel: new Date(msdAttempt.created_at).toLocaleDateString("en-IN", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        }),
+                      })
+                    }
+                    className="h-11 px-3 rounded-2xl amay-msd-btn text-[#FACC15] dark:text-[#0B1B4D] font-extrabold text-xs sm:text-sm inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    <span>Share #7 Badge</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onOpenMsd("board")}
+                  className="h-11 px-3 rounded-2xl bg-white/80 dark:bg-white/10 border border-[#0B1B4D]/20 dark:border-[#FACC15]/40 text-[#0B1B4D] dark:text-[#FEF08A] font-extrabold text-xs sm:text-sm inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Trophy className="w-3.5 h-3.5" />
+                  <span>Dhoni Rank Board</span>
+                </button>
+              </div>
+            </div>
+          ) : msdPhaseInfo.phase === "coming_soon" ? (
+            <div className="rounded-2xl bg-[#0B1B4D]/10 dark:bg-black/30 px-3.5 py-2.5 flex items-center justify-between gap-2">
+              <span className="text-xs font-extrabold text-[#0B1B4D] dark:text-[#FEF08A]">
+                Coming Soon · Opening for 24 hours only
+              </span>
+              <span className="px-2.5 py-1 rounded-full bg-[#0B1B4D] text-[#FACC15] dark:bg-[#FACC15] dark:text-[#0B1B4D] text-[11px] font-extrabold shrink-0">
+                #7 Tribute
+              </span>
+            </div>
+          ) : msdPhaseInfo.phase === "ended" ? (
+            <button
+              type="button"
+              onClick={() => onOpenMsd("board")}
+              className="w-full h-11 rounded-2xl amay-msd-btn text-[#FACC15] dark:text-[#0B1B4D] font-extrabold text-sm flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Trophy className="w-4 h-4" />
+              <span>View Final MS Dhoni Rank Board</span>
+            </button>
+          ) : (
+            <div className="grid grid-cols-12 gap-2">
+              <button
+                type="button"
+                onClick={() => onOpenMsd("overview")}
+                className="col-span-8 h-12 rounded-2xl amay-msd-btn text-[#FACC15] dark:text-[#0B1B4D] font-extrabold text-sm flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99] transition-transform"
+              >
+                <Play className="w-4 h-4 fill-current" />
+                <span>
+                  Play 20Q Special{msdQuestionCount > 0 && msdQuestionCount < 20 ? ` (${msdQuestionCount}Q)` : ""}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenMsd("board")}
+                className="col-span-4 h-12 rounded-2xl bg-white/80 dark:bg-white/10 border border-[#0B1B4D]/20 dark:border-[#FACC15]/40 text-[#0B1B4D] dark:text-[#FEF08A] font-extrabold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Trophy className="w-3.5 h-3.5" />
+                <span>Ranks</span>
+              </button>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Minimalistic Standing + Play Card */}
       <section className="amay-card rounded-[28px] p-4 sm:p-5 space-y-4 overflow-hidden">
