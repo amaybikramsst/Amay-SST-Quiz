@@ -49,6 +49,7 @@ import {
   playUiTapSound,
 } from "./lib/soundEffects";
 import {
+  fetchBotDailyCeilings,
   fetchBotOverrides,
   fetchCandidateTodayOverrides,
   fetchDynamicQuestions,
@@ -62,6 +63,7 @@ import {
   getMyCredentials,
   getMyStats,
   getMyTodayIST,
+  loadBotDailyCeilings,
   loadBotOverrides,
   loadCandidateTodayOverrides,
   loadLocalLatestVideo,
@@ -69,10 +71,12 @@ import {
   loadLocalNotifications,
   logCandidateTap,
   loginWithCredentials,
+  mergeBotDailyCeilingMaps,
   registerPlayer,
   registerWithCredentials,
   reportAppInstallStatus,
   reportNotificationsSeen,
+  saveBotDailyCeilings,
   setMyCredentials,
   submitQuizAttempt,
   subscribeChatRealtime,
@@ -128,6 +132,9 @@ export default function App() {
   const [livePlayers, setLivePlayers] = useState<LiveLeaderRow[]>([]);
   const [liveLeaderboardIstSynced, setLiveLeaderboardIstSynced] = useState(false);
   const [botOverrides, setBotOverrides] = useState<Record<string, BotOverride>>(() => loadBotOverrides());
+  const [botDailyCeilings, setBotDailyCeilings] = useState<Record<string, number>>(() =>
+    loadBotDailyCeilings()
+  );
   const [candidateTodayOverrides, setCandidateTodayOverrides] = useState<
     Record<string, CandidateTodayOverride>
   >(() => loadCandidateTodayOverrides());
@@ -494,6 +501,7 @@ export default function App() {
     refreshDynamicQuestions();
     fetchLatestVideo().then((v) => setLatestVideo(v));
     fetchBotOverrides().then((ov) => setBotOverrides(ov));
+    fetchBotDailyCeilings().then((c) => setBotDailyCeilings((prev) => mergeBotDailyCeilingMaps(prev, c)));
     fetchNotifications().then((list) => setAllNotifications(list));
     refreshMsdData(guestId);
 
@@ -544,6 +552,7 @@ export default function App() {
     const onFocusSync = () => {
       setBotClockTick(Date.now());
       refreshNotifs();
+      fetchBotDailyCeilings().then((c) => setBotDailyCeilings((prev) => mergeBotDailyCeilingMaps(prev, c)));
       fetchMsdEventConfig().then((cfg) => setMsdEventConfig(cfg));
     };
 
@@ -555,6 +564,7 @@ export default function App() {
       refreshMsdData(guestId);
       fetchLatestVideo().then((v) => setLatestVideo(v));
       fetchBotOverrides().then((ov) => setBotOverrides(ov));
+      fetchBotDailyCeilings().then((c) => setBotDailyCeilings((prev) => mergeBotDailyCeilingMaps(prev, c)));
       fetchCandidateTodayOverrides().then((ov) => setCandidateTodayOverrides(ov));
       getChatDirectory(guestId).then((dirRes) => {
         if (dirRes.users.length > 0) setChatDirectory(dirRes.users);
@@ -968,7 +978,7 @@ export default function App() {
   };
 
   // Unified Overall & Today Leaderboards (all players reset Today XP to 0 at 12:00 AM IST)
-  const { allTimeEntries, todayEntries, botChatDirectory } = useMemo(() => {
+  const { allTimeEntries, todayEntries, botChatDirectory, botRosterDateKey, botLiveCeiling } = useMemo(() => {
     void botClockTick;
     const todayKeyIst = todayIST(0);
     const myToday = effectiveProfile.td?.d === todayKeyIst ? effectiveProfile.td.xp : 0;
@@ -995,7 +1005,11 @@ export default function App() {
     });
 
     const realTodayScores = [myToday, ...resolvedLivePlayers.map((l) => l.todayXp)];
-    const { bots } = resolveBotRoster(botOverrides, realTodayScores, botClockTick);
+    const {
+      bots,
+      clock: botRosterClock,
+      competitionCeiling: botLiveCeil,
+    } = resolveBotRoster(botOverrides, realTodayScores, botClockTick, botDailyCeilings);
     const resolvedBots = bots.filter((b) => b.originalName !== impersonated?.botOriginalName);
 
     const sortWithMePriority = (a: RankEntry, b: RankEntry) => {
@@ -1045,9 +1059,16 @@ export default function App() {
       { name: effectiveProfile.name || "You", xp: myToday, isMe: true },
     ].sort(sortWithMePriority);
 
-    return { allTimeEntries: allList, todayEntries: tdList, botChatDirectory: botDirList };
+    return {
+      allTimeEntries: allList,
+      todayEntries: tdList,
+      botChatDirectory: botDirList,
+      botRosterDateKey: botRosterClock.dateKey,
+      botLiveCeiling: botLiveCeil,
+    };
   }, [
     botClockTick,
+    botDailyCeilings,
     botOverrides,
     candidateTodayOverrides,
     chatDirectory,
@@ -1059,6 +1080,14 @@ export default function App() {
     liveLeaderboardIstSynced,
     livePlayers,
   ]);
+
+  useEffect(() => {
+    if (botLiveCeiling > (botDailyCeilings[botRosterDateKey] || 0)) {
+      const next = { ...botDailyCeilings, [botRosterDateKey]: botLiveCeiling };
+      setBotDailyCeilings(next);
+      saveBotDailyCeilings(next);
+    }
+  }, [botDailyCeilings, botLiveCeiling, botRosterDateKey]);
 
   const myEffectiveRank = useMemo(() => {
     const allIdx = allTimeEntries.findIndex((e) => e.isMe);
@@ -1317,7 +1346,9 @@ export default function App() {
             />
           )}
 
-          {effectiveView === "subs" && <SubjectsGridView onSelectSubject={openSubjectConfig} />}
+          {effectiveView === "subs" && (
+            <SubjectsGridView onSelectSubject={openSubjectConfig} mergedBank={mergedBank} />
+          )}
 
           {effectiveView === "sub" && (
             <SubjectConfigView
@@ -1427,6 +1458,9 @@ export default function App() {
               }}
               onQuestionsChanged={refreshDynamicQuestions}
               onBotsChanged={(ov) => setBotOverrides(ov)}
+              onBotDailyCeilingsChanged={(c) =>
+                setBotDailyCeilings((prev) => mergeBotDailyCeilingMaps(prev, c))
+              }
               onCandidateTodayChanged={(ov) => setCandidateTodayOverrides(ov)}
               onLatestVideoChanged={(v) => setLatestVideo(v)}
               onNotificationsChanged={(list) => setAllNotifications(list)}

@@ -261,6 +261,111 @@
   will-change: transform, opacity;
 }
 
+@keyframes amayOrbitCw {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes amayOrbitCcw {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes amayGentleBob {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-2.5px);
+  }
+}
+
+@keyframes amayCompassSway {
+  0%, 100% {
+    transform: rotate(-7deg);
+  }
+  50% {
+    transform: rotate(7deg);
+  }
+}
+
+@keyframes amayBroadcastWave {
+  0% {
+    opacity: 0.75;
+    transform: scale(0.75);
+  }
+  70% {
+    opacity: 0.15;
+    transform: scale(1.18);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
+
+.amay-orbit-cw {
+  transform-origin: center;
+  animation: amayOrbitCw 14s linear infinite;
+}
+
+.amay-orbit-ccw {
+  transform-origin: center;
+  animation: amayOrbitCcw 18s linear infinite;
+}
+
+.amay-gentle-bob {
+  animation: amayGentleBob 3.2s ease-in-out infinite;
+}
+
+.amay-compass-sway {
+  transform-origin: center;
+  animation: amayCompassSway 4s ease-in-out infinite;
+}
+
+.amay-broadcast-wave {
+  transform-origin: center;
+  animation: amayBroadcastWave 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.amay-subject-sheen {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.45) 48%,
+    rgba(43, 155, 246, 0.14) 55%,
+    transparent 75%
+  );
+  transform: translateX(-120%);
+  transition: transform 650ms cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+
+.dark .amay-subject-sheen {
+  background: linear-gradient(
+    115deg,
+    transparent 20%,
+    rgba(90, 162, 255, 0.16) 48%,
+    rgba(255, 255, 255, 0.1) 55%,
+    transparent 75%
+  );
+}
+
+.group:hover .amay-subject-sheen,
+.group:focus-visible .amay-subject-sheen {
+  transform: translateX(120%);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-wave,
   .amay-play-btn,
@@ -271,10 +376,16 @@
   .amay-splash-ring,
   .amay-splash-title,
   .amay-splash-subtitle,
-  .amay-splash-bar {
+  .amay-splash-bar,
+  .amay-orbit-cw,
+  .amay-orbit-ccw,
+  .amay-gentle-bob,
+  .amay-compass-sway,
+  .amay-broadcast-wave {
     animation: none;
   }
-  .amay-fill-bar {
+  .amay-fill-bar,
+  .amay-subject-sheen {
     transition: none;
   }
 }
