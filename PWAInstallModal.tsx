@@ -37,7 +37,7 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
 
         <div className="flex items-center gap-3.5 pr-8">
           <img
-            src="./icon-192.png?v=2"
+            src="./icon-192.png?v=3"
             alt="AmaySST Quiz app icon"
             className="w-14 h-14 rounded-2xl shadow-md border border-[#1457E0]/15 shrink-0 object-cover"
           />

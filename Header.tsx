@@ -30,7 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
             src="./amay-avatar.jpg"
             alt="AmaySST logo"
             referrerPolicy="no-referrer"
-            className="w-full h-full object-cover object-center scale-105 block"
+            className="w-full h-full object-cover object-center block"
           />
         </div>
         <span className="text-[17px] sm:text-[20px] font-extrabold tracking-tight text-[#0B1B4D] dark:text-[#EAF0FF] whitespace-nowrap truncate">

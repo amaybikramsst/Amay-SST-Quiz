@@ -14,8 +14,8 @@ export const LaunchSplash: React.FC<LaunchSplashProps> = ({ onDone }) => {
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    const holdMs = reduced ? 450 : 1550;
-    const exitMs = reduced ? 180 : 420;
+    const holdMs = reduced ? 420 : 1450;
+    const exitMs = reduced ? 180 : 480;
 
     const fadeTimer = window.setTimeout(() => {
       setExiting(true);
@@ -37,7 +37,7 @@ export const LaunchSplash: React.FC<LaunchSplashProps> = ({ onDone }) => {
   const handleDismissEarly = () => {
     if (exiting) return;
     setExiting(true);
-    earlyDismissTimerRef.current = window.setTimeout(onDone, 260);
+    earlyDismissTimerRef.current = window.setTimeout(onDone, 280);
   };
 
   return (
@@ -45,29 +45,39 @@ export const LaunchSplash: React.FC<LaunchSplashProps> = ({ onDone }) => {
       role="status"
       aria-label="Opening AmaySST Quiz"
       onClick={handleDismissEarly}
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center px-6 select-none cursor-pointer bg-[#EDF2FB] dark:bg-[#060A16] transition-[opacity,transform] duration-[420ms] ease-[cubic-bezier(0.16,1,0.3,1)] ${
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-center px-6 select-none cursor-pointer bg-[#EDF2FB] dark:bg-[#060A16] transition-[opacity,transform] duration-[480ms] ease-[cubic-bezier(0.16,1,0.3,1)] ${
         exiting ? "opacity-0 scale-[1.03] pointer-events-none" : "opacity-100 scale-100"
       }`}
     >
       <div className="amay-bg-mesh" aria-hidden="true" />
 
       <div className="relative z-10 flex flex-col items-center text-center max-w-xs w-full">
-        {/* Animated Photo Lockup */}
+        {/* Smooth Layered Halo + Portrait Lockup */}
         <div className="relative flex items-center justify-center mb-6">
           <div
             aria-hidden="true"
-            className="amay-splash-ring absolute w-32 h-32 sm:w-36 sm:h-36 rounded-full border-2 border-[#2B9BF6]/60 dark:border-[#5AA2FF]/50"
+            className="amay-splash-glow absolute w-40 h-40 rounded-full bg-[#2B9BF6]/20 dark:bg-[#38B0FF]/20 blur-2xl"
           />
 
-          <div className="amay-splash-photo relative w-28 h-28 sm:w-32 sm:h-32 rounded-full p-[4px] bg-gradient-to-br from-[#38B0FF] via-[#1457E0] to-[#0B3BA8] shadow-[0_22px_48px_-14px_rgba(20,87,224,0.65)]">
-            <div className="w-full h-full rounded-full overflow-hidden bg-white dark:bg-[#111A32] ring-2 ring-white/90 dark:ring-[#0B1224]">
+          <div
+            aria-hidden="true"
+            className="amay-splash-ring absolute w-32 h-32 sm:w-36 sm:h-36 rounded-full border-2 border-[#2B9BF6]/55 dark:border-[#5AA2FF]/50"
+          />
+
+          <div
+            aria-hidden="true"
+            className="amay-splash-ring-delayed absolute w-32 h-32 sm:w-36 sm:h-36 rounded-full border border-[#38B0FF]/40 dark:border-[#5AA2FF]/35"
+          />
+
+          <div className="amay-splash-photo relative w-28 h-28 sm:w-32 sm:h-32 rounded-full p-[4px] bg-gradient-to-br from-[#4BC0FF] via-[#2B9BF6] to-[#1457E0] shadow-[0_22px_48px_-14px_rgba(20,87,224,0.65)]">
+            <div className="w-full h-full rounded-full overflow-hidden bg-[#22262F] ring-2 ring-white/85 dark:ring-[#0B1224]">
               {!imgFailed ? (
                 <img
                   src="./amay-avatar.jpg"
                   alt="AmaySST Quiz"
                   referrerPolicy="no-referrer"
                   onError={() => setImgFailed(true)}
-                  className="w-full h-full object-cover object-center scale-105 block"
+                  className="w-full h-full object-cover object-center block"
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#2B9BF6] to-[#1457E0] text-white text-3xl font-extrabold">
@@ -79,7 +89,7 @@ export const LaunchSplash: React.FC<LaunchSplashProps> = ({ onDone }) => {
         </div>
 
         {/* Animated Brand Text */}
-        <h1 className="amay-splash-title text-[32px] sm:text-[36px] font-extrabold tracking-tight leading-none text-[#0B1B4D] dark:text-[#EAF0FF]">
+        <h1 className="amay-splash-title font-display text-[32px] sm:text-[36px] font-extrabold tracking-tight leading-none text-[#0B1B4D] dark:text-[#EAF0FF]">
           AmaySST <span className="text-[#1457E0] dark:text-[#5AA2FF]">Quiz</span>
         </h1>
 
@@ -88,8 +98,8 @@ export const LaunchSplash: React.FC<LaunchSplashProps> = ({ onDone }) => {
         </p>
 
         {/* Smooth Progress Sweep */}
-        <div className="mt-6 w-28 h-1 rounded-full bg-[#1457E0]/15 dark:bg-white/10 overflow-hidden">
-          <div className="amay-splash-bar h-full w-full rounded-full bg-gradient-to-r from-[#38B0FF] to-[#1457E0]" />
+        <div className="mt-6 w-32 h-1.5 rounded-full bg-[#1457E0]/15 dark:bg-white/10 overflow-hidden">
+          <div className="amay-splash-bar amay-xp-flow h-full w-full rounded-full" />
         </div>
       </div>
     </div>

@@ -30,7 +30,7 @@ export default defineConfig(() => {
           description:
             'Practice quizzes across Mathematics, Science, Social Science, English, Hindi, and Current Affairs with XP, streaks, live rankings, and shareable badges.',
           theme_color: '#1457E0',
-          background_color: '#EDF2FB',
+          background_color: '#060A16',
           display: 'standalone',
           start_url: './',
           scope: './',
@@ -43,19 +43,19 @@ export default defineConfig(() => {
           ],
           icons: [
             {
-              src: './icon-192.png?v=2',
+              src: './icon-192.png?v=3',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: './icon-512.png?v=2',
+              src: './icon-512.png?v=3',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: './icon-maskable-512.png?v=2',
+              src: './icon-maskable-512.png?v=3',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',

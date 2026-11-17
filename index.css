@@ -189,12 +189,12 @@
 
 @keyframes amaySplashPhotoIn {
   0% {
-    opacity: 0;
-    transform: scale(0.7) translateY(20px);
+    opacity: 0.45;
+    transform: scale(0.9) translateY(6px);
   }
   65% {
     opacity: 1;
-    transform: scale(1.04) translateY(-2px);
+    transform: scale(1.02) translateY(-1px);
   }
   100% {
     opacity: 1;
@@ -202,32 +202,47 @@
   }
 }
 
+@keyframes amaySplashGlowPulse {
+  0% {
+    opacity: 0.25;
+    transform: scale(0.88);
+  }
+  50% {
+    opacity: 0.72;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+}
+
 @keyframes amaySplashRingExpand {
   0% {
-    opacity: 0.65;
-    transform: scale(0.84);
+    opacity: 0.7;
+    transform: scale(0.88);
   }
   100% {
     opacity: 0;
-    transform: scale(1.48);
+    transform: scale(1.62);
   }
 }
 
 @keyframes amaySplashTextIn {
   0% {
     opacity: 0;
-    transform: translateY(16px) scale(0.97);
+    transform: translateY(14px);
   }
   100% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
 @keyframes amaySplashBarFill {
   0% {
-    opacity: 0.45;
-    transform: scaleX(0);
+    opacity: 0.4;
+    transform: scaleX(0.06);
   }
   100% {
     opacity: 1;
@@ -236,28 +251,38 @@
 }
 
 .amay-splash-photo {
-  animation: amaySplashPhotoIn 720ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: amaySplashPhotoIn 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+.amay-splash-glow {
+  animation: amaySplashGlowPulse 1600ms cubic-bezier(0.16, 1, 0.3, 1) both;
   will-change: transform, opacity;
 }
 
 .amay-splash-ring {
-  animation: amaySplashRingExpand 1250ms cubic-bezier(0.16, 1, 0.3, 1) 180ms both;
+  animation: amaySplashRingExpand 1350ms cubic-bezier(0.16, 1, 0.3, 1) 100ms both;
+  will-change: transform, opacity;
+}
+
+.amay-splash-ring-delayed {
+  animation: amaySplashRingExpand 1350ms cubic-bezier(0.16, 1, 0.3, 1) 360ms both;
   will-change: transform, opacity;
 }
 
 .amay-splash-title {
-  animation: amaySplashTextIn 640ms cubic-bezier(0.16, 1, 0.3, 1) 180ms both;
+  animation: amaySplashTextIn 580ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both;
   will-change: transform, opacity;
 }
 
 .amay-splash-subtitle {
-  animation: amaySplashTextIn 640ms cubic-bezier(0.16, 1, 0.3, 1) 320ms both;
+  animation: amaySplashTextIn 580ms cubic-bezier(0.16, 1, 0.3, 1) 230ms both;
   will-change: transform, opacity;
 }
 
 .amay-splash-bar {
   transform-origin: left center;
-  animation: amaySplashBarFill 1150ms cubic-bezier(0.22, 1, 0.36, 1) 240ms both;
+  animation: amaySplashBarFill 1100ms cubic-bezier(0.22, 1, 0.36, 1) 180ms both;
   will-change: transform, opacity;
 }
 
@@ -389,7 +414,9 @@
   .amay-xp-flow,
   .amay-tip-orb,
   .amay-splash-photo,
+  .amay-splash-glow,
   .amay-splash-ring,
+  .amay-splash-ring-delayed,
   .amay-splash-title,
   .amay-splash-subtitle,
   .amay-splash-bar,
