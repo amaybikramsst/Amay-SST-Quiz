@@ -547,7 +547,7 @@ export default function App() {
     };
 
     const pollInterval = window.setInterval(refreshNotifs, 30000);
-    const botClockInterval = window.setInterval(() => setBotClockTick(Date.now()), 30000);
+    const botClockInterval = window.setInterval(() => setBotClockTick(Date.now()), 10000);
 
     const onFocusSync = () => {
       setBotClockTick(Date.now());

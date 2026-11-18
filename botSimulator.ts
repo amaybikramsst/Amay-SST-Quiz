@@ -9,9 +9,14 @@ export const BOT_ACTIVE_START_MINUTE = 2 * 60; // 2:00 AM IST
 export const BOT_ACTIVE_END_MINUTE = 23 * 60; // 11:00 PM IST
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+export const BOT_MAX_XP_PER_4_MIN = 150;
+const BOT_WINDOW_SECONDS = 4 * 60; // 240s (4 minutes)
+const BOT_CYCLE_SECONDS = 8 * 60; // 240s active window + 240s cooldown guarantees <= 150 XP in any sliding 4-min span
+
 export interface IstClockInfo {
   dateKey: string;
   minuteOfDay: number;
+  secondOfDay: number;
   timeLabel: string;
   phase: "reset_wait" | "active" | "finished";
 }
@@ -32,7 +37,9 @@ export function getIstClock(nowMs = Date.now()): IstClockInfo {
   const dateKey = ist.toISOString().slice(0, 10);
   const hours = ist.getUTCHours();
   const mins = ist.getUTCMinutes();
+  const secs = ist.getUTCSeconds();
   const minuteOfDay = hours * 60 + mins;
+  const secondOfDay = minuteOfDay * 60 + secs;
 
   const h12 = hours % 12 || 12;
   const ampm = hours >= 12 ? "PM" : "AM";
@@ -45,7 +52,7 @@ export function getIstClock(nowMs = Date.now()): IstClockInfo {
     phase = "finished";
   }
 
-  return { dateKey, minuteOfDay, timeLabel, phase };
+  return { dateKey, minuteOfDay, secondOfDay, timeLabel, phase };
 }
 
 function hashString(input: string): number {
@@ -151,7 +158,7 @@ function getPastAccumulatedMap(
 
 function computeTodayTargetAndEarned(
   todayKey: string,
-  minuteOfDay: number,
+  secondOfDay: number,
   originalName: string,
   rankIdx: number,
   totalBots: number,
@@ -165,46 +172,92 @@ function computeTodayTargetAndEarned(
     competitionCeiling
   );
 
+  const startSec = BOT_ACTIVE_START_MINUTE * 60;
+  const endSec = BOT_ACTIVE_END_MINUTE * 60;
+
   // 12:00 AM - 1:59 AM IST: freshly reset to 0
-  if (minuteOfDay < BOT_ACTIVE_START_MINUTE) {
+  if (secondOfDay < startSec) {
     return { dailyTarget, earnedToday: 0 };
   }
 
   // 11:00 PM - 11:59 PM IST: full daily XP earned
-  if (minuteOfDay >= BOT_ACTIVE_END_MINUTE) {
+  if (secondOfDay >= endSec) {
     return { dailyTarget, earnedToday: dailyTarget };
   }
 
-  // Advance RNG once so session timing uses a distinct slice after dailyTarget's initial luck draw
-  const rng = createRng(`sessions::${todayKey}::${originalName}`);
-  const sessionCount = 8 + Math.floor(rng() * 9); // 8 to 16 quiz bursts across the day
-  const span = BOT_ACTIVE_END_MINUTE - BOT_ACTIVE_START_MINUTE;
-  const sessions: Array<{ minute: number; weight: number }> = [];
+  // Build deterministic staggered 4-minute quiz bursts (max 150 XP per 4-min window, >= 4-min cooldown
+  // between bursts so no bot ever exceeds 150 XP in any sliding 4-min window, and bots never sync).
+  const schedRng = createRng(`staggered_v2::${todayKey}::${originalName}`);
+  const phaseSec = Math.floor(schedRng() * BOT_WINDOW_SECONDS); // 0..239s personal phase offset
+  const cycleCount = Math.floor((endSec - startSec - BOT_WINDOW_SECONDS) / BOT_CYCLE_SECONDS); // 157 slots
 
-  for (let s = 0; s < sessionCount; s++) {
-    const sessionMinute = BOT_ACTIVE_START_MINUTE + Math.floor(rng() * span);
-    const weight = 0.45 + rng() * 1.55;
-    sessions.push({ minute: sessionMinute, weight });
+  const cycleOrder = Array.from({ length: cycleCount }, (_, i) => i);
+  for (let i = cycleOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(schedRng() * (i + 1));
+    const tmp = cycleOrder[i];
+    cycleOrder[i] = cycleOrder[j];
+    cycleOrder[j] = tmp;
   }
 
-  let totalWeight = 0;
-  let passedWeight = 0;
-  for (const s of sessions) {
-    totalWeight += s.weight;
-    if (s.minute <= minuteOfDay) {
-      passedWeight += s.weight;
+  let remaining = dailyTarget;
+  let earnedToday = 0;
+
+  for (let slotIdx = 0; slotIdx < cycleOrder.length && remaining > 0; slotIdx++) {
+    const cycle = cycleOrder[slotIdx];
+    const windowStart = startSec + phaseSec + cycle * BOT_CYCLE_SECONDS;
+    const burstRng = createRng(`burst::${todayKey}::${originalName}::${slotIdx}`);
+
+    const slotsRemainingAfterThis = cycleOrder.length - slotIdx - 1;
+    const minNeededHere = Math.max(0, remaining - slotsRemainingAfterThis * BOT_MAX_XP_PER_4_MIN);
+    const rawBudget = snap5(45 + burstRng() * 105, 45); // 45..150 XP in this 4-min window
+    const burstXp = Math.min(
+      remaining,
+      Math.max(minNeededHere, Math.min(BOT_MAX_XP_PER_4_MIN, rawBudget))
+    );
+    remaining -= burstXp;
+
+    if (secondOfDay < windowStart) continue;
+    if (secondOfDay >= windowStart + BOT_WINDOW_SECONDS) {
+      earnedToday += burstXp;
+      continue;
     }
+
+    // Split this 4-minute window into 2–5 realistic quiz drops at staggered random seconds
+    const maxStepsByXp = Math.max(1, Math.floor(burstXp / 15));
+    const stepCount = Math.min(maxStepsByXp, 2 + Math.floor(burstRng() * 4));
+    const offsets: number[] = [];
+    const weights: number[] = [];
+    let totalW = 0;
+
+    for (let k = 0; k < stepCount; k++) {
+      // Spread drops across sub-buckets with jitter so two drops never land on the exact same second
+      const bucketSize = BOT_WINDOW_SECONDS / stepCount;
+      const offsetSec = Math.min(
+        BOT_WINDOW_SECONDS - 1,
+        Math.floor(k * bucketSize + burstRng() * Math.max(1, bucketSize - 5))
+      );
+      offsets.push(offsetSec);
+      const w = 0.6 + burstRng() * 0.8;
+      weights.push(w);
+      totalW += w;
+    }
+
+    let windowEarned = 0;
+    let allocated = 0;
+    for (let k = 0; k < stepCount; k++) {
+      const piece =
+        k === stepCount - 1
+          ? Math.max(0, burstXp - allocated)
+          : Math.min(burstXp - allocated, snap5((burstXp * weights[k]) / totalW, 5));
+      allocated += piece;
+      if (secondOfDay >= windowStart + offsets[k]) {
+        windowEarned += piece;
+      }
+    }
+    earnedToday += Math.min(burstXp, windowEarned);
   }
 
-  if (passedWeight <= 0 || totalWeight <= 0) {
-    return { dailyTarget, earnedToday: 0 };
-  }
-
-  const earnedToday = Math.min(
-    dailyTarget,
-    snap5((dailyTarget * passedWeight) / totalWeight, 0)
-  );
-  return { dailyTarget, earnedToday };
+  return { dailyTarget, earnedToday: Math.min(dailyTarget, earnedToday) };
 }
 
 export function getCompetitionCeiling(realTodayScores: number[]): number {
@@ -272,7 +325,7 @@ export function resolveBotRoster(
 
     const { dailyTarget, earnedToday } = computeTodayTargetAndEarned(
       clock.dateKey,
-      clock.minuteOfDay,
+      clock.secondOfDay,
       b.name,
       idx,
       totalBots,
