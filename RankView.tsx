@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, Clock, Zap } from "lucide-react";
 import {
   computeRankSnapshot,
+  formatCompactXp,
   getNextOverallMilestone,
   getTodayCutoffStatus,
   type RankListEntry,
@@ -10,12 +11,7 @@ import { RankBadge } from "./RankBadge";
 
 export type RankEntry = RankListEntry;
 
-function formatXpK(xp: number): string {
-  const abs = Math.abs(xp);
-  if (abs < 1000) return abs.toLocaleString();
-  const k = Math.round((abs / 1000) * 10) / 10;
-  return `${k.toString().replace(/\.0$/, "")}k`;
-}
+const formatXpK = formatCompactXp;
 
 interface RankViewProps {
   allTimeEntries: RankEntry[];
@@ -358,7 +354,7 @@ export const RankView: React.FC<RankViewProps> = ({
                       )}
                     </div>
                     <span className="font-mono-nums font-bold text-[#1457E0] dark:text-[#5AA2FF] shrink-0">
-                      +{r.xpToPass.toLocaleString()} XP
+                      +{formatXpK(r.xpToPass)} XP
                     </span>
                   </div>
                 ))}
@@ -436,7 +432,7 @@ export const RankView: React.FC<RankViewProps> = ({
                     )}
                   </div>
                   <span className="mt-1 text-[11px] sm:text-xs font-extrabold text-[#1457E0] dark:text-[#5AA2FF] font-mono-nums">
-                    {entry.xp.toLocaleString()} XP
+                    {period === "all" ? formatXpK(entry.xp) : entry.xp.toLocaleString()} XP
                   </span>
                 </div>
               );
@@ -478,7 +474,7 @@ export const RankView: React.FC<RankViewProps> = ({
                   )}
                 </div>
                 <strong className="font-mono-nums text-base font-extrabold text-[#1457E0] dark:text-[#5AA2FF] shrink-0">
-                  {entry.xp.toLocaleString()} XP
+                  {period === "all" ? formatXpK(entry.xp) : entry.xp.toLocaleString()} XP
                 </strong>
               </div>
             );
@@ -506,7 +502,7 @@ export const RankView: React.FC<RankViewProps> = ({
             </div>
           </div>
           <strong className="font-mono-nums text-base font-extrabold text-[#1457E0] dark:text-[#5AA2FF] shrink-0">
-            {myEntry.xp.toLocaleString()} XP
+            {period === "all" ? formatXpK(myEntry.xp) : myEntry.xp.toLocaleString()} XP
           </strong>
         </div>
       )}

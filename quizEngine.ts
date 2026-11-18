@@ -127,6 +127,15 @@ export function formatXpValue(val: number): string {
   return Number.isInteger(val) ? String(val) : val.toFixed(2).replace(/\.?0+$/, "");
 }
 
+export function formatCompactXp(xp: number): string {
+  const safe = Number.isFinite(xp) ? xp : 0;
+  const abs = Math.abs(safe);
+  const sign = safe < 0 ? "-" : "";
+  if (abs < 1000) return `${sign}${Math.round(abs).toLocaleString()}`;
+  const k = (Math.floor(abs / 100) / 10).toString().replace(/\.0$/, "");
+  return `${sign}${k}k`;
+}
+
 export function calculateQuizScore(
   qs: RawQuestion[],
   sel: (number | undefined)[],

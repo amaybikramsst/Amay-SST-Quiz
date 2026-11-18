@@ -4,6 +4,7 @@ import { SOCIAL_LINKS } from "../data/benchmarks";
 import type { BadgeDesignSpec } from "../lib/badgeCanvas";
 import {
   computeRankSnapshot,
+  formatCompactXp,
   todayIST,
   type StudentProfile,
 } from "../lib/quizEngine";
@@ -368,9 +369,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               title={`${raceData.myXp.toLocaleString()} XP`}
             >
               <strong className="text-[30px] sm:text-[34px] leading-none font-extrabold tracking-tight font-mono-nums text-[#1457E0] dark:text-[#5AA2FF]">
-                {animXp >= 1000
-                  ? `${(Math.floor(animXp / 100) / 10).toString().replace(/\.0$/, "")}k`
-                  : animXp}
+                {formatCompactXp(animXp)}
               </strong>
               <span className="text-xs font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">XP</span>
             </div>
@@ -383,11 +382,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <span className="font-semibold text-[#5A6A92] dark:text-[#93A3CC] truncate min-w-0">
               Filled:{" "}
               <strong className="font-mono-nums font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
-                {animXp.toLocaleString()} XP
+                {raceMode === "all" ? formatCompactXp(animXp) : animXp.toLocaleString()} XP
               </strong>
             </span>
             <span className="font-mono-nums font-extrabold text-[#0B1B4D] dark:text-[#EAF0FF] shrink-0">
-              {barTargetXp.toLocaleString()} XP
+              {raceMode === "all" ? formatCompactXp(barTargetXp) : barTargetXp.toLocaleString()} XP
             </span>
           </div>
 
@@ -454,10 +453,16 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </div>
               <div className="flex items-center gap-2 shrink-0 font-mono-nums">
                 <span className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
-                  {raceData.nextAhead[0].xp.toLocaleString()} XP
+                  {raceMode === "all"
+                    ? formatCompactXp(raceData.nextAhead[0].xp)
+                    : raceData.nextAhead[0].xp.toLocaleString()}{" "}
+                  XP
                 </span>
                 <span className="inline-flex items-center text-xs font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
-                  <ArrowUpRight className="w-3 h-3" />+{raceData.nextAhead[0].xpToPass.toLocaleString()}
+                  <ArrowUpRight className="w-3 h-3" />+
+                  {raceMode === "all"
+                    ? formatCompactXp(raceData.nextAhead[0].xpToPass)
+                    : raceData.nextAhead[0].xpToPass.toLocaleString()}
                 </span>
               </div>
             </div>
@@ -469,7 +474,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <span className="truncate">{profile.name} (You)</span>
             </div>
             <span className="font-mono-nums font-bold text-[#1457E0] dark:text-[#5AA2FF] shrink-0">
-              {raceData.myXp.toLocaleString()} XP
+              {raceMode === "all" ? formatCompactXp(raceData.myXp) : raceData.myXp.toLocaleString()} XP
             </span>
           </div>
 
@@ -482,7 +487,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <span className="truncate">{raceData.chaserBehind.name}</span>
               </div>
               <span className="font-mono-nums shrink-0">
-                −{raceData.chaserBehind.gapBelow.toLocaleString()} XP
+                −
+                {raceMode === "all"
+                  ? formatCompactXp(raceData.chaserBehind.gapBelow)
+                  : raceData.chaserBehind.gapBelow.toLocaleString()}{" "}
+                XP
               </span>
             </div>
           )}

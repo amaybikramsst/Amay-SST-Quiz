@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Check, Clock, Eye, EyeOff, Lock, LogOut, Share2 } from "lucide-react";
 import type { BadgeDesignSpec } from "../lib/badgeCanvas";
 import {
+  formatCompactXp,
   getBadges,
   getMilestones,
   getNextOverallMilestone,
@@ -128,9 +129,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
       {/* 3 Stat Tiles */}
       <div className="grid grid-cols-3 gap-2.5">
-        <div className="amay-card rounded-[20px] p-3.5 text-center">
+        <div className="amay-card rounded-[20px] p-3.5 text-center" title={`${profile.xp.toLocaleString()} XP`}>
           <strong className="block text-[22px] font-extrabold text-[#1457E0] dark:text-[#5AA2FF] font-mono-nums">
-            {profile.xp}
+            {formatCompactXp(profile.xp)}
           </strong>
           <span className="text-xs font-semibold text-[#5A6A92] dark:text-[#93A3CC]">XP</span>
         </div>
@@ -375,7 +376,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </h2>
             <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC]">
               {nextMilestone !== null
-                ? `Next badge at ${nextMilestone.toLocaleString()} XP · ${(nextMilestone - profile.xp).toLocaleString()} XP to go`
+                ? `Next badge at ${formatCompactXp(nextMilestone)} XP · ${formatCompactXp(nextMilestone - profile.xp)} XP to go`
                 : "All Overall XP badges unlocked!"}
             </p>
           </div>
