@@ -11,8 +11,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "amaysst-pages-deploy"
-  cancel-in-progress: false
+  group: "pages"
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -28,29 +28,34 @@ jobs:
 
       - name: Organize folders if uploaded flat
         run: |
-          mkdir -p src/components src/data src/hooks src/lib public
-          for f in App.tsx index.css main.tsx; do
-            if [ -f "$f" ]; then mv -f "$f" src/; fi
-          done
-          for f in AdminView.tsx BadgeModal.tsx BottomNav.tsx ChatView.tsx GateView.tsx Header.tsx HomeView.tsx LaunchSplash.tsx MsdView.tsx NotificationModal.tsx ProfileView.tsx PWAInstallModal.tsx QuizView.tsx RankBadge.tsx RankView.tsx SubjectsView.tsx; do
-            if [ -f "$f" ]; then mv -f "$f" src/components/; fi
-          done
-          for f in benchmarks.ts questions.ts; do
-            if [ -f "$f" ]; then mv -f "$f" src/data/; fi
-          done
-          for f in usePWAInstall.ts; do
-            if [ -f "$f" ]; then mv -f "$f" src/hooks/; fi
-          done
-          for f in badgeCanvas.ts botSimulator.ts confetti.ts questionParser.ts quizEngine.ts soundEffects.ts supabase.ts; do
-            if [ -f "$f" ]; then mv -f "$f" src/lib/; fi
-          done
-          for f in amay-avatar.jpg msd-badge.jpg apple-touch-icon.png icon-192.png icon-512.png icon-maskable-512.png; do
-            if [ -f "$f" ]; then mv -f "$f" public/; fi
-          done
-          rm -f sw.js public/sw.js
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
+          if [ ! -d "src" ]; then
+            mkdir -p src/components/class10 src/data/class10 src/hooks src/lib public
+            for f in App.tsx index.css main.tsx; do
+              [ -f "$f" ] && mv "$f" src/
+            done
+            for f in AdminView.tsx BadgeModal.tsx BottomNav.tsx GateView.tsx Header.tsx HomeView.tsx ProfileView.tsx PWAInstallModal.tsx QuizView.tsx RankBadge.tsx RankView.tsx SubjectsView.tsx; do
+              [ -f "$f" ] && mv "$f" src/components/
+            done
+            for f in AssertionReasonLabView.tsx Class10HubView.tsx IndiaMapSvg.tsx MapWorkView.tsx TimelineSorterView.tsx; do
+              [ -f "$f" ] && mv "$f" src/components/class10/
+            done
+            for f in benchmarks.ts questions.ts; do
+              [ -f "$f" ] && mv "$f" src/data/
+            done
+            for f in assertionReasonData.ts mapData.ts timelineData.ts; do
+              [ -f "$f" ] && mv "$f" src/data/class10/
+            done
+            for f in usePWAInstall.ts; do
+              [ -f "$f" ] && mv "$f" src/hooks/
+            done
+            for f in badgeCanvas.ts confetti.ts questionParser.ts quizEngine.ts soundEffects.ts supabase.ts; do
+              [ -f "$f" ] && mv "$f" src/lib/
+            done
+            for f in amay-avatar.jpg apple-touch-icon.png icon-192.png icon-512.png icon-maskable-512.png; do
+              [ -f "$f" ] && mv "$f" public/
+            done
+            rm -f sw.js public/sw.js
+          fi
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps
