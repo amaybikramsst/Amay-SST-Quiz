@@ -565,15 +565,15 @@ export default function App() {
       } catch {
         readMap = {};
       }
-      let count = 0;
+      const unreadSenderIds = new Set<string>();
       for (const m of res.messages) {
         if (m.sender_uuid === effectiveGuestId) continue;
         const lastReadIso = readMap[m.sender_uuid];
         if (!lastReadIso || Date.parse(m.created_at) > Date.parse(lastReadIso)) {
-          count += 1;
+          unreadSenderIds.add(m.sender_uuid);
         }
       }
-      setUnreadChatCount(count);
+      setUnreadChatCount(unreadSenderIds.size);
     };
 
     refreshUnreadChat();

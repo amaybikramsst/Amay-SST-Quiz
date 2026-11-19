@@ -75,8 +75,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null);
   const [unsendingMsgId, setUnsendingMsgId] = useState<string | null>(null);
   const [readMap, setReadMap] = useState<Record<string, string>>(() => loadReadMap());
+  const [hasLoadedMessages, setHasLoadedMessages] = useState(false);
+  const [openedUnseen, setOpenedUnseen] = useState<{
+    peerUuid: string;
+    count: number;
+    firstMsgId: string | null;
+  } | null>(null);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const unseenDividerRef = useRef<HTMLDivElement | null>(null);
+  const capturedSessionPeerRef = useRef<string | null>(null);
+  const scrolledUnseenPeerRef = useRef<string | null>(null);
+  const prevActiveCountRef = useRef<number>(0);
 
   useEffect(() => {
     if (initialPeer?.uuid) {
@@ -96,6 +106,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setDirectory(dirRes.users);
     setMessages(msgRes.messages);
     setNeedsSetup(dirRes.needsTableSetup || msgRes.needsTableSetup);
+    setHasLoadedMessages(true);
   }, [guestId]);
 
   useEffect(() => {
@@ -118,21 +129,67 @@ export const ChatView: React.FC<ChatViewProps> = ({
     };
   }, [guestId, refreshChatData]);
 
-  // Mark active thread as read
-  const markPeerRead = useCallback((peerUuid: string) => {
-    const nowIso = new Date().toISOString();
+  // Mark active thread as read (resilient to minor client/server clock skew)
+  const markPeerRead = useCallback((peerUuid: string, peerMessages?: ChatMessageRow[]) => {
+    let latestMs = Date.now();
+    if (peerMessages) {
+      for (const m of peerMessages) {
+        const ms = Date.parse(m.created_at);
+        if (Number.isFinite(ms) && ms > latestMs) {
+          latestMs = ms;
+        }
+      }
+    }
+    const readIso = new Date(latestMs).toISOString();
     setReadMap((prev) => {
-      const next = { ...prev, [peerUuid]: nowIso };
+      const prevMs = prev[peerUuid] ? Date.parse(prev[peerUuid]) : 0;
+      if (Number.isFinite(prevMs) && prevMs >= latestMs) {
+        return prev;
+      }
+      const next = { ...prev, [peerUuid]: readIso };
       saveReadMap(next);
       return next;
     });
   }, []);
 
+  // Capture unseen messages count when a chat is opened, then mark that ID as read
   useEffect(() => {
-    if (activePeerUuid) {
-      markPeerRead(activePeerUuid);
+    if (!activePeerUuid) {
+      capturedSessionPeerRef.current = null;
+      setOpenedUnseen(null);
+      return;
     }
-  }, [activePeerUuid, messages.length, markPeerRead]);
+    if (!hasLoadedMessages) return;
+
+    const peerMsgs = messages.filter(
+      (m) =>
+        (m.sender_uuid === guestId && m.recipient_uuid === activePeerUuid) ||
+        (m.sender_uuid === activePeerUuid && m.recipient_uuid === guestId)
+    );
+
+    if (capturedSessionPeerRef.current !== activePeerUuid) {
+      const prevReadIso = loadReadMap()[activePeerUuid];
+      const prevReadMs = prevReadIso ? Date.parse(prevReadIso) : NaN;
+      const unseenMsgs = peerMsgs.filter((m) => {
+        if (m.sender_uuid !== activePeerUuid) return false;
+        if (!Number.isFinite(prevReadMs)) return true;
+        return Date.parse(m.created_at) > prevReadMs;
+      });
+      capturedSessionPeerRef.current = activePeerUuid;
+      setOpenedUnseen(
+        unseenMsgs.length > 0
+          ? {
+              peerUuid: activePeerUuid,
+              count: unseenMsgs.length,
+              firstMsgId: unseenMsgs[0].id,
+            }
+          : null
+      );
+      markPeerRead(activePeerUuid, peerMsgs);
+    } else if (peerMsgs.length > 0) {
+      markPeerRead(activePeerUuid, peerMsgs);
+    }
+  }, [activePeerUuid, guestId, hasLoadedMessages, markPeerRead, messages]);
 
   // Compute threads & unread counts
   const { threadsMap, totalUnread } = useMemo(() => {
@@ -173,16 +230,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
       map.set(peerUuid, existing);
     }
 
-    let unreadSum = 0;
+    let unreadIdCount = 0;
     for (const item of map.values()) {
-      unreadSum += item.unread;
+      if (item.unread > 0) unreadIdCount += 1;
     }
-    return { threadsMap: map, totalUnread: unreadSum };
+    return { threadsMap: map, totalUnread: unreadIdCount };
   }, [activePeerUuid, guestId, messages, readMap]);
 
   useEffect(() => {
-    onUnreadCountChange?.(totalUnread);
-  }, [onUnreadCountChange, totalUnread]);
+    if (hasLoadedMessages) {
+      onUnreadCountChange?.(totalUnread);
+    }
+  }, [hasLoadedMessages, onUnreadCountChange, totalUnread]);
 
   const mergedDirectory = useMemo(() => {
     const map = new Map<string, ChatDirectoryUser>();
@@ -221,10 +280,32 @@ export const ChatView: React.FC<ChatViewProps> = ({
   }, [activePeerUuid, guestId, messages]);
 
   useEffect(() => {
-    if (activePeerUuid) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!activePeerUuid) {
+      scrolledUnseenPeerRef.current = null;
+      prevActiveCountRef.current = 0;
+      return;
     }
-  }, [activePeerUuid, activeMessages.length]);
+    if (capturedSessionPeerRef.current !== activePeerUuid) {
+      return;
+    }
+
+    if (
+      openedUnseen?.peerUuid === activePeerUuid &&
+      openedUnseen.count > 0 &&
+      scrolledUnseenPeerRef.current !== activePeerUuid &&
+      unseenDividerRef.current
+    ) {
+      unseenDividerRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      scrolledUnseenPeerRef.current = activePeerUuid;
+      prevActiveCountRef.current = activeMessages.length;
+      return;
+    }
+
+    if (activeMessages.length > 0 && prevActiveCountRef.current !== activeMessages.length) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      prevActiveCountRef.current = activeMessages.length;
+    }
+  }, [activePeerUuid, activeMessages.length, openedUnseen]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -248,7 +329,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setMessages((prev) =>
       prev.some((item) => item.id === res.message!.id) ? prev : [...prev, res.message!]
     );
-    markPeerRead(activePeerUuid);
+    markPeerRead(activePeerUuid, [res.message!]);
   };
 
   const handleUnsendMessage = async (msgId: string) => {
@@ -344,9 +425,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </div>
 
             <div className="min-w-0">
-              <strong className="block text-base font-extrabold text-[#0B1B4D] dark:text-white truncate">
-                {activePeerName}
-              </strong>
+              <div className="flex items-center gap-2 min-w-0">
+                <strong className="block text-base font-extrabold text-[#0B1B4D] dark:text-white truncate">
+                  {activePeerName}
+                </strong>
+                {openedUnseen &&
+                  openedUnseen.peerUuid === activePeerUuid &&
+                  openedUnseen.count > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-[#E5091E] text-white text-[10px] font-extrabold shrink-0">
+                      {openedUnseen.count} unseen
+                    </span>
+                  )}
+              </div>
               <span className="block text-[11px] text-[#5A6A92] dark:text-[#93A3CC]">
                 {isHelp ? "Support · Text only" : "Text messages only"}
               </span>
@@ -408,51 +498,76 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 const isMine = m.sender_uuid === guestId;
                 const isSelected = isMine && selectedMsgId === m.id;
                 const isUnsending = unsendingMsgId === m.id;
+                const showUnseenDivider =
+                  openedUnseen &&
+                  openedUnseen.peerUuid === activePeerUuid &&
+                  openedUnseen.count > 0 &&
+                  openedUnseen.firstMsgId === m.id;
+
+                const dividerEl = showUnseenDivider ? (
+                  <div
+                    ref={unseenDividerRef}
+                    className="flex items-center gap-2.5 py-1.5"
+                    aria-label={`${openedUnseen.count} unseen ${openedUnseen.count === 1 ? "message" : "messages"}`}
+                  >
+                    <span className="flex-1 h-px bg-[#1457E0]/25 dark:bg-[#5AA2FF]/25" />
+                    <span className="px-3 py-1 rounded-full bg-[#1457E0]/12 dark:bg-[#5AA2FF]/15 text-[#1457E0] dark:text-[#5AA2FF] text-[11px] font-extrabold tracking-tight shrink-0">
+                      {openedUnseen.count} unseen {openedUnseen.count === 1 ? "message" : "messages"}
+                    </span>
+                    <span className="flex-1 h-px bg-[#1457E0]/25 dark:bg-[#5AA2FF]/25" />
+                  </div>
+                ) : null;
 
                 if (!isMine) {
                   return (
-                    <div key={m.id} className="flex items-end gap-1.5 justify-start">
-                      <div className="max-w-[78%] rounded-[20px] px-3.5 py-2.5 text-sm leading-relaxed break-words bg-white/85 dark:bg-[#131E3A] text-[#0B1B4D] dark:text-white border border-[#1846AA]/12 dark:border-white/10 rounded-bl-md">
-                        <p className="whitespace-pre-wrap">{m.body}</p>
-                        <span className="block text-[10px] font-mono-nums mt-1 text-[#5A6A92] dark:text-[#93A3CC]">
-                          {formatMsgTime(m.created_at)}
-                        </span>
+                    <React.Fragment key={m.id}>
+                      {dividerEl}
+                      <div className="flex items-end gap-1.5 justify-start">
+                        <div className="max-w-[78%] rounded-[20px] px-3.5 py-2.5 text-sm leading-relaxed break-words bg-white/85 dark:bg-[#131E3A] text-[#0B1B4D] dark:text-white border border-[#1846AA]/12 dark:border-white/10 rounded-bl-md">
+                          <p className="whitespace-pre-wrap">{m.body}</p>
+                          <span className="block text-[10px] font-mono-nums mt-1 text-[#5A6A92] dark:text-[#93A3CC]">
+                            {formatMsgTime(m.created_at)}
+                          </span>
+                        </div>
                       </div>
-                    </div>
+                    </React.Fragment>
                   );
                 }
 
                 return (
-                  <div key={m.id} className="flex flex-col items-end gap-1">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSelectedMsgId((prev) => (prev === m.id ? null : m.id))
-                      }
-                      aria-expanded={isSelected}
-                      className={`max-w-[78%] rounded-[20px] px-3.5 py-2.5 text-sm leading-relaxed break-words text-left bg-gradient-to-br from-[#2B7BFF] to-[#1457E0] text-white rounded-br-md shadow-sm cursor-pointer transition ${
-                        isSelected ? "ring-2 ring-[#1457E0]/40 dark:ring-[#5AA2FF]/60" : ""
-                      }`}
-                    >
-                      <p className="whitespace-pre-wrap">{m.body}</p>
-                      <span className="block text-[10px] font-mono-nums mt-1 text-white/75 text-right">
-                        {formatMsgTime(m.created_at)}
-                      </span>
-                    </button>
+                  <React.Fragment key={m.id}>
+                    {dividerEl}
+                    <div className="flex flex-col items-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedMsgId((prev) => (prev === m.id ? null : m.id))
+                        }
+                        aria-expanded={isSelected}
+                        className={`max-w-[78%] rounded-[20px] px-3.5 py-2.5 text-sm leading-relaxed break-words text-left bg-gradient-to-br from-[#2B7BFF] to-[#1457E0] text-white rounded-br-md shadow-sm cursor-pointer transition ${
+                          isSelected ? "ring-2 ring-[#1457E0]/40 dark:ring-[#5AA2FF]/60" : ""
+                        }`}
+                      >
+                        <p className="whitespace-pre-wrap">{m.body}</p>
+                        <span className="block text-[10px] font-mono-nums mt-1 text-white/75 text-right">
+                          {formatMsgTime(m.created_at)}
+                        </span>
+                      </button>
 
-                    {isSelected && (
-                      <div className="flex items-center gap-1.5 pr-1">
-                        <button
-                          type="button"
-                          disabled={isUnsending}
-                          onClick={() => handleUnsendMessage(m.id)}
-                          className="px-3 py-1 rounded-xl bg-[#D92D3A] text-white text-xs font-bold shadow-sm hover:brightness-105 active:scale-[0.98] transition cursor-pointer disabled:opacity-60"
-                        >
-                          {isUnsending ? "Unsending…" : "Unsend"}
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                      {isSelected && (
+                        <div className="flex items-center gap-1.5 pr-1">
+                          <button
+                            type="button"
+                            disabled={isUnsending}
+                            onClick={() => handleUnsendMessage(m.id)}
+                            className="px-3 py-1 rounded-xl bg-[#D92D3A] text-white text-xs font-bold shadow-sm hover:brightness-105 active:scale-[0.98] transition cursor-pointer disabled:opacity-60"
+                          >
+                            {isUnsending ? "Unsending…" : "Unsend"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </React.Fragment>
                 );
               })
             )}
