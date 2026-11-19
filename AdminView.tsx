@@ -28,12 +28,9 @@ import {
   Sparkles,
   AlertTriangle,
   CheckCircle2,
-  Trophy,
-  Clock,
-  Crown,
 } from "lucide-react";
 import { BENCHMARK_PLAYERS } from "../data/benchmarks";
-import type { AdminSubjectKey } from "../data/questions";
+import type { SubjectKey } from "../data/questions";
 import {
   getCompetitionCeiling,
   getIstClock,
@@ -56,7 +53,6 @@ import {
   adminBulkInsertQuestions,
   adminDeleteNotification,
   adminDeleteQuestion,
-  adminDeleteSingleMsdSubmission,
   adminGetSession,
   adminInsertQuestion,
   adminLoadAllChatMessages,
@@ -66,12 +62,10 @@ import {
   adminLoadInstallStatusMap,
   adminLoadNotificationSeenMap,
   adminLoadStats,
-  adminResetMsdSubmissions,
   adminSaveBotDailyCeilings,
   adminSaveBotOverrides,
   adminSaveCandidateTodayOverrides,
   adminSaveLatestVideo,
-  adminSaveMsdEventConfig,
   adminSendHelpReply,
   adminSendMessageAs,
   adminSendNotification,
@@ -79,24 +73,18 @@ import {
   adminSignOut,
   adminUpdateCandidate,
   DEFAULT_LATEST_VIDEO,
-  DEFAULT_MSD_EVENT_CONFIG,
   deriveYouTubeThumbnail,
   fetchBotDailyCeilings,
   fetchBotOverrides,
   fetchCandidateTodayOverrides,
   fetchDynamicQuestions,
   fetchLatestVideo,
-  fetchMsdEventConfig,
-  fetchMsdLeaderboard,
   fetchNotifications,
   HELP_CHAT_UUID,
   loadBotDailyCeilings,
   loadBotOverrides,
   loadCandidateTodayOverrides,
   mergeBotDailyCeilingMaps,
-  MSD_EVENT_DURATION_MS,
-  MSD_QUESTION_TARGET,
-  resolveMsdEventPhase,
   saveBotDailyCeilings,
   saveBotOverrides,
   saveCandidateTodayOverrides,
@@ -110,8 +98,6 @@ import {
   type ChatMessageRow,
   type DynamicQuestionRow,
   type LatestVideoConfig,
-  type MsdEventConfig,
-  type MsdSubmissionRow,
   type NotificationActionType,
 } from "../lib/supabase";
 
@@ -136,7 +122,6 @@ interface AdminViewProps {
   onCandidateTodayChanged?: (overrides: Record<string, CandidateTodayOverride>) => void;
   onLatestVideoChanged: (video: LatestVideoConfig) => void;
   onNotificationsChanged: (list: AppNotification[]) => void;
-  onMsdEventChanged?: (cfg: MsdEventConfig) => void;
   onOpenCandidateId: (target: OpenCandidateIdPayload) => void;
 }
 
@@ -167,22 +152,6 @@ create policy "Allow authenticated write app_settings" on public.app_settings fo
 const CHAT_AUTH_SQL = `-- Run Sections 8 & 9 from supabase-setup.sql for Login & Live Messages + Admin Audit
 -- (Paste full supabase-setup.sql into Supabase SQL Editor -> Run)`;
 
-const MSD_SQL = `-- Run Section 10 from supabase-setup.sql for MS Dhoni 24h Rank Board & 1-Attempt Lock
-create table if not exists public.msd_submissions (
-  guest_uuid text primary key,
-  candidate_name text not null,
-  score integer not null check (score >= 0 and score <= 20),
-  total integer not null check (total > 0 and total <= 20),
-  time_taken_sec integer not null default 0 check (time_taken_sec >= 0),
-  created_at timestamptz not null default now()
-);
-alter table public.msd_submissions enable row level security;
-drop policy if exists "Allow public read msd_submissions" on public.msd_submissions;
-create policy "Allow public read msd_submissions" on public.msd_submissions for select to anon, authenticated using (true);
-drop policy if exists "Allow authenticated manage msd_submissions" on public.msd_submissions;
-create policy "Allow authenticated manage msd_submissions" on public.msd_submissions for all to authenticated using (true) with check (true);
--- Plus submit_msd_quiz() & get_msd_leaderboard() RPCs in supabase-setup.sql`;
-
 export const AdminView: React.FC<AdminViewProps> = ({
   onBack,
   onQuestionsChanged,
@@ -191,7 +160,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onCandidateTodayChanged,
   onLatestVideoChanged,
   onNotificationsChanged,
-  onMsdEventChanged,
   onOpenCandidateId,
 }) => {
   const [adminEmail, setAdminEmail] = useState<string | null>(null);
@@ -298,7 +266,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [qEntryMode, setQEntryMode] = useState<"single" | "bulk">("single");
 
   // Single question form
-  const [qSub, setQSub] = useState<AdminSubjectKey>("ca");
+  const [qSub, setQSub] = useState<SubjectKey>("ca");
   const [qLvl, setQLvl] = useState(1);
   const [qTxt, setQTxt] = useState("");
   const [qOa, setQOa] = useState("");
@@ -310,22 +278,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [savingQ, setSavingQ] = useState(false);
 
   // Bulk upload state
-  const [bulkDefaultSub, setBulkDefaultSub] = useState<AdminSubjectKey>("sst");
+  const [bulkDefaultSub, setBulkDefaultSub] = useState<SubjectKey>("sst");
   const [bulkDefaultLvl, setBulkDefaultLvl] = useState<number>(1);
   const [bulkQueue, setBulkQueue] = useState<ParsedBulkQuestion[]>([]);
   const [parsingFile, setParsingFile] = useState(false);
   const [publishingBulk, setPublishingBulk] = useState(false);
   const [rawExtractPreview, setRawExtractPreview] = useState("");
-
-  // MS Dhoni 24-Hour Special Competition state
-  const [msdConfig, setMsdConfig] = useState<MsdEventConfig>(DEFAULT_MSD_EVENT_CONFIG);
-  const [msdSavingConfig, setMsdSavingConfig] = useState(false);
-  const [msdBoard, setMsdBoard] = useState<MsdSubmissionRow[]>([]);
-  const [needsMsdSql, setNeedsMsdSql] = useState(false);
-  const [copiedMsdSql, setCopiedMsdSql] = useState(false);
-  const [showMsdBoardPanel, setShowMsdBoardPanel] = useState(false);
-  const [msdResetConfirm, setMsdResetConfirm] = useState(false);
-  const [qListFilter, setQListFilter] = useState<"all" | "msd" | "standard">("all");
 
   const refreshAdminChatOnly = async () => {
     const res = await adminLoadAllChatMessages();
@@ -351,8 +309,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
       notifs,
       seenMap,
       chatRes,
-      msdCfg,
-      msdLbRes,
     ] = await Promise.all([
       adminLoadStats(),
       fetchDynamicQuestions(),
@@ -367,8 +323,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
       fetchNotifications(),
       adminLoadNotificationSeenMap(),
       adminLoadAllChatMessages(),
-      fetchMsdEventConfig(),
-      fetchMsdLeaderboard(),
     ]);
     const mergedBots = { ...cloudBots, ...localBots };
     const mergedCandToday = { ...cloudCandToday, ...localCandToday };
@@ -430,10 +384,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setCandidateTodayOverrides(mergedCandToday);
     saveCandidateTodayOverrides(mergedCandToday);
     onCandidateTodayChanged?.(mergedCandToday);
-    setMsdConfig(msdCfg);
-    onMsdEventChanged?.(msdCfg);
-    setMsdBoard(msdLbRes.rows);
-    setNeedsMsdSql(msdLbRes.needsSql);
   };
 
   useEffect(() => {
@@ -770,76 +720,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
       setParsingFile(false);
       e.target.value = "";
     }
-  };
-
-  const handleSetMsdStatus = async (mode: "live" | "coming_soon" | "ended") => {
-    setMsdSavingConfig(true);
-    setFeedback(null);
-    const now = Date.now();
-    const next: MsdEventConfig =
-      mode === "live"
-        ? {
-            status: "live",
-            liveStartedAt: new Date(now).toISOString(),
-            expiresAt: new Date(now + MSD_EVENT_DURATION_MS).toISOString(),
-            questionCount: MSD_QUESTION_TARGET,
-          }
-        : mode === "ended"
-        ? {
-            status: "ended",
-            liveStartedAt: msdConfig.liveStartedAt,
-            expiresAt: new Date(now).toISOString(),
-            questionCount: MSD_QUESTION_TARGET,
-          }
-        : {
-            status: "coming_soon",
-            liveStartedAt: null,
-            expiresAt: null,
-            questionCount: MSD_QUESTION_TARGET,
-          };
-
-    const res = await adminSaveMsdEventConfig(next);
-    setMsdSavingConfig(false);
-    setMsdConfig(next);
-    onMsdEventChanged?.(next);
-
-    if (res.ok) {
-      setFeedback({
-        text:
-          mode === "live"
-            ? "MS Dhoni 24-Hour Special Competition is now LIVE on everyone's Dashboard!"
-            : mode === "ended"
-            ? "MS Dhoni Special Competition marked as Ended."
-            : "MS Dhoni Special reset to Coming Soon.",
-        ok: true,
-      });
-    } else {
-      setFeedback({
-        text: `Saved locally, cloud sync note: ${res.errorMessage || "Run app_settings SQL in Supabase"}`,
-        ok: false,
-      });
-    }
-  };
-
-  const handleDeleteMsdEntry = async (guestUuid: string) => {
-    const res = await adminDeleteSingleMsdSubmission(guestUuid);
-    if (!res.ok) {
-      setFeedback({ text: `Could not delete entry: ${res.errorMessage || "Error"}`, ok: false });
-      return;
-    }
-    setMsdBoard((prev) => prev.filter((r) => r.guest_uuid !== guestUuid));
-    setFeedback({ text: "Removed player from MS Dhoni leaderboard.", ok: true });
-  };
-
-  const handleResetMsdBoard = async () => {
-    const res = await adminResetMsdSubmissions();
-    setMsdResetConfirm(false);
-    if (!res.ok) {
-      setFeedback({ text: `Reset failed: ${res.errorMessage || "Error"}`, ok: false });
-      return;
-    }
-    setMsdBoard([]);
-    setFeedback({ text: "Cleared all MS Dhoni Special leaderboard submissions.", ok: true });
   };
 
   const handlePublishBulk = async () => {
@@ -1250,22 +1130,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const questionInventory = useMemo(
     () => getQuestionInventory(mergeDynamicQuestions(dynamicQuestions), HIGH_LEVEL_TARGET_PER_MODE),
     [dynamicQuestions]
-  );
-
-  const msdDynamicQuestions = useMemo(
-    () => dynamicQuestions.filter((q) => q.subject === "msd"),
-    [dynamicQuestions]
-  );
-
-  const filteredDynamicQuestions = useMemo(() => {
-    if (qListFilter === "msd") return dynamicQuestions.filter((q) => q.subject === "msd");
-    if (qListFilter === "standard") return dynamicQuestions.filter((q) => q.subject !== "msd");
-    return dynamicQuestions;
-  }, [dynamicQuestions, qListFilter]);
-
-  const msdAdminPhase = useMemo(
-    () => resolveMsdEventPhase(msdConfig, botClockTick),
-    [msdConfig, botClockTick]
   );
 
   const handleSendAdminHelpReply = async (e: React.FormEvent) => {
@@ -2172,236 +2036,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {/* TAB 4: QUESTIONS & BULK FILE UPLOAD */}
       {tab === "questions" && (
         <div className="space-y-5">
-          {/* MS Dhoni 24-Hour Retirement Special Event Control */}
-          <div className="amay-msd-card rounded-[28px] p-5 sm:p-6 space-y-4">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-start gap-3.5 min-w-0">
-                <img
-                  src="./msd-badge.jpg"
-                  alt="MS Dhoni #7 Special"
-                  className="w-14 h-14 rounded-2xl object-cover border-2 border-[#0B1B4D]/25 dark:border-yellow-400/50 shadow-md shrink-0"
-                />
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#0B1B4D] text-[#FDE047] text-[10px] font-extrabold uppercase tracking-wider">
-                      <Crown className="w-3 h-3" />
-                      <span>24h CSK Event</span>
-                    </span>
-                    <span
-                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${
-                        msdAdminPhase.phase === "live"
-                          ? "bg-emerald-600 text-white"
-                          : msdAdminPhase.phase === "ended"
-                          ? "bg-slate-700 text-white"
-                          : "bg-amber-600/20 text-[#5D3200] dark:text-[#FDE047]"
-                      }`}
-                    >
-                      <Clock className="w-3 h-3" />
-                      <span>
-                        {msdAdminPhase.phase === "live"
-                          ? `LIVE · ${msdAdminPhase.remainingLabel} left`
-                          : msdAdminPhase.phase === "ended"
-                          ? "Ended (24h complete)"
-                          : "Coming Soon on Dashboard"}
-                      </span>
-                    </span>
-                  </div>
-                  <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-[#FEF08A] mt-1">
-                    MS Dhoni Retirement Special (20Q · 1 Attempt · Separate Board)
-                  </h2>
-                  <p className="text-xs font-semibold text-[#473100] dark:text-amber-100/80 mt-0.5">
-                    Questions uploaded for MS Dhoni:{" "}
-                    <strong className="font-mono-nums">
-                      {msdDynamicQuestions.length} / {MSD_QUESTION_TARGET}
-                    </strong>{" "}
-                    · Leaderboard entries: <strong className="font-mono-nums">{msdBoard.length}</strong> · Does NOT add to Normal XP
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                {msdAdminPhase.phase !== "live" ? (
-                  <button
-                    type="button"
-                    disabled={msdSavingConfig}
-                    onClick={() => handleSetMsdStatus("live")}
-                    className="h-11 px-5 rounded-xl amay-msd-btn text-xs sm:text-sm font-extrabold inline-flex items-center gap-2 cursor-pointer disabled:opacity-60 shadow-md"
-                  >
-                    <Trophy className="w-4 h-4" />
-                    <span>
-                      {msdSavingConfig
-                        ? "Activating…"
-                        : msdAdminPhase.phase === "ended"
-                        ? "Restart Competition Live (24h)"
-                        : "Make Competition Live (24h)"}
-                    </span>
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      disabled={msdSavingConfig}
-                      onClick={() => handleSetMsdStatus("coming_soon")}
-                      className="h-10 px-4 rounded-xl bg-white/90 dark:bg-[#0B1224] text-[#0B1B4D] dark:text-[#FDE047] border border-[#0B1B4D]/20 text-xs font-extrabold cursor-pointer disabled:opacity-60"
-                    >
-                      Set Coming Soon
-                    </button>
-                    <button
-                      type="button"
-                      disabled={msdSavingConfig}
-                      onClick={() => handleSetMsdStatus("ended")}
-                      className="h-10 px-4 rounded-xl bg-[#D92D3A] text-white text-xs font-extrabold cursor-pointer disabled:opacity-60"
-                    >
-                      End Now
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {msdDynamicQuestions.length < MSD_QUESTION_TARGET && (
-              <div className="rounded-2xl bg-white/65 dark:bg-[#0B1224]/70 border border-amber-500/35 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="font-bold text-[#5D3200] dark:text-amber-200">
-                  {msdDynamicQuestions.length === 0
-                    ? "Upload up to 20 MS Dhoni questions below, then click Make Competition Live (24h)."
-                    : `${msdDynamicQuestions.length} of 20 MS Dhoni questions ready (${MSD_QUESTION_TARGET - msdDynamicQuestions.length} remaining for full 20Q set).`}
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQEntryMode("single");
-                      setQSub("msd");
-                      setQListFilter("msd");
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-[#0B1B4D] text-[#FDE047] font-extrabold text-[11px] cursor-pointer"
-                  >
-                    + Add MS Dhoni Question
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQEntryMode("bulk");
-                      setBulkDefaultSub("msd");
-                      setQListFilter("msd");
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#14203E] text-[#0B1B4D] dark:text-[#FDE047] border border-[#0B1B4D]/20 font-extrabold text-[11px] cursor-pointer"
-                  >
-                    Bulk Upload MS Dhoni Qs
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-amber-500/25">
-              <button
-                type="button"
-                onClick={() => setShowMsdBoardPanel((v) => !v)}
-                className="text-xs font-extrabold text-[#0B1B4D] dark:text-[#FDE047] inline-flex items-center gap-1.5 cursor-pointer hover:underline"
-              >
-                <Trophy className="w-3.5 h-3.5" />
-                <span>
-                  {showMsdBoardPanel ? "Hide" : "View"} MS Dhoni Trophy Leaderboard ({msdBoard.length} submitted)
-                </span>
-              </button>
-
-              {msdBoard.length > 0 && (
-                msdResetConfirm ? (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleResetMsdBoard}
-                      className="px-2.5 py-1 rounded-lg bg-[#D92D3A] text-white text-[11px] font-extrabold cursor-pointer"
-                    >
-                      Confirm Clear Board
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMsdResetConfirm(false)}
-                      className="px-2.5 py-1 rounded-lg bg-white/80 dark:bg-[#0B1224] text-[11px] font-bold cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setMsdResetConfirm(true)}
-                    className="text-[11px] font-bold text-[#D92D3A] dark:text-[#FF8A93] hover:underline cursor-pointer"
-                  >
-                    Clear Dhoni Leaderboard
-                  </button>
-                )
-              )}
-            </div>
-
-            {showMsdBoardPanel && (
-              <div className="rounded-2xl bg-white/80 dark:bg-[#0B1224]/85 p-3.5 space-y-2.5 border border-amber-500/25">
-                {msdBoard.length === 0 ? (
-                  <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">No MS Dhoni submissions yet.</p>
-                ) : (
-                  <div className="max-h-56 overflow-y-auto divide-y divide-amber-500/15 text-xs">
-                    {msdBoard.map((row, idx) => (
-                      <div key={row.guest_uuid} className="py-2 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <span className="font-mono-nums font-extrabold text-[#0B1B4D] dark:text-[#FDE047] w-6">
-                            #{idx + 1}
-                          </span>
-                          <span className="font-bold text-[#0B1B4D] dark:text-white truncate">
-                            {row.candidate_name}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3 shrink-0">
-                          <span className="font-mono-nums font-extrabold text-[#0B1B4D] dark:text-[#FDE047]">
-                            {row.score}/{row.total}
-                          </span>
-                          <span className="font-mono-nums text-[#5A6A92] dark:text-[#93A3CC]">
-                            {row.time_taken_sec}s
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteMsdEntry(row.guest_uuid)}
-                            aria-label="Remove submission"
-                            className="p-1 text-[#5A6A92] hover:text-[#D92D3A] cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {needsMsdSql && (
-              <div className="rounded-2xl bg-white/85 dark:bg-[#0B1224] border border-amber-500/40 p-3.5 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-xs font-extrabold text-[#0B1B4D] dark:text-[#FDE047]">
-                      1-time Supabase SQL needed for Global MS Dhoni Rank Board &amp; 1-Attempt Lock
-                    </p>
-                    <p className="text-[11px] text-[#5A6A92] dark:text-[#93A3CC]">
-                      Run Section 10 from supabase-setup.sql in Supabase SQL Editor.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard?.writeText(MSD_SQL);
-                      setCopiedMsdSql(true);
-                      setTimeout(() => setCopiedMsdSql(false), 2000);
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-[#0B1B4D] text-[#FDE047] font-extrabold text-[11px] inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    {copiedMsdSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedMsdSql ? "Copied SQL" : "Copy SQL"}</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
           {/* Question Bank Inventory & High-Level Gap Advisor */}
           <div className="amay-card rounded-[28px] p-5 sm:p-6 space-y-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2613,10 +2247,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </label>
                     <select
                       value={qSub}
-                      onChange={(e) => setQSub(e.target.value as AdminSubjectKey)}
+                      onChange={(e) => setQSub(e.target.value as SubjectKey)}
                       className="w-full h-10 px-3 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm"
                     >
-                      <option value="msd">🏏 MS Dhoni Special (24h Event)</option>
                       <option value="ca">Current Affairs</option>
                       <option value="math">Mathematics</option>
                       <option value="sci">Science</option>
@@ -2746,10 +2379,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </label>
                     <select
                       value={bulkDefaultSub}
-                      onChange={(e) => setBulkDefaultSub(e.target.value as AdminSubjectKey)}
+                      onChange={(e) => setBulkDefaultSub(e.target.value as SubjectKey)}
                       className="w-full h-10 px-3 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm"
                     >
-                      <option value="msd">🏏 MS Dhoni Special (24h Event)</option>
                       <option value="sst">Social Science</option>
                       <option value="ca">Current Affairs</option>
                       <option value="math">Mathematics</option>
@@ -2880,12 +2512,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
                               value={item.subject}
                               onChange={(e) => {
                                 const next = [...bulkQueue];
-                                next[idx] = { ...next[idx], subject: e.target.value as AdminSubjectKey };
+                                next[idx] = { ...next[idx], subject: e.target.value as SubjectKey };
                                 setBulkQueue(next);
                               }}
                               className="h-7 px-2 rounded-lg bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15"
                             >
-                              <option value="msd">MSD #7</option>
                               <option value="sst">SST</option>
                               <option value="ca">CA</option>
                               <option value="math">Math</option>
@@ -2933,52 +2564,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
             <div className="lg:col-span-5 amay-card rounded-[28px] p-6 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-white">
-                  Added Questions ({filteredDynamicQuestions.length})
+                  Added Questions ({dynamicQuestions.length})
                 </h2>
-                <div className="inline-flex p-0.5 rounded-lg bg-[#1457E0]/[0.08] dark:bg-white/[0.06] text-[11px] font-bold">
-                  {(
-                    [
-                      ["all", `All (${dynamicQuestions.length})`],
-                      ["msd", `MSD (${msdDynamicQuestions.length})`],
-                      ["standard", `Subjects (${dynamicQuestions.length - msdDynamicQuestions.length})`],
-                    ] as const
-                  ).map(([k, lbl]) => (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => setQListFilter(k)}
-                      className={`px-2 py-1 rounded-md cursor-pointer transition ${
-                        qListFilter === k
-                          ? k === "msd"
-                            ? "bg-[#FACC15] text-[#0B1B4D]"
-                            : "bg-[#1457E0] text-white"
-                          : "text-[#5A6A92] dark:text-[#93A3CC]"
-                      }`}
-                    >
-                      {lbl}
-                    </button>
-                  ))}
-                </div>
               </div>
-              {filteredDynamicQuestions.length === 0 ? (
-                <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC]">No added questions in this filter yet.</p>
+              {dynamicQuestions.length === 0 ? (
+                <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC]">No added questions yet.</p>
               ) : (
                 <div className="divide-y divide-[#1846AA]/10 dark:divide-white/10 max-h-[460px] overflow-y-auto pr-1">
-                  {filteredDynamicQuestions.map((dq) => (
+                  {dynamicQuestions.map((dq) => (
                     <div key={dq.id} className="py-3 flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-[#0B1B4D] dark:text-white">{dq.question_text}</p>
                         <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] mt-0.5">
-                          <span
-                            className={
-                              dq.subject === "msd"
-                                ? "font-extrabold text-amber-700 dark:text-[#FDE047]"
-                                : ""
-                            }
-                          >
-                            {dq.subject === "msd" ? "MS DHONI #7" : dq.subject.toUpperCase()}
-                          </span>{" "}
-                          · Level {dq.level + 1} ·{" "}
+                          <span>{dq.subject.toUpperCase()}</span> · Level {dq.level + 1} ·{" "}
                           {[dq.option_a, dq.option_b, dq.option_c, dq.option_d][dq.correct_index]}
                         </p>
                       </div>

@@ -1,5 +1,5 @@
 import * as pdfjsLib from "pdfjs-dist";
-import type { AdminSubjectKey } from "../data/questions";
+import type { SubjectKey } from "../data/questions";
 
 // Configure pdf.js worker via bundled URL
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -8,7 +8,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 ).toString();
 
 export interface ParsedBulkQuestion {
-  subject: AdminSubjectKey;
+  subject: SubjectKey;
   level: number;
   question_text: string;
   option_a: string;
@@ -19,12 +19,11 @@ export interface ParsedBulkQuestion {
   explanation: string;
 }
 
-const VALID_SUBJECTS: AdminSubjectKey[] = ["math", "sci", "sst", "eng", "hin", "ca", "msd"];
+const VALID_SUBJECTS: SubjectKey[] = ["math", "sci", "sst", "eng", "hin", "ca"];
 
-function normalizeSubject(raw: string | undefined, fallback: AdminSubjectKey): AdminSubjectKey {
+function normalizeSubject(raw: string | undefined, fallback: SubjectKey): SubjectKey {
   const s = (raw || "").trim().toLowerCase();
-  if (VALID_SUBJECTS.includes(s as AdminSubjectKey)) return s as AdminSubjectKey;
-  if (s.includes("msd") || s.includes("dhoni") || s.includes("csk") || s.includes("captain")) return "msd";
+  if (VALID_SUBJECTS.includes(s as SubjectKey)) return s as SubjectKey;
   if (s.includes("math")) return "math";
   if (s.includes("sci")) return "sci";
   if (s.includes("soc") || s === "sst" || s.includes("hist") || s.includes("geo") || s.includes("pol")) return "sst";
@@ -82,7 +81,7 @@ function parseCsvLine(line: string): string[] {
 
 export function parseCsvQuestions(
   text: string,
-  defaultSubject: AdminSubjectKey,
+  defaultSubject: SubjectKey,
   defaultLevel: number
 ): ParsedBulkQuestion[] {
   const lines = text
@@ -141,7 +140,7 @@ export function parseCsvQuestions(
 
 export function parseJsonQuestions(
   text: string,
-  defaultSubject: AdminSubjectKey,
+  defaultSubject: SubjectKey,
   defaultLevel: number
 ): ParsedBulkQuestion[] {
   try {
@@ -177,7 +176,7 @@ export function parseJsonQuestions(
 
 export function parseTextMcqQuestions(
   rawText: string,
-  defaultSubject: AdminSubjectKey,
+  defaultSubject: SubjectKey,
   defaultLevel: number
 ): ParsedBulkQuestion[] {
   // Normalize common PDF spacing so options on same line get split cleanly
@@ -301,7 +300,7 @@ export async function extractTextFromPdf(file: File): Promise<string> {
 
 export async function parseBulkQuestionFile(
   file: File,
-  defaultSubject: AdminSubjectKey,
+  defaultSubject: SubjectKey,
   defaultLevel: number
 ): Promise<{ questions: ParsedBulkQuestion[]; rawTextPreview?: string }> {
   const name = file.name.toLowerCase();
@@ -331,7 +330,7 @@ export async function parseBulkQuestionFile(
 }
 
 export function classifyQuestionDifficulty(
-  subject: AdminSubjectKey,
+  subject: SubjectKey,
   questionText: string,
   options: string[] = [],
   explanation = ""

@@ -634,7 +634,6 @@ export function mergeDynamicQuestions(dynamicRows: DynamicQuestionRow[]): Record
     merged[k] = [...STATIC_QUESTIONS[k].q];
   }
   for (const row of dynamicRows) {
-    if (row.subject === "msd") continue;
     const subj = row.subject as SubjectKey;
     if (!merged[subj]) continue;
     const raw: RawQuestion = [

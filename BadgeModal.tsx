@@ -11,7 +11,6 @@ interface BadgeModalProps {
   xp: number;
   name: string;
   earnedDailyBadges?: DailyBadgeRecord[];
-  msdSpec?: Extract<BadgeDesignSpec, { kind: "msd" }> | null;
   initialSpec?: BadgeDesignSpec | null;
   onClose: () => void;
 }
@@ -38,25 +37,10 @@ export const BadgeModal: React.FC<BadgeModalProps> = ({
   xp,
   name,
   earnedDailyBadges = [],
-  msdSpec = null,
   initialSpec = null,
   onClose,
 }) => {
   const choices = useMemo<BadgeChoice[]>(() => {
-    const resolvedMsd =
-      initialSpec?.kind === "msd" ? initialSpec : msdSpec;
-
-    const msdChoices: BadgeChoice[] = resolvedMsd
-      ? [
-          {
-            key: `msd-${resolvedMsd.score}-${resolvedMsd.total}`,
-            label: `MS Dhoni #7 (${resolvedMsd.score}/${resolvedMsd.total})`,
-            shareText: `I scored ${resolvedMsd.score}/${resolvedMsd.total} in the MS Dhoni 24-Hour Special Tribute Quiz on AmaySST Quiz!`,
-            spec: resolvedMsd,
-          },
-        ]
-      : [];
-
     const overallUnlocked = getUnlockedOverallMilestones(xp);
     const overallChoices: BadgeChoice[] = overallUnlocked.map((milestone) => ({
       key: `overall-${milestone}`,
@@ -81,7 +65,7 @@ export const BadgeModal: React.FC<BadgeModalProps> = ({
       };
     });
 
-    const combined = [...msdChoices, ...dailyChoices, ...overallChoices];
+    const combined = [...dailyChoices, ...overallChoices];
     if (combined.length === 0) {
       const fallbackMilestone = getHighestOverallMilestone(xp) ?? 100;
       return [
@@ -94,13 +78,9 @@ export const BadgeModal: React.FC<BadgeModalProps> = ({
       ];
     }
     return combined;
-  }, [earnedDailyBadges, initialSpec, msdSpec, xp]);
+  }, [earnedDailyBadges, xp]);
 
   const initialKey = useMemo(() => {
-    if (initialSpec?.kind === "msd") {
-      const match = choices.find((c) => c.spec.kind === "msd");
-      if (match) return match.key;
-    }
     if (initialSpec?.kind === "overall") {
       const match = choices.find(
         (c) => c.spec.kind === "overall" && c.spec.milestone === initialSpec.milestone
@@ -291,11 +271,7 @@ export const BadgeModal: React.FC<BadgeModalProps> = ({
                 <button
                   type="button"
                   onClick={handleShare}
-                  className={`h-11 px-4 rounded-xl font-bold text-sm inline-flex items-center justify-center gap-2 cursor-pointer ${
-                    activeChoice.spec.kind === "msd"
-                      ? "bg-[#FACC15] hover:bg-[#EAB308] text-[#0B1B4D]"
-                      : "bg-[#1457E0] hover:bg-[#0F46BA] text-white"
-                  }`}
+                  className="h-11 px-4 rounded-xl bg-[#1457E0] hover:bg-[#0F46BA] text-white font-bold text-sm inline-flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <Share2 className="w-4 h-4" />
                   <span>Share (Insta / Apps)</span>

@@ -106,28 +106,6 @@
   animation: playGlow 3.2s ease-in-out infinite;
 }
 
-.amay-msd-card {
-  background: linear-gradient(145deg, #FFF59D 0%, #FDE047 38%, #FACC15 76%, #F59E0B 100%);
-  border: 1.5px solid rgba(161, 98, 7, 0.35);
-  box-shadow: 0 20px 44px -20px rgba(202, 138, 4, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.72);
-}
-
-.dark .amay-msd-card {
-  background: linear-gradient(145deg, #3B2F08 0%, #4A3908 42%, #2B2107 100%);
-  border: 1.5px solid rgba(250, 204, 21, 0.55);
-  box-shadow: 0 20px 44px -18px rgba(250, 204, 21, 0.25), inset 0 1px 0 rgba(254, 240, 138, 0.2);
-}
-
-.amay-msd-btn {
-  background: linear-gradient(90deg, #0B1B4D 0%, #16317D 100%);
-  box-shadow: 0 12px 24px -12px rgba(11, 27, 77, 0.75);
-}
-
-.dark .amay-msd-btn {
-  background: linear-gradient(90deg, #FACC15 0%, #F59E0B 100%);
-  box-shadow: 0 12px 24px -12px rgba(250, 204, 21, 0.5);
-}
-
 @keyframes amayShimmerSweep {
   0% {
     transform: translateX(-120%);
