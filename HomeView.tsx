@@ -1,16 +1,19 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, ChevronRight, Crown, Play } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import {
+  ChevronRight,
+  Play,
+  Crown,
+  Flame,
+  Swords,
+  Zap,
+  Compass,
+  Clock,
+  Scale,
+  GraduationCap,
+} from "lucide-react";
 import { SOCIAL_LINKS } from "../data/benchmarks";
-import {
-  computeRankSnapshot,
-  formatCompactXp,
-  todayIST,
-  type StudentProfile,
-} from "../lib/quizEngine";
-import {
-  deriveYouTubeThumbnail,
-  type LatestVideoConfig,
-} from "../lib/supabase";
+import { todayUTC, XP_PER_LEVEL, type StudentProfile } from "../lib/quizEngine";
+import { deriveYouTubeThumbnail, type LatestVideoConfig } from "../lib/supabase";
 import type { RankEntry } from "./RankView";
 
 interface HomeViewProps {
@@ -20,7 +23,12 @@ interface HomeViewProps {
   latestVideo: LatestVideoConfig;
   onStartNormalQuiz: () => void;
   onOpenSubjects: () => void;
-  onOpenRank?: () => void;
+  onOpenRank: () => void;
+  onOpenBadge: () => void;
+  onOpenClass10Hub: () => void;
+  onOpenClass10Map: () => void;
+  onOpenClass10Timeline: () => void;
+  onOpenClass10AR: () => void;
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
@@ -30,173 +38,167 @@ export const HomeView: React.FC<HomeViewProps> = ({
   latestVideo,
   onStartNormalQuiz,
   onOpenSubjects,
+  onOpenRank,
+  onOpenBadge,
+  onOpenClass10Hub,
+  onOpenClass10Map,
+  onOpenClass10Timeline,
+  onOpenClass10AR,
 }) => {
-  const [raceMode, setRaceMode] = useState<"td" | "all">("td");
-  const [fillReady, setFillReady] = useState(false);
+  const [raceMode, setRaceMode] = useState<"all" | "td">("all");
   const [failedThumbSrc, setFailedThumbSrc] = useState<string | null>(null);
 
   const candidateThumb = latestVideo.thumbnailUrl || deriveYouTubeThumbnail(latestVideo.url);
   const resolvedThumb = failedThumbSrc !== candidateThumb ? candidateThumb : "";
-  const myTodayXp = profile.td?.d === todayIST(0) ? profile.td.xp : 0;
+
+  const myTodayXp = profile.td?.d === todayUTC(0) ? profile.td.xp : 0;
 
   const raceData = useMemo(() => {
     const list = raceMode === "all" ? allTimeEntries : todayEntries;
     const myXp = raceMode === "all" ? profile.xp : myTodayXp;
-    const snap = computeRankSnapshot(list, myXp);
+    const totalPlayers = list.length;
 
+    // Standard competition rank: 1 + count of players strictly ahead of myXp
     const strictlyAhead = list.filter((e) => !e.isMe && e.xp > myXp);
     const tiedAtMyXp = list.filter((e) => !e.isMe && e.xp === myXp);
-    const isSoleFirst = strictlyAhead.length === 0 && tiedAtMyXp.length === 0;
+    const myRank = 1 + strictlyAhead.length;
+    const myIdx = list.findIndex((e) => e.isMe);
 
+    const isSoleFirst = strictlyAhead.length === 0 && tiedAtMyXp.length === 0;
+    const isTiedForFirst = strictlyAhead.length === 0 && tiedAtMyXp.length > 0;
+
+    // Nearest player strictly ahead (last element of strictlyAhead since list is sorted desc)
     const nextGroupXp = strictlyAhead.length > 0 ? strictlyAhead[strictlyAhead.length - 1].xp : null;
     const nextGroupPlayers = nextGroupXp !== null ? strictlyAhead.filter((e) => e.xp === nextGroupXp) : [];
 
+    // Rank you jump straight to if you beat nextGroupXp (or break your current tie!)
     let xpToJump = 0;
-    let jumpToRank = snap.myRank;
-    let nextLabel = "";
+    let jumpToRank = myRank;
+    let playersPassed = 0;
+    let targetLabel = "";
 
-    if (tiedAtMyXp.length > 0 && strictlyAhead.length === 0) {
+    if (tiedAtMyXp.length > 0 && isTiedForFirst) {
       xpToJump = 1;
       jumpToRank = 1;
-      nextLabel = `Break tie for #1`;
+      playersPassed = tiedAtMyXp.length;
+      targetLabel = `Break the ${tiedAtMyXp.length + 1}-way tie for #1`;
     } else if (tiedAtMyXp.length > 0) {
+      // Score +1 to immediately pass everyone tied at your XP, OR show passing the next tier ahead
       xpToJump = 1;
-      jumpToRank = snap.myRank;
-      nextLabel = `Pass tied player${tiedAtMyXp.length > 1 ? "s" : ""} → #${jumpToRank}`;
+      jumpToRank = myRank;
+      playersPassed = tiedAtMyXp.length;
+      targetLabel = `Pass ${tiedAtMyXp.length} tied player${tiedAtMyXp.length > 1 ? "s" : ""} at ${myXp.toLocaleString()} XP`;
     } else if (nextGroupXp !== null) {
       xpToJump = Math.max(1, nextGroupXp - myXp + 1);
+      // Passing nextGroupXp puts you ahead of everyone at nextGroupXp
       const stillStrictlyAhead = strictlyAhead.filter((e) => e.xp > nextGroupXp).length;
       jumpToRank = 1 + stillStrictlyAhead;
+      playersPassed = myRank - jumpToRank;
       const leaderName = nextGroupPlayers[0]?.name || "rival";
-      nextLabel =
+      targetLabel =
         nextGroupPlayers.length > 1
-          ? `Next: #${jumpToRank} (${nextGroupPlayers.length} tied)`
-          : `Next: #${jumpToRank} ${leaderName}`;
+          ? `Pass ${nextGroupPlayers.length} tied players (${leaderName} & others) → Jump to #${jumpToRank}`
+          : `Beat ${leaderName} → Jump to #${jumpToRank}`;
     }
 
+    // Also calculate a "One Good Quiz (+150 XP)" multi-rank jump preview
+    let bigLeapMsg = "";
+    if (!isSoleFirst) {
+      const boostXp = myXp + 150;
+      const rankAfterBoost = 1 + list.filter((e) => !e.isMe && e.xp > boostXp).length;
+      const spotsGained = myRank - rankAfterBoost;
+      if (spotsGained > Math.max(1, playersPassed)) {
+        bigLeapMsg = `Score +150 XP in one quiz to leap ${spotsGained} ranks straight to #${rankAfterBoost}!`;
+      } else if (xpToJump > 0) {
+        const qNeeded = Math.max(1, Math.ceil(xpToJump / XP_PER_LEVEL[1]));
+        bigLeapMsg = `Just ${qNeeded} right answer${qNeeded > 1 ? "s" : ""} on Medium jumps you to #${jumpToRank}`;
+      }
+    }
+
+    // Runner behind (for #1 lead margin)
     const runnerBehind = list.find((e) => !e.isMe && e.xp <= myXp) || null;
     const leadMargin = isSoleFirst && runnerBehind ? Math.max(0, myXp - runnerBehind.xp) : 0;
 
+    // Progress bar calculation
+    let raceProgress = 100;
+    if (isSoleFirst && runnerBehind) {
+      raceProgress = Math.min(100, Math.max(16, (leadMargin / Math.max(100, myXp * 0.2)) * 100));
+    } else if (nextGroupXp !== null) {
+      const floorXp = runnerBehind ? runnerBehind.xp : 0;
+      const span = Math.max(1, nextGroupXp + 1 - floorXp);
+      raceProgress = Math.min(96, Math.max(8, ((myXp - floorXp) / span) * 100));
+    } else if (tiedAtMyXp.length > 0) {
+      raceProgress = 85;
+    }
+
+    // Build 3-player neighborhood slice
+    const startIdx = Math.max(0, Math.min(list.length - 3, (myIdx >= 0 ? myIdx : 0) - 1));
+    const nearby = list.slice(startIdx, startIdx + 3).map((entry, offset) => ({
+      ...entry,
+      rank: startIdx + offset + 1,
+    }));
+
     return {
-      ...snap,
+      myRank,
+      totalPlayers,
       isSoleFirst,
+      isTiedForFirst,
+      tiedCount: tiedAtMyXp.length,
       xpToJump,
       jumpToRank,
-      nextLabel,
+      playersPassed,
+      targetLabel,
+      bigLeapMsg,
+      runnerBehind,
       leadMargin,
+      raceProgress,
+      nearby,
+      nextGroupXp,
     };
   }, [allTimeEntries, todayEntries, raceMode, profile.xp, myTodayXp]);
 
-  const [animRank, setAnimRank] = useState<number>(raceData.myRank);
-  const [animXp, setAnimXp] = useState<number>(raceData.myXp);
-  const [animBarPct, setAnimBarPct] = useState<number>(0);
-
-  const barTargetXp = useMemo(() => {
-    let target = 1000;
-    while (raceData.myXp >= target) {
-      target *= 10;
-    }
-    return target;
-  }, [raceData.myXp]);
-
-  const targetBarPct = useMemo(() => {
-    if (raceData.myXp <= 0) return 0;
-    return Math.max(2.5, Math.min(100, (raceData.myXp / barTargetXp) * 100));
-  }, [raceData.myXp, barTargetXp]);
-
-  useEffect(() => {
-    setFillReady(false);
-    const reduceMotion =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-
-    if (reduceMotion) {
-      setFillReady(true);
-      setAnimRank(raceData.myRank);
-      setAnimXp(raceData.myXp);
-      setAnimBarPct(targetBarPct);
-      return;
-    }
-
-    const startRank = Math.max(raceData.myRank, raceData.totalPlayers);
-    const duration = 900;
-    let rafId = 0;
-    let startTime = 0;
-
-    setAnimRank(startRank);
-    setAnimXp(0);
-    setAnimBarPct(0);
-
-    const step = (ts: number) => {
-      if (!startTime) {
-        startTime = ts;
-        setFillReady(true);
-      }
-      const elapsed = ts - startTime;
-      const t = Math.min(1, elapsed / duration);
-      const eased = 1 - Math.pow(1 - t, 3);
-
-      setAnimRank(Math.round(startRank + (raceData.myRank - startRank) * eased));
-      setAnimXp(Math.round(raceData.myXp * eased));
-      setAnimBarPct(targetBarPct * eased);
-
-      if (t < 1) {
-        rafId = window.requestAnimationFrame(step);
-      }
-    };
-
-    rafId = window.requestAnimationFrame(step);
-    return () => window.cancelAnimationFrame(rafId);
-  }, [raceMode, raceData.myRank, raceData.myXp, raceData.totalPlayers, targetBarPct]);
-
-  const barScale = fillReady ? animBarPct / 100 : 0;
+  const allRankNum = 1 + allTimeEntries.filter((e) => !e.isMe && e.xp > profile.xp).length;
+  const tdRankNum = 1 + todayEntries.filter((e) => !e.isMe && e.xp > myTodayXp).length;
 
   return (
-    <div className="space-y-3.5">
+    <div className="space-y-3">
       {/* Greeting */}
       <div className="pt-1 pb-0.5 px-1">
-        <h1 className="text-[28px] sm:text-[34px] leading-[1.12] font-extrabold tracking-tight text-[#0B1B4D] dark:text-[#EAF0FF] break-words">
+        <h1 className="text-[30px] sm:text-[36px] leading-[1.1] font-extrabold tracking-tight text-[#0B1B4D] dark:text-[#EAF0FF] break-words">
           Hey, <span className="text-[#1457E0] dark:text-[#5AA2FF]">{profile.name}</span>{" "}
           <i className="animate-wave not-italic" aria-hidden="true">
             👋
           </i>
         </h1>
-        <p className="text-[14px] sm:text-[15px] text-[#5A6A92] dark:text-[#93A3CC] mt-1">
+        <p className="text-[15px] text-[#5A6A92] dark:text-[#93A3CC] mt-1">
           Let&apos;s test your knowledge today
         </p>
       </div>
 
-      {/* Minimalistic Standing + Play Card */}
-      <section className="amay-card rounded-[28px] p-4 sm:p-5 space-y-4 overflow-hidden">
-        {/* Top Row: Clean Title + Today / Overall Switch */}
-        <div className="flex items-center justify-between gap-2 min-w-0">
-          <div className="min-w-0 flex-1 flex items-center gap-1.5 text-xs sm:text-[13px] font-extrabold text-[#0B1B4D] dark:text-[#EAF0FF]">
-            {raceData.isSoleFirst && (
-              <Crown className="w-4 h-4 text-[#D98A00] dark:text-[#FFC24D] shrink-0" />
+      {/* Thrilling Rank Race Card */}
+      <section className="amay-card rounded-[28px] p-4 sm:p-5 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-[22px] bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 border border-[#1846AA]/12 dark:border-white/10 text-xs font-bold text-[#0B1B4D] dark:text-[#EAF0FF]">
+            {raceData.isSoleFirst ? (
+              <>
+                <Crown className="w-3.5 h-3.5 text-[#D98A00] dark:text-[#FFC24D]" />
+                <span>#1 Leader · Defend Crown</span>
+              </>
+            ) : (
+              <>
+                <Swords className="w-3.5 h-3.5 text-[#1457E0] dark:text-[#5AA2FF]" />
+                <span>
+                  Rank #{raceData.myRank} → Jump to #{raceData.jumpToRank}
+                </span>
+              </>
             )}
-            <span className="truncate">
-              {raceData.isSoleFirst
-                ? `#1 Leader · Top ${raceData.topPercentile}%`
-                : `${raceMode === "td" ? "Today's Rank" : "Overall Rank"} · Top ${raceData.topPercentile}%`}
-            </span>
           </div>
 
           <div className="inline-flex p-0.5 rounded-full bg-[#1457E0]/10 dark:bg-white/10 text-xs font-bold shrink-0">
             <button
               type="button"
-              onClick={() => setRaceMode("td")}
-              className={`px-3 py-1 rounded-full transition-colors cursor-pointer whitespace-nowrap ${
-                raceMode === "td"
-                  ? "bg-[#1457E0] text-white"
-                  : "text-[#5A6A92] dark:text-[#93A3CC]"
-              }`}
-            >
-              Today
-            </button>
-            <button
-              type="button"
               onClick={() => setRaceMode("all")}
-              className={`px-3 py-1 rounded-full transition-colors cursor-pointer whitespace-nowrap ${
+              className={`px-2.5 py-1 rounded-full transition-colors cursor-pointer ${
                 raceMode === "all"
                   ? "bg-[#1457E0] text-white"
                   : "text-[#5A6A92] dark:text-[#93A3CC]"
@@ -204,160 +206,265 @@ export const HomeView: React.FC<HomeViewProps> = ({
             >
               Overall
             </button>
+            <button
+              type="button"
+              onClick={() => setRaceMode("td")}
+              className={`px-2.5 py-1 rounded-full transition-colors cursor-pointer ${
+                raceMode === "td"
+                  ? "bg-[#1457E0] text-white"
+                  : "text-[#5A6A92] dark:text-[#93A3CC]"
+              }`}
+            >
+              Today
+            </button>
           </div>
         </div>
 
-        {/* Clean 2-Stat Summary */}
-        <div className="grid grid-cols-2 divide-x divide-[#1846AA]/12 dark:divide-white/12 rounded-2xl bg-[#1457E0]/[0.05] dark:bg-white/[0.04] border border-[#1846AA]/10 dark:border-white/10 py-3 px-2 overflow-hidden">
-          <div className="px-2.5 sm:px-3 min-w-0">
-            <div className="text-[11px] font-bold text-[#5A6A92] dark:text-[#93A3CC]">
-              {raceMode === "td" ? "Today Rank" : "Overall Rank"}
-            </div>
-            <div className="flex items-baseline gap-1 mt-0.5 whitespace-nowrap">
-              <strong className="text-[30px] sm:text-[34px] leading-none font-extrabold tracking-tight font-mono-nums text-[#1457E0] dark:text-[#5AA2FF]">
-                #{animRank}
+        {/* Hero Big Number */}
+        {raceData.isSoleFirst ? (
+          <div>
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <strong className="text-[46px] sm:text-[54px] leading-none font-extrabold tracking-tight text-[#0B1B4D] dark:text-white font-mono-nums">
+                +{raceData.leadMargin.toLocaleString()}
               </strong>
-              <span className="text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC] font-mono-nums">
-                /{raceData.totalPlayers}
+              <span className="text-[17px] sm:text-[19px] font-bold text-[#12A150] dark:text-[#3DD17F]">
+                XP ahead of #2
               </span>
             </div>
+            <p className="text-xs sm:text-sm font-semibold text-[#5A6A92] dark:text-[#93A3CC] mt-1">
+              {raceData.runnerBehind
+                ? `${raceData.runnerBehind.name} (${raceData.runnerBehind.xp.toLocaleString()} XP) is chasing you — widen the gap!`
+                : "You hold #1 outright! Keep playing to lock your lead."}
+            </p>
           </div>
-
-          <div className="pl-3.5 sm:pl-4 pr-2 min-w-0">
-            <div className="text-[11px] font-bold text-[#5A6A92] dark:text-[#93A3CC]">
-              {raceMode === "td" ? "Today XP" : "Total XP"}
-            </div>
-            <div
-              className="flex items-baseline gap-1 mt-0.5 whitespace-nowrap"
-              title={`${raceData.myXp.toLocaleString()} XP`}
-            >
-              <strong className="text-[30px] sm:text-[34px] leading-none font-extrabold tracking-tight font-mono-nums text-[#1457E0] dark:text-[#5AA2FF]">
-                {formatCompactXp(animXp)}
+        ) : (
+          <div className="space-y-0.5">
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <strong className="text-[46px] sm:text-[54px] leading-none font-extrabold tracking-tight text-[#0B1B4D] dark:text-white font-mono-nums">
+                +{raceData.xpToJump.toLocaleString()}
               </strong>
-              <span className="text-xs font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">XP</span>
+              <span className="text-[17px] sm:text-[19px] font-bold text-[#0B1B4D] dark:text-[#EAF0FF]">
+                XP to hit <span className="text-[#1457E0] dark:text-[#5AA2FF]">#{raceData.jumpToRank}</span>
+              </span>
             </div>
+            <p className="text-xs sm:text-sm font-semibold text-[#5A6A92] dark:text-[#93A3CC]">
+              {raceData.targetLabel}
+            </p>
           </div>
+        )}
+
+        {/* Race Progress Bar */}
+        <div className="space-y-1">
+          <div className="h-2.5 rounded-lg bg-[#1457E0]/10 dark:bg-white/10 overflow-hidden">
+            <div
+              className="h-full rounded-lg bg-gradient-to-r from-[#38B0FF] to-[#0B57DD] transition-all duration-500"
+              style={{ width: `${raceData.raceProgress}%` }}
+            />
+          </div>
+          {raceData.bigLeapMsg && (
+            <div className="flex items-center gap-1.5 text-xs font-bold text-[#1457E0] dark:text-[#5AA2FF]">
+              <Zap className="w-3.5 h-3.5 shrink-0" />
+              <span>{raceData.bigLeapMsg}</span>
+            </div>
+          )}
         </div>
 
-        {/* Milestone XP Progress Bar (1,000 -> 10,000 -> 100,000 XP) */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="font-semibold text-[#5A6A92] dark:text-[#93A3CC] truncate min-w-0">
-              Filled:{" "}
-              <strong className="font-mono-nums font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
-                {raceMode === "all" ? formatCompactXp(animXp) : animXp.toLocaleString()} XP
-              </strong>
-            </span>
-            <span className="font-mono-nums font-extrabold text-[#0B1B4D] dark:text-[#EAF0FF] shrink-0">
-              {raceMode === "all" ? formatCompactXp(barTargetXp) : barTargetXp.toLocaleString()} XP
-            </span>
-          </div>
+        {/* Overall & Today Ranks */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onOpenRank}
+            className="amay-card rounded-[20px] py-2 px-3 flex items-center justify-center gap-1.5 text-[14px] cursor-pointer"
+          >
+            <span>🏆 Rank</span>
+            <strong className="text-[17px] text-[#1457E0] dark:text-[#5AA2FF] font-mono-nums">
+              #{allRankNum}
+            </strong>
+            <small className="text-[#5A6A92] dark:text-[#93A3CC] text-[12px]">
+              of {allTimeEntries.length}
+            </small>
+          </button>
 
-          <div className="relative h-3.5 rounded-full bg-[#1457E0]/12 dark:bg-white/10 overflow-hidden shadow-inner">
-            {/* Subtle quarter guide ticks */}
-            <span
-              className="absolute inset-y-0 left-1/4 w-px bg-[#1457E0]/12 dark:bg-white/10 pointer-events-none z-10"
-              aria-hidden="true"
-            />
-            <span
-              className="absolute inset-y-0 left-1/2 w-px bg-[#1457E0]/12 dark:bg-white/10 pointer-events-none z-10"
-              aria-hidden="true"
-            />
-            <span
-              className="absolute inset-y-0 left-3/4 w-px bg-[#1457E0]/12 dark:bg-white/10 pointer-events-none z-10"
-              aria-hidden="true"
-            />
-
-            {/* Animated flowing fill */}
-            <div
-              className="amay-xp-flow relative h-full w-full rounded-full overflow-hidden origin-left"
-              style={{ transform: `scaleX(${barScale})` }}
-            >
-              <div
-                className="absolute inset-x-0 top-0 h-[45%] bg-gradient-to-b from-white/35 to-transparent pointer-events-none"
-                aria-hidden="true"
-              />
-              <span className="amay-shimmer-beam" aria-hidden="true" />
-            </div>
-
-            {/* Glowing tip orb riding the leading edge */}
-            {animBarPct > 1.5 && (
-              <span
-                className="amay-tip-orb absolute top-1/2 w-2.5 h-2.5 rounded-full bg-white pointer-events-none z-20"
-                style={{ left: `clamp(6px, ${animBarPct}%, calc(100% - 6px))` }}
-                aria-hidden="true"
-              />
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={onOpenRank}
+            className="amay-card rounded-[20px] py-2 px-3 flex items-center justify-center gap-1.5 text-[14px] cursor-pointer"
+          >
+            <span>⚡ Today</span>
+            <strong className="text-[17px] text-[#1457E0] dark:text-[#5AA2FF] font-mono-nums">
+              #{tdRankNum}
+            </strong>
+            <small className="text-[#5A6A92] dark:text-[#93A3CC] text-[12px]">
+              of {todayEntries.length}
+            </small>
+          </button>
         </div>
 
-        {/* Primary Focal CTA */}
+        {/* Glowing Play Now CTA — right in front above the fold */}
         <button
           type="button"
           onClick={onStartNormalQuiz}
-          className="w-full h-14 rounded-[28px] amay-play-btn text-white font-bold text-[18px] flex items-center justify-center gap-2.5 relative cursor-pointer active:scale-[0.98] transition-transform"
+          className="w-full h-14 rounded-[30px] amay-play-btn text-white font-bold text-[19px] flex items-center justify-center gap-2.5 relative cursor-pointer active:scale-[0.98] transition-transform"
         >
           <Play className="w-5 h-5 fill-current" />
           <span>Play now</span>
           <ChevronRight className="w-5 h-5 absolute right-5" />
         </button>
 
-        {/* 3-Row Mini Rank Table: One Up, My Rank, One Down */}
-        <div className="rounded-2xl bg-[#1457E0]/[0.04] dark:bg-white/[0.04] border border-[#1846AA]/10 dark:border-white/10 divide-y divide-[#1846AA]/10 dark:divide-white/10 overflow-hidden">
-          {raceData.nextAhead[0] && (
-            <div className="px-3.5 py-2 flex items-center justify-between gap-2 text-[13px]">
+        {/* Live 3-Player Neighborhood Strip & Rule Tip */}
+        <div className="rounded-2xl bg-[#1457E0]/[0.05] dark:bg-white/[0.04] border border-[#1846AA]/10 dark:border-white/10 divide-y divide-[#1846AA]/10 dark:divide-white/10">
+          {raceData.nearby.map((row) => (
+            <div
+              key={`${row.rank}-${row.name}`}
+              className={`px-3.5 py-1.5 flex items-center justify-between text-[13px] ${
+                row.isMe
+                  ? "bg-[#1457E0]/12 dark:bg-[#5AA2FF]/20 font-extrabold text-[#0B1B4D] dark:text-white"
+                  : "font-semibold text-[#5A6A92] dark:text-[#93A3CC]"
+              }`}
+            >
               <div className="flex items-center gap-2 min-w-0">
-                <span className="font-mono-nums w-9 text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC] shrink-0">
-                  #{raceData.nextAhead[0].rank}
-                </span>
-                <span className="truncate font-semibold text-[#0B1B4D] dark:text-[#EAF0FF]">
-                  {raceData.nextAhead[0].name}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 shrink-0 font-mono-nums">
-                <span className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
-                  {raceMode === "all"
-                    ? formatCompactXp(raceData.nextAhead[0].xp)
-                    : raceData.nextAhead[0].xp.toLocaleString()}{" "}
-                  XP
-                </span>
-                <span className="inline-flex items-center text-xs font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
-                  <ArrowUpRight className="w-3 h-3" />+
-                  {raceMode === "all"
-                    ? formatCompactXp(raceData.nextAhead[0].xpToPass)
-                    : raceData.nextAhead[0].xpToPass.toLocaleString()}
+                <span className="font-mono-nums w-8 text-xs">#{row.rank}</span>
+                <span className="truncate">
+                  {row.name}
+                  {row.isMe ? " (You)" : ""}
                 </span>
               </div>
-            </div>
-          )}
-
-          <div className="px-3.5 py-2 flex items-center justify-between gap-2 text-[13px] bg-[#1457E0]/12 dark:bg-[#5AA2FF]/20 font-extrabold text-[#0B1B4D] dark:text-white">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="font-mono-nums w-9 text-xs shrink-0">#{raceData.myRank}</span>
-              <span className="truncate">{profile.name} (You)</span>
-            </div>
-            <span className="font-mono-nums font-bold text-[#1457E0] dark:text-[#5AA2FF] shrink-0">
-              {raceMode === "all" ? formatCompactXp(raceData.myXp) : raceData.myXp.toLocaleString()} XP
-            </span>
-          </div>
-
-          {raceData.chaserBehind && (
-            <div className="px-3.5 py-2 flex items-center justify-between gap-2 text-[12px] font-medium text-[#5A6A92] dark:text-[#93A3CC]">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="font-mono-nums w-9 text-xs shrink-0">
-                  #{raceData.chaserBehind.rank}
-                </span>
-                <span className="truncate">{raceData.chaserBehind.name}</span>
-              </div>
-              <span className="font-mono-nums shrink-0">
-                −
-                {raceMode === "all"
-                  ? formatCompactXp(raceData.chaserBehind.gapBelow)
-                  : raceData.chaserBehind.gapBelow.toLocaleString()}{" "}
-                XP
+              <span className="font-mono-nums font-bold text-[#1457E0] dark:text-[#5AA2FF] shrink-0">
+                {row.xp.toLocaleString()} XP
               </span>
             </div>
-          )}
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 text-xs font-medium text-[#5A6A92] dark:text-[#93A3CC]">
+          <Flame className="w-4 h-4 text-amber-500 shrink-0" />
+          <span>
+            1/4 negative marking active · skip unsure questions
+            {profile.streak > 0 ? ` · ${profile.streak}-day streak` : ""}
+          </span>
+        </div>
+
+        {profile.xp >= 500 && (
+          <button
+            type="button"
+            onClick={onOpenBadge}
+            className="w-full py-3 rounded-[20px] amay-card text-[#1457E0] dark:text-[#5AA2FF] font-bold text-[15px] text-center cursor-pointer"
+          >
+            🏅 Share my badge
+          </button>
+        )}
+      </section>
+
+      {/* ======================================================== */}
+      {/* CLASS 10 BOARD SPECIAL (CBSE) — PROMINENT DASHBOARD CARD */}
+      {/* ======================================================== */}
+      <section className="amay-card rounded-[28px] p-4 sm:p-5 space-y-3.5 relative overflow-hidden border-2 border-[#1457E0]/25 dark:border-[#5AA2FF]/30 shadow-[0_16px_36px_-18px_rgba(20,87,224,0.35)]">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-0.5 rounded-full bg-gradient-to-r from-[#2B7BFF] to-[#1457E0] text-white text-[10.5px] font-black uppercase tracking-wider shadow-sm animate-pulse">
+              NEW
+            </span>
+            <div className="inline-flex items-center gap-1 text-xs font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
+              <GraduationCap className="w-3.5 h-3.5" />
+              <span>CBSE 2026 Edition</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpenClass10Hub}
+            className="text-xs font-bold text-[#1457E0] dark:text-[#5AA2FF] hover:underline flex items-center gap-1 cursor-pointer"
+          >
+            <span>View All</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div>
+          <h2 className="text-[19px] sm:text-[21px] font-extrabold text-[#0B1B4D] dark:text-white leading-tight">
+            Class 10 Board Special <span className="text-[#1457E0] dark:text-[#5AA2FF]">(CBSE)</span>
+          </h2>
+          <p className="text-xs sm:text-[13px] text-[#5A6A92] dark:text-[#93A3CC] mt-0.5">
+            Interactive map skills, chronology sorting, and logic lab tailored for board exams.
+          </p>
+        </div>
+
+        {/* 3 Dedicated Interactive Game Modes */}
+        <div className="grid grid-cols-1 gap-2.5 pt-0.5">
+          {/* Mode 1: Interactive India Map-Work */}
+          <button
+            type="button"
+            onClick={onOpenClass10Map}
+            className="w-full text-left p-3 rounded-[20px] bg-white/70 dark:bg-white/[0.05] border border-[#1846AA]/12 dark:border-white/10 hover:border-[#1457E0]/40 dark:hover:border-[#5AA2FF]/40 transition-all flex items-center gap-3 active:scale-[0.99] cursor-pointer group shadow-xs"
+          >
+            <div className="w-10 h-10 rounded-[14px] bg-gradient-to-br from-[#0288D1] to-[#01579B] flex items-center justify-center text-white shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+              <Compass className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <strong className="text-[14px] font-extrabold text-[#0B1B4D] dark:text-white truncate">
+                  Interactive India Map-Work
+                </strong>
+                <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-600 dark:text-sky-400 shrink-0">
+                  25 Pins
+                </span>
+              </div>
+              <p className="text-[11.5px] text-[#5A6A92] dark:text-[#93A3CC] truncate mt-0.5">
+                Congress sessions, Satyagraha centers, Dams, Ports & Airports
+              </p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-[#5A6A92] dark:text-[#93A3CC] group-hover:translate-x-0.5 transition-transform shrink-0" />
+          </button>
+
+          {/* Mode 2: History Timeline Sorter */}
+          <button
+            type="button"
+            onClick={onOpenClass10Timeline}
+            className="w-full text-left p-3 rounded-[20px] bg-white/70 dark:bg-white/[0.05] border border-[#1846AA]/12 dark:border-white/10 hover:border-[#E65100]/40 dark:hover:border-amber-500/40 transition-all flex items-center gap-3 active:scale-[0.99] cursor-pointer group shadow-xs"
+          >
+            <div className="w-10 h-10 rounded-[14px] bg-gradient-to-br from-[#E65100] to-[#BF360C] flex items-center justify-center text-white shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <strong className="text-[14px] font-extrabold text-[#0B1B4D] dark:text-white truncate">
+                  History Timeline Sorter
+                </strong>
+                <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 shrink-0">
+                  Drag & Tap
+                </span>
+              </div>
+              <p className="text-[11.5px] text-[#5A6A92] dark:text-[#93A3CC] truncate mt-0.5">
+                Sort events chronologically without dates & test your recall
+              </p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-[#5A6A92] dark:text-[#93A3CC] group-hover:translate-x-0.5 transition-transform shrink-0" />
+          </button>
+
+          {/* Mode 3: Assertion & Reason Logic Lab */}
+          <button
+            type="button"
+            onClick={onOpenClass10AR}
+            className="w-full text-left p-3 rounded-[20px] bg-white/70 dark:bg-white/[0.05] border border-[#1846AA]/12 dark:border-white/10 hover:border-[#1457E0]/40 dark:hover:border-[#5AA2FF]/40 transition-all flex items-center gap-3 active:scale-[0.99] cursor-pointer group shadow-xs"
+          >
+            <div className="w-10 h-10 rounded-[14px] bg-gradient-to-br from-[#1457E0] to-[#0A3CAD] flex items-center justify-center text-white shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+              <Scale className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <strong className="text-[14px] font-extrabold text-[#0B1B4D] dark:text-white truncate">
+                  Assertion & Reason Logic Lab
+                </strong>
+                <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 shrink-0">
+                  Step Logic
+                </span>
+              </div>
+              <p className="text-[11.5px] text-[#5A6A92] dark:text-[#93A3CC] truncate mt-0.5">
+                Step-by-step 3-toggle reasoning with official NCERT explanations
+              </p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-[#5A6A92] dark:text-[#93A3CC] group-hover:translate-x-0.5 transition-transform shrink-0" />
+          </button>
         </div>
       </section>
 
@@ -365,15 +472,15 @@ export const HomeView: React.FC<HomeViewProps> = ({
       <button
         type="button"
         onClick={onOpenSubjects}
-        className="w-full amay-card rounded-[28px] p-4 sm:p-5 flex items-center gap-3.5 text-left cursor-pointer hover:-translate-y-0.5 transition-transform overflow-hidden"
+        className="w-full amay-card rounded-[30px] p-5 flex items-center gap-3.5 text-left cursor-pointer hover:-translate-y-0.5 transition-transform"
       >
-        <span className="text-[28px]" aria-hidden="true">
+        <span className="text-[30px]" aria-hidden="true">
           🎯
         </span>
-        <strong className="flex-1 text-[18px] font-bold text-[#0B1B4D] dark:text-[#EAF0FF]">
+        <strong className="flex-1 text-[19px] font-bold text-[#0B1B4D] dark:text-[#EAF0FF]">
           Choose a subject
         </strong>
-        <ChevronRight className="w-5 h-5 text-[#5A6A92] dark:text-[#93A3CC]" />
+        <ChevronRight className="w-6 h-6 text-[#0B1B4D] dark:text-[#EAF0FF]" />
       </button>
 
       {/* Latest Video */}
@@ -381,7 +488,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         href={latestVideo.url || SOCIAL_LINKS.youtubeShort}
         target="_blank"
         rel="noopener noreferrer"
-        className="amay-card rounded-[28px] p-3.5 sm:p-4 flex items-center gap-3.5 hover:-translate-y-0.5 transition-transform overflow-hidden"
+        className="amay-card rounded-[30px] p-3.5 sm:p-4 flex items-center gap-3.5 sm:gap-4 hover:-translate-y-0.5 transition-transform"
       >
         <div className="w-24 h-16 rounded-[16px] bg-gradient-to-br from-[#2B9BF6] to-[#0B57DD] flex items-center justify-center text-white shrink-0 relative overflow-hidden shadow-sm">
           {resolvedThumb ? (
@@ -404,7 +511,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <strong className="block text-[16px] font-bold text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
+          <strong className="block text-[17px] font-bold text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
             {latestVideo.title || "Latest video"}
           </strong>
           <span className="block text-sm text-[#5A6A92] dark:text-[#93A3CC] line-clamp-2">
@@ -415,14 +522,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
       </a>
 
       {/* Socials */}
-      <div className="pt-1 pb-2 text-center space-y-2">
-        <p className="text-xs font-semibold text-[#5A6A92] dark:text-[#93A3CC]">Follow AmaySST</p>
+      <div className="pt-2 pb-2 text-center space-y-2.5">
+        <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC]">Follow AmaySST</p>
         <div className="grid grid-cols-2 gap-3">
           <a
             href={SOCIAL_LINKS.instagram}
             target="_blank"
             rel="noopener noreferrer"
-            className="amay-card rounded-[20px] py-3 font-bold text-sm text-[#0B1B4D] dark:text-[#EAF0FF] hover:-translate-y-0.5 transition-transform"
+            className="amay-card rounded-[22px] py-3 font-bold text-[#0B1B4D] dark:text-[#EAF0FF] hover:-translate-y-0.5 transition-transform"
           >
             Instagram
           </a>
@@ -430,7 +537,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             href={SOCIAL_LINKS.youtubeChannel}
             target="_blank"
             rel="noopener noreferrer"
-            className="amay-card rounded-[20px] py-3 font-bold text-sm text-[#0B1B4D] dark:text-[#EAF0FF] hover:-translate-y-0.5 transition-transform"
+            className="amay-card rounded-[22px] py-3 font-bold text-[#0B1B4D] dark:text-[#EAF0FF] hover:-translate-y-0.5 transition-transform"
           >
             YouTube
           </a>
