@@ -2,51 +2,84 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AdminView } from "./components/AdminView";
 import { BadgeModal } from "./components/BadgeModal";
 import { BottomNav } from "./components/BottomNav";
+import { ChatView } from "./components/ChatView";
 import { GateView } from "./components/GateView";
 import { Header, type AppRoute } from "./components/Header";
 import { HomeView } from "./components/HomeView";
+import { LaunchSplash } from "./components/LaunchSplash";
+import { NotificationInboxModal, NotificationPopupModal } from "./components/NotificationModal";
 import { ProfileView } from "./components/ProfileView";
 import { PWAInstallModal } from "./components/PWAInstallModal";
 import { QuizView } from "./components/QuizView";
 import { RankView, type RankEntry } from "./components/RankView";
 import { SubjectConfigView, SubjectsGridView } from "./components/SubjectsView";
-import { Class10HubView } from "./components/class10/Class10HubView";
-import { MapWorkView } from "./components/class10/MapWorkView";
-import { TimelineSorterView } from "./components/class10/TimelineSorterView";
-import { AssertionReasonLabView } from "./components/class10/AssertionReasonLabView";
 import { usePWAInstall } from "./hooks/usePWAInstall";
-import { BENCHMARK_PLAYERS } from "./data/benchmarks";
 import { type QuizKey, type RawQuestion, type SubjectKey } from "./data/questions";
+import { resolveBotRoster } from "./lib/botSimulator";
+import type { BadgeDesignSpec } from "./lib/badgeCanvas";
 import {
   buildQuizSet,
   calculateQuizScore,
+  clearProfileSession,
+  generateFreshGuestUUID,
   getGuestUUID,
+  getRankDifficultyRule,
+  getTodayCutoffStatus,
   LEVELS,
   loadProfile,
   loadQueue,
+  markQuestionsSeen,
   mergeDynamicQuestions,
   QUIZ_LENGTHS,
   saveProfile,
   saveQueue,
+  setGuestUUID,
+  todayIST,
   todayUTC,
   type ActiveQuizState,
+  type DailyBadgeRecord,
   type StudentProfile,
 } from "./lib/quizEngine";
 import { getCrossedXpMilestone, launchMilestoneConfetti } from "./lib/confetti";
-import { playMilestoneSound, playQuizCompleteSound, playSelectTapSound } from "./lib/soundEffects";
 import {
+  playMilestoneSound,
+  playQuizCompleteSound,
+  playSelectTapSound,
+  playUiTapSound,
+} from "./lib/soundEffects";
+import {
+  fetchBotDailyCeilings,
   fetchBotOverrides,
+  fetchCandidateTodayOverrides,
   fetchDynamicQuestions,
   fetchLatestVideo,
+  fetchNotifications,
+  getChatDirectory,
   getLeaderboard,
+  getMyChatMessages,
+  getMyCredentials,
   getMyStats,
+  getMyTodayIST,
+  loadBotDailyCeilings,
   loadBotOverrides,
+  loadCandidateTodayOverrides,
   loadLocalLatestVideo,
+  loadLocalNotifications,
   logCandidateTap,
+  loginWithCredentials,
+  mergeBotDailyCeilingMaps,
   registerPlayer,
+  registerWithCredentials,
   reportAppInstallStatus,
+  reportNotificationsSeen,
+  saveBotDailyCeilings,
+  setMyCredentials,
   submitQuizAttempt,
+  subscribeChatRealtime,
+  type AppNotification,
   type BotOverride,
+  type CandidateTodayOverride,
+  type ChatDirectoryUser,
   type CloudStats,
   type LatestVideoConfig,
   type LiveLeaderRow,
@@ -65,18 +98,32 @@ function isSecretAdminUrl(): boolean {
 }
 
 export default function App() {
-  const [guestId] = useState<string>(() => getGuestUUID());
+  const [guestId, setGuestId] = useState<string>(() => getGuestUUID());
   const [profile, setProfile] = useState<StudentProfile>(() => loadProfile());
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [chatDirectory, setChatDirectory] = useState<ChatDirectoryUser[]>([]);
+  const [pendingChatPeer, setPendingChatPeer] = useState<{ uuid: string; name: string } | null>(null);
   const [view, setView] = useState<AppRoute>(() => {
     if (isSecretAdminUrl()) return "admin";
-    return loadProfile().name ? "home" : "gate";
+    const p = loadProfile();
+    return p.name && p.username && p.password ? "home" : "gate";
   });
+  const [showLaunchSplash, setShowLaunchSplash] = useState<boolean>(() => !isSecretAdminUrl());
 
   const [mergedBank, setMergedBank] = useState<Record<SubjectKey, RawQuestion[]>>(() =>
     mergeDynamicQuestions([])
   );
+
   const [livePlayers, setLivePlayers] = useState<LiveLeaderRow[]>([]);
+  const [liveLeaderboardIstSynced, setLiveLeaderboardIstSynced] = useState(false);
   const [botOverrides, setBotOverrides] = useState<Record<string, BotOverride>>(() => loadBotOverrides());
+  const [botDailyCeilings, setBotDailyCeilings] = useState<Record<string, number>>(() =>
+    loadBotDailyCeilings()
+  );
+  const [candidateTodayOverrides, setCandidateTodayOverrides] = useState<
+    Record<string, CandidateTodayOverride>
+  >(() => loadCandidateTodayOverrides());
+  const [botClockTick, setBotClockTick] = useState<number>(() => Date.now());
   const [latestVideo, setLatestVideo] = useState<LatestVideoConfig>(() => loadLocalLatestVideo());
   const [isOffline, setIsOffline] = useState(() => (typeof navigator !== "undefined" ? !navigator.onLine : false));
 
@@ -86,16 +133,84 @@ export default function App() {
 
   const [quiz, setQuiz] = useState<ActiveQuizState | null>(null);
   const [showBadgeModal, setShowBadgeModal] = useState(false);
+  const [selectedBadgeSpec, setSelectedBadgeSpec] = useState<BadgeDesignSpec | null>(null);
   const [showInstallModal, setShowInstallModal] = useState(false);
+  const [allNotifications, setAllNotifications] = useState<AppNotification[]>(() => loadLocalNotifications());
+  const [seenNotifIds, setSeenNotifIds] = useState<string[]>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem("amaysst_seen_notifs") || "[]");
+      return Array.isArray(parsed) ? (parsed as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showNotifInbox, setShowNotifInbox] = useState(false);
   const [impersonated, setImpersonated] = useState<{
     guestUuid: string;
     profile: StudentProfile;
     botOriginalName?: string;
   } | null>(null);
-  const { canNativeInstall, isInstalled, isIOS, install } = usePWAInstall();
+  const { canNativeInstall, isInstalled, isIOS, isInAppBrowser, externalBrowserUrl, install } =
+    usePWAInstall();
 
   const effectiveProfile = impersonated ? impersonated.profile : profile;
   const effectiveGuestId = impersonated ? impersonated.guestUuid : guestId;
+  const hasCompleteAccount = Boolean(profile.name && profile.username && profile.password);
+
+  const myNotifications = useMemo(
+    () =>
+      allNotifications.filter(
+        (n) => n.target === "all" || (n.target === "candidate" && n.targetGuestUuid === effectiveGuestId)
+      ),
+    [allNotifications, effectiveGuestId]
+  );
+
+  const unreadNotifCount = useMemo(
+    () => myNotifications.filter((n) => !seenNotifIds.includes(n.id)).length,
+    [myNotifications, seenNotifIds]
+  );
+
+  const activePopupNotif = useMemo(() => {
+    if (
+      showLaunchSplash ||
+      impersonated ||
+      !hasCompleteAccount ||
+      showNotifInbox ||
+      showInstallModal ||
+      showBadgeModal ||
+      view === "quiz" ||
+      view === "gate" ||
+      view === "admin"
+    ) {
+      return null;
+    }
+    return myNotifications.find((n) => !seenNotifIds.includes(n.id)) || null;
+  }, [hasCompleteAccount, impersonated, myNotifications, seenNotifIds, showBadgeModal, showInstallModal, showLaunchSplash, showNotifInbox, view]);
+
+  const markNotifsSeen = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return;
+      setSeenNotifIds((prev) => {
+        const next = Array.from(new Set([...ids, ...prev])).slice(0, 100);
+        try {
+          localStorage.setItem("amaysst_seen_notifs", JSON.stringify(next));
+        } catch {
+          // ignore storage errors
+        }
+        return next;
+      });
+      if (!impersonated && profile.name) {
+        reportNotificationsSeen(guestId, profile.name, ids);
+      }
+    },
+    [guestId, impersonated, profile.name]
+  );
+
+  // Immediately log view receipt when a student sees the notification popup on screen
+  useEffect(() => {
+    if (!activePopupNotif || impersonated || !profile.name) return;
+    reportNotificationsSeen(guestId, profile.name, [activePopupNotif.id]);
+  }, [activePopupNotif, guestId, impersonated, profile.name]);
 
   const flushingRef = useRef(false);
   const lastSyncedNameRef = useRef("");
@@ -126,6 +241,27 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const interactive = target.closest(
+        'button, a, [role="button"], select, summary, label[for]'
+      ) as HTMLElement | null;
+      if (!interactive) return;
+      if (
+        interactive.hasAttribute("disabled") ||
+        interactive.getAttribute("aria-disabled") === "true" ||
+        interactive.dataset.customSound === "1"
+      ) {
+        return;
+      }
+      playUiTapSound(interactive.classList.contains("amay-play-btn"));
+    };
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, []);
+
   const recordTap = useCallback(
     (action: string, detail: string, screen: string) => {
       if (impersonated) return;
@@ -138,7 +274,15 @@ export default function App() {
 
   // Show install popup within the first 30 seconds to anyone who hasn't installed the app yet
   useEffect(() => {
-    if (isInstalled || view === "admin" || view === "quiz") return;
+    if (
+      isInstalled ||
+      view === "admin" ||
+      view === "quiz" ||
+      view === "gate" ||
+      (!impersonated && !hasCompleteAccount)
+    ) {
+      return;
+    }
     try {
       if (sessionStorage.getItem("amaysst_install_prompted") === "1") return;
     } catch {
@@ -155,7 +299,7 @@ export default function App() {
     }, 6000);
 
     return () => window.clearTimeout(timer);
-  }, [isInstalled, view]);
+  }, [hasCompleteAccount, impersonated, isInstalled, view]);
 
   const handleInstallClick = useCallback(async () => {
     recordTap("Install App", "Tapped Install App button", view);
@@ -169,12 +313,13 @@ export default function App() {
     setShowInstallModal(true);
   }, [canNativeInstall, install, recordTap, view]);
 
-  // Report each student's app install state to Supabase whenever it changes (so Admin sees Installed vs Not Installed)
+  // Report each student's app install state to Supabase (once installed, keep sticky so browser visits don't clear it)
   useEffect(() => {
     if (!profile.name || impersonated) return;
     const nextVal = isInstalled ? "1" : "0";
     try {
       const prevReported = localStorage.getItem("amaysst_reported_install");
+      if (prevReported === "1" && !isInstalled) return;
       if (prevReported === nextVal) return;
       localStorage.setItem("amaysst_reported_install", nextVal);
     } catch {
@@ -184,56 +329,78 @@ export default function App() {
   }, [guestId, impersonated, isInstalled, profile.name]);
 
   // Sync cloud stats without overwriting client-side 1/4 negative-marked XP,
-  // while still honoring admin manual XP edits from Supabase!
-  const applyCloudStats = useCallback((stats: CloudStats, fromAdminCheck = false) => {
-    if (loadQueue().length > 0) return;
-    const current = loadProfile();
-    const beforeXp = current.xp;
-    let computedAfterXp = beforeXp;
-    if (fromAdminCheck) {
-      if (current.lastCloudXp === undefined) {
-        computedAfterXp = Math.max(current.xp, stats.xp);
-      } else if (stats.xp !== current.lastCloudXp) {
-        const delta = stats.xp - current.lastCloudXp;
-        computedAfterXp = Math.max(0, current.xp + delta);
-      }
-    }
-
-    setProfile((prev) => {
-      let nextXp = prev.xp;
-      let nextTodayXp = prev.td?.d === todayUTC(0) ? prev.td.xp : 0;
-
+  // while honoring admin manual XP edits and strictly resetting Today XP at 12:00 AM IST!
+  const applyCloudStats = useCallback(
+    (
+      stats: CloudStats,
+      fromAdminCheck = false,
+      cloudTodayIst: number | null = null,
+      candTodayMap?: Record<string, CandidateTodayOverride>
+    ) => {
+      if (loadQueue().length > 0) return;
+      const current = loadProfile();
+      const beforeXp = current.xp;
+      let computedAfterXp = beforeXp;
       if (fromAdminCheck) {
-        if (prev.lastCloudXp === undefined) {
-          nextXp = Math.max(prev.xp, stats.xp);
-          nextTodayXp = Math.max(nextTodayXp, stats.today_xp || 0);
-        } else if (stats.xp !== prev.lastCloudXp) {
-          // Admin edited XP directly in Supabase
-          const delta = stats.xp - prev.lastCloudXp;
-          nextXp = Math.max(0, prev.xp + delta);
+        if (current.lastCloudXp === undefined) {
+          computedAfterXp = Math.max(current.xp, stats.xp);
+        } else if (stats.xp !== current.lastCloudXp) {
+          const delta = stats.xp - current.lastCloudXp;
+          computedAfterXp = Math.max(0, current.xp + delta);
         }
       }
 
-      const next: StudentProfile = {
-        ...prev,
-        xp: nextXp,
-        streak: Math.max(prev.streak, stats.streak),
-        quizzes: Math.max(prev.quizzes, stats.quizzes),
-        perfect: Math.max(prev.perfect, stats.perfect),
-        td: { d: todayUTC(0), xp: nextTodayXp },
-        lastCloudXp: stats.xp,
-      };
-      saveProfile(next);
-      return next;
-    });
+      const todayKey = todayIST(0);
+      const ovMap = candTodayMap ?? loadCandidateTodayOverrides();
+      const myOv = ovMap[guestId];
+      const adminTodayDelta = myOv && myOv.dateKey === todayKey ? myOv.delta : 0;
 
-    if (fromAdminCheck) {
-      const crossed = getCrossedXpMilestone(beforeXp, computedAfterXp);
-      if (crossed !== null) {
-        launchMilestoneConfetti(crossed);
+      setProfile((prev) => {
+        let nextXp = prev.xp;
+        let nextTodayXp = prev.td?.d === todayKey ? prev.td.xp : 0;
+
+        if (fromAdminCheck) {
+          if (prev.lastCloudXp === undefined) {
+            nextXp = Math.max(prev.xp, stats.xp);
+          } else if (stats.xp !== prev.lastCloudXp) {
+            // Admin edited XP directly in Supabase
+            const delta = stats.xp - prev.lastCloudXp;
+            nextXp = Math.max(0, prev.xp + delta);
+          }
+          const prevAdminDelta =
+            prev.lastAdminTodayDate === todayKey ? (prev.lastAdminTodayDelta ?? 0) : 0;
+          if (adminTodayDelta !== prevAdminDelta) {
+            nextTodayXp = Math.max(0, nextTodayXp + (adminTodayDelta - prevAdminDelta));
+          }
+          if (cloudTodayIst !== null) {
+            nextTodayXp = Math.max(nextTodayXp, Math.max(0, cloudTodayIst + adminTodayDelta));
+          }
+        }
+
+        const next: StudentProfile = {
+          ...prev,
+          xp: nextXp,
+          streak: Math.max(prev.streak, stats.streak),
+          quizzes: Math.max(prev.quizzes, stats.quizzes),
+          perfect: Math.max(prev.perfect, stats.perfect),
+          td: { d: todayKey, xp: nextTodayXp },
+          lastCloudXp: stats.xp,
+          lastAdminTodayDate: todayKey,
+          lastAdminTodayDelta: adminTodayDelta,
+        };
+        saveProfile(next);
+        return next;
+      });
+
+      if (fromAdminCheck) {
+        const crossed = getCrossedXpMilestone(beforeXp, computedAfterXp);
+        if (crossed !== null) {
+          launchMilestoneConfetti(crossed);
+        }
       }
-    }
-  }, []);
+    },
+    [guestId]
+  );
 
   const refreshDynamicQuestions = useCallback(async () => {
     const rows = await fetchDynamicQuestions();
@@ -244,9 +411,10 @@ export default function App() {
     async (force = false, guestOverride?: string) => {
       if (!force && Date.now() - lastLeaderboardFetchRef.current < 15000) return;
       lastLeaderboardFetchRef.current = Date.now();
-      const rows = await getLeaderboard(guestOverride ?? effectiveGuestId);
-      if (rows) {
-        setLivePlayers(rows);
+      const res = await getLeaderboard(guestOverride ?? effectiveGuestId);
+      if (res) {
+        setLivePlayers(res.rows);
+        setLiveLeaderboardIstSynced(res.isIstSynced);
       }
     },
     [effectiveGuestId]
@@ -302,13 +470,39 @@ export default function App() {
     refreshDynamicQuestions();
     fetchLatestVideo().then((v) => setLatestVideo(v));
     fetchBotOverrides().then((ov) => setBotOverrides(ov));
+    fetchBotDailyCeilings().then((c) => setBotDailyCeilings((prev) => mergeBotDailyCeilingMaps(prev, c)));
+    fetchNotifications().then((list) => setAllNotifications(list));
 
     const initCloud = async () => {
-      const current = loadProfile();
+      let current = loadProfile();
       await syncIdentity(current);
+
+      if (current.name && (!current.username || !current.password)) {
+        const credRes = await getMyCredentials(guestId);
+        if (credRes.ok && credRes.has_credentials && credRes.username && credRes.password) {
+          current = {
+            ...current,
+            username: credRes.username,
+            password: credRes.password,
+            name: credRes.display_name || current.name,
+          };
+          saveProfile(current);
+          setProfile(current);
+          setView((prev) => (prev === "gate" ? "home" : prev));
+        }
+      }
+
+      const [candTodayMap, dirRes] = await Promise.all([
+        fetchCandidateTodayOverrides(),
+        getChatDirectory(guestId),
+      ]);
+      setCandidateTodayOverrides(candTodayMap);
+      if (dirRes.users.length > 0) {
+        setChatDirectory(dirRes.users);
+      }
       if (loadQueue().length === 0 && current.name) {
-        const stats = await getMyStats(guestId);
-        if (stats) applyCloudStats(stats, true);
+        const [stats, todayIst] = await Promise.all([getMyStats(guestId), getMyTodayIST(guestId)]);
+        if (stats) applyCloudStats(stats, true, todayIst, candTodayMap);
       }
       await flushQueue();
       await refreshLeaderboard(true);
@@ -316,23 +510,92 @@ export default function App() {
 
     initCloud();
 
+    const refreshNotifs = () => {
+      fetchNotifications().then((list) => setAllNotifications(list));
+    };
+
+    const pollInterval = window.setInterval(refreshNotifs, 30000);
+    const botClockInterval = window.setInterval(() => setBotClockTick(Date.now()), 10000);
+
+    const onFocusSync = () => {
+      setBotClockTick(Date.now());
+      refreshNotifs();
+      fetchBotDailyCeilings().then((c) => setBotDailyCeilings((prev) => mergeBotDailyCeilingMaps(prev, c)));
+    };
+
     const onOnline = () => {
       setIsOffline(false);
+      setBotClockTick(Date.now());
       flushQueue();
       refreshDynamicQuestions();
       fetchLatestVideo().then((v) => setLatestVideo(v));
       fetchBotOverrides().then((ov) => setBotOverrides(ov));
+      fetchBotDailyCeilings().then((c) => setBotDailyCeilings((prev) => mergeBotDailyCeilingMaps(prev, c)));
+      fetchCandidateTodayOverrides().then((ov) => setCandidateTodayOverrides(ov));
+      getChatDirectory(guestId).then((dirRes) => {
+        if (dirRes.users.length > 0) setChatDirectory(dirRes.users);
+      });
+      refreshNotifs();
     };
     const onOffline = () => setIsOffline(true);
 
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
+    window.addEventListener("focus", onFocusSync);
     return () => {
+      window.clearInterval(pollInterval);
+      window.clearInterval(botClockInterval);
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
+      window.removeEventListener("focus", onFocusSync);
       if (retryTimerRef.current) window.clearTimeout(retryTimerRef.current);
     };
   }, [applyCloudStats, flushQueue, guestId, refreshDynamicQuestions, refreshLeaderboard, syncIdentity]);
+
+  // Real-time unread chat badge sync across all screens
+  useEffect(() => {
+    if (!effectiveProfile.name || (!impersonated && !hasCompleteAccount) || view === "admin" || view === "gate") return;
+
+    const refreshUnreadChat = async () => {
+      const res = await getMyChatMessages(effectiveGuestId);
+      if (res.needsTableSetup) return;
+      let readMap: Record<string, string> = {};
+      try {
+        readMap = JSON.parse(localStorage.getItem("amaysst_chat_read_at") || "{}") || {};
+      } catch {
+        readMap = {};
+      }
+      const unreadSenderIds = new Set<string>();
+      for (const m of res.messages) {
+        if (m.sender_uuid === effectiveGuestId) continue;
+        const lastReadIso = readMap[m.sender_uuid];
+        if (!lastReadIso || Date.parse(m.created_at) > Date.parse(lastReadIso)) {
+          unreadSenderIds.add(m.sender_uuid);
+        }
+      }
+      setUnreadChatCount(unreadSenderIds.size);
+    };
+
+    refreshUnreadChat();
+    const unsub = subscribeChatRealtime((signal) => {
+      const s = String(signal.sender_uuid || "");
+      const r = String(signal.recipient_uuid || "");
+      const g = String(signal.guest_uuid || "");
+      const o = String(signal.other_uuid || "");
+      if (
+        (!s && !r && !g) ||
+        s === effectiveGuestId ||
+        r === effectiveGuestId ||
+        g === effectiveGuestId ||
+        o === effectiveGuestId
+      ) {
+        refreshUnreadChat();
+      }
+    });
+    return () => {
+      unsub();
+    };
+  }, [effectiveGuestId, effectiveProfile.name, view]);
 
   const finishQuiz = useCallback(
     (active: ActiveQuizState) => {
@@ -342,7 +605,7 @@ export default function App() {
       const prevXp = impersonated ? impersonated.profile.xp : loadProfile().xp;
       const nextXpEst = Math.max(0, prevXp + score.xp);
       const reachedMilestone = getCrossedXpMilestone(prevXp, nextXpEst);
-      const unlocked500 = prevXp < 500 && nextXpEst >= 500;
+      const unlockedFirstBadge = prevXp < 100 && nextXpEst >= 100;
 
       if (reachedMilestone !== null) {
         playMilestoneSound();
@@ -360,7 +623,7 @@ export default function App() {
       if (impersonated) {
         setImpersonated((prev) => {
           if (!prev) return prev;
-          const today = todayUTC(0);
+          const today = todayIST(0);
           const prevTodayXp = prev.profile.td?.d === today ? prev.profile.td.xp : 0;
           return {
             ...prev,
@@ -375,8 +638,8 @@ export default function App() {
         });
       } else {
         setProfile((prev) => {
-          const today = todayUTC(0);
-          const yesterday = todayUTC(1);
+          const today = todayIST(0);
+          const yesterday = todayIST(1);
           const nextStreak = prev.last === today ? prev.streak : prev.last === yesterday ? prev.streak + 1 : 1;
           const prevTodayXp = prev.td?.d === today ? prev.td.xp : 0;
           const nextXp = Math.max(0, prev.xp + score.xp);
@@ -406,7 +669,7 @@ export default function App() {
         done: true,
         res: {
           ...score,
-          up: unlocked500,
+          up: unlockedFirstBadge,
           milestoneXp: reachedMilestone,
         },
       });
@@ -432,7 +695,7 @@ export default function App() {
   }, [view, quiz?.done, finishQuiz]);
 
   const navigate = (nextView: AppRoute) => {
-    if (!effectiveProfile.name && nextView !== "admin") {
+    if (!impersonated && !hasCompleteAccount && nextView !== "admin") {
       setView("gate");
       return;
     }
@@ -440,54 +703,179 @@ export default function App() {
     setQuiz(null);
     setView(nextView);
     window.scrollTo({ top: 0, behavior: "smooth" });
-    if (nextView === "rank") refreshLeaderboard(false);
+    if (nextView === "rank" || nextView === "chat") {
+      if (nextView === "rank") refreshLeaderboard(false);
+      getChatDirectory(effectiveGuestId).then((dirRes) => {
+        if (dirRes.users.length > 0) setChatDirectory(dirRes.users);
+      });
+    }
   };
 
-  const openSubjectConfig = (key: QuizKey) => {
-    recordTap("Select Subject", `Subject: ${key}`, "subs");
-    setConfigKey(key);
-    setConfigLevel(1);
-    setConfigLength(10);
-    setView("sub");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const startQuiz = (k = configKey, L = configLevel, N = configLength) => {
-    const qs = buildQuizSet(k, L, N, mergedBank);
-    if (qs.length === 0) return;
-    recordTap("Start Quiz", `${k.toUpperCase()} · ${LEVELS[L]} · ${N} Qs`, "quiz");
-    const minutes = QUIZ_LENGTHS[N] ?? 2;
-    setQuiz({
-      k,
-      L,
-      N: qs.length,
-      qs,
-      i: 0,
-      sel: Array(qs.length).fill(undefined),
-      t: minutes * 60,
-      done: false,
-    });
-    setView("quiz");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const handleCompleteOnboarding = (name: string) => {
+  const handleRegister = async (payload: {
+    name: string;
+    username: string;
+    password: string;
+  }): Promise<string | null> => {
+    const activeId = guestId || generateFreshGuestUUID();
+    const res = await registerWithCredentials(activeId, payload.name, payload.username, payload.password);
+    if (!res.ok) {
+      return res.error || "Could not create account.";
+    }
+    const assignedId = res.guest_uuid || activeId;
+    if (assignedId !== guestId) {
+      setGuestUUID(assignedId);
+      setGuestId(assignedId);
+    }
     const next: StudentProfile = {
       ...profile,
-      name,
+      name: res.display_name || payload.name.trim(),
+      username: res.username || payload.username.trim().toLowerCase(),
+      password: res.password || payload.password,
       nameAt: Date.now(),
     };
     setProfile(next);
     saveProfile(next);
-    syncIdentity(next);
-    logCandidateTap(guestId, name, "Joined", "Entered candidate name", "gate");
+    lastSyncedNameRef.current = next.name;
+    logCandidateTap(assignedId, next.name, "Joined", `Registered @${next.username}`, "gate");
     setView("home");
+    refreshLeaderboard(true, assignedId);
+    getChatDirectory(assignedId).then((dirRes) => {
+      if (dirRes.users.length > 0) setChatDirectory(dirRes.users);
+    });
+    return null;
+  };
+
+  const handleClaimExistingCredentials = async (payload: {
+    name: string;
+    username: string;
+    password: string;
+  }): Promise<string | null> => {
+    const existingName = profile.name?.trim();
+    if (!existingName) {
+      return "Candidate name is missing. Please sign up as a new account.";
+    }
+    const msLeft = Math.max(0, (profile.nameAt || 0) + 864e5 - Date.now());
+    const requestedName = payload.name.trim();
+    const targetName = msLeft > 0 || requestedName.length < 2 ? existingName : requestedName;
+    const nameChanged = targetName !== existingName;
+
+    let res = await setMyCredentials(guestId, payload.username, payload.password, targetName);
+    if (!res.ok && /not found|no candidate|does not exist/i.test(res.error || "")) {
+      res = await registerWithCredentials(guestId, targetName, payload.username, payload.password);
+    }
+    if (!res.ok) {
+      return res.error || "Could not save username and password.";
+    }
+    const next: StudentProfile = {
+      ...profile,
+      name: res.display_name || targetName,
+      nameAt: nameChanged ? Date.now() : profile.nameAt,
+      username: res.username || payload.username.trim().toLowerCase(),
+      password: res.password || payload.password,
+    };
+    setProfile(next);
+    saveProfile(next);
+    lastSyncedNameRef.current = next.name;
+    logCandidateTap(guestId, next.name, "Account Setup", `Claimed @${next.username}`, "gate");
+    setView("home");
+    refreshLeaderboard(true, guestId);
+    getChatDirectory(guestId).then((dirRes) => {
+      if (dirRes.users.length > 0) setChatDirectory(dirRes.users);
+    });
+    return null;
+  };
+
+  const handleLogin = async (payload: {
+    username: string;
+    password: string;
+  }): Promise<string | null> => {
+    const res = await loginWithCredentials(payload.username, payload.password);
+    if (!res.ok || !res.guest_uuid) {
+      return res.error || "Invalid username or password.";
+    }
+
+    const signedId = res.guest_uuid;
+    setGuestUUID(signedId);
+    saveQueue([]);
+
+    const [stats, todayIst, candTodayMap, dirRes] = await Promise.all([
+      getMyStats(signedId),
+      getMyTodayIST(signedId),
+      fetchCandidateTodayOverrides(),
+      getChatDirectory(signedId),
+    ]);
+    setCandidateTodayOverrides(candTodayMap);
+    if (dirRes.users.length > 0) {
+      setChatDirectory(dirRes.users);
+    }
+
+    const todayKey = todayIST(0);
+    const myOv = candTodayMap[signedId];
+    const adminTodayDelta = myOv && myOv.dateKey === todayKey ? myOv.delta : 0;
+    const baseToday = todayIst ?? stats?.today_xp ?? 0;
+    const resolvedToday = Math.max(0, baseToday + adminTodayDelta);
+    const resolvedXp = Math.max(0, stats?.xp ?? res.xp ?? 0);
+
+    const next: StudentProfile = {
+      name: res.display_name || payload.username,
+      username: res.username || payload.username.trim().toLowerCase(),
+      password: res.password || payload.password,
+      xp: resolvedXp,
+      streak: stats?.streak ?? res.streak ?? 0,
+      last: todayKey,
+      quizzes: stats?.quizzes ?? res.quizzes_count ?? 0,
+      perfect: stats?.perfect ?? res.perfect_count ?? 0,
+      theme: profile.theme,
+      td: { d: todayKey, xp: resolvedToday },
+      lastCloudXp: resolvedXp,
+      lastAdminTodayDate: todayKey,
+      lastAdminTodayDelta: adminTodayDelta,
+      earnedDailyBadges: [],
+    };
+    saveProfile(next);
+    setProfile(next);
+    setGuestId(signedId);
+    lastSyncedNameRef.current = next.name;
+    logCandidateTap(signedId, next.name, "Signed In", `Logged in as @${next.username}`, "gate");
+    setView("home");
+    refreshLeaderboard(true, signedId);
+    return null;
+  };
+
+  const handleSetCredentials = async (username: string, password: string): Promise<string | null> => {
+    const res = await setMyCredentials(guestId, username, password);
+    if (!res.ok) {
+      return res.error || "Could not save username and password.";
+    }
+    const next: StudentProfile = {
+      ...profile,
+      username: res.username || username.trim().toLowerCase(),
+      password: res.password || password,
+    };
+    setProfile(next);
+    saveProfile(next);
+    recordTap("Account Setup", `Claimed permanent username @${next.username}`, "me");
+    return null;
+  };
+
+  const handleSignOut = () => {
+    const freshId = clearProfileSession();
+    lastSyncedNameRef.current = "";
+    setImpersonated(null);
+    setPendingChatPeer(null);
+    setQuiz(null);
+    setUnreadChatCount(0);
+    setGuestId(freshId);
+    setProfile(loadProfile());
+    setView("gate");
   };
 
   const handleOpenCandidateId = useCallback(
     (target: {
       guestUuid: string;
       name: string;
+      username?: string | null;
+      password?: string | null;
       xp: number;
       todayXp: number;
       streak: number;
@@ -497,23 +885,29 @@ export default function App() {
     }) => {
       const previewProfile: StudentProfile = {
         name: target.name,
+        username: target.username ?? undefined,
+        password: target.password ?? undefined,
         xp: target.xp,
         streak: target.streak,
-        last: todayUTC(0),
+        last: todayIST(0),
         quizzes: target.quizzes,
         perfect: target.perfect,
         theme: profile.theme,
-        td: { d: todayUTC(0), xp: target.todayXp },
+        td: { d: todayIST(0), xp: target.todayXp },
       };
       setImpersonated({
         guestUuid: target.guestUuid,
         profile: previewProfile,
         botOriginalName: target.botOriginalName,
       });
+      setPendingChatPeer(null);
       setQuiz(null);
       setView("home");
       window.scrollTo({ top: 0, behavior: "smooth" });
       refreshLeaderboard(true, target.guestUuid);
+      getChatDirectory(target.guestUuid).then((dirRes) => {
+        if (dirRes.users.length > 0) setChatDirectory(dirRes.users);
+      });
     },
     [profile.theme, refreshLeaderboard]
   );
@@ -542,97 +936,248 @@ export default function App() {
     recordTap("Theme Toggle", `Switched to ${nextTheme}`, "me");
   };
 
-  const handleAwardClass10Xp = useCallback(
-    (amount: number, reason: string) => {
-      recordTap("Class 10 Activity", reason, "class10");
-      if (amount <= 0) return;
+  // Unified Overall & Today Leaderboards (all players reset Today XP to 0 at 12:00 AM IST)
+  const { allTimeEntries, todayEntries, botChatDirectory, botRosterDateKey, botLiveCeiling } = useMemo(() => {
+    void botClockTick;
+    const todayKeyIst = todayIST(0);
+    const myToday = effectiveProfile.td?.d === todayKeyIst ? effectiveProfile.td.xp : 0;
 
-      if (impersonated) {
-        setImpersonated((prev) => {
-          if (!prev) return prev;
-          const today = todayUTC(0);
-          const prevTodayXp = prev.profile.td?.d === today ? prev.profile.td.xp : 0;
-          return {
-            ...prev,
-            profile: {
-              ...prev.profile,
-              xp: prev.profile.xp + amount,
-              td: { d: today, xp: prevTodayXp + amount },
-            },
-          };
-        });
-        return;
+    const adminTodayDeltaByName = new Map<string, number>();
+    for (const [id, ov] of Object.entries(candidateTodayOverrides)) {
+      if (id === effectiveGuestId) continue;
+      if (ov?.dateKey === todayKeyIst && ov.name) {
+        const key = ov.name.trim().toLowerCase();
+        adminTodayDeltaByName.set(key, (adminTodayDeltaByName.get(key) || 0) + (ov.delta || 0));
       }
+    }
 
-      setProfile((prev) => {
-        const today = todayUTC(0);
-        const yesterday = todayUTC(1);
-        const nextStreak = prev.last === today ? prev.streak : prev.last === yesterday ? prev.streak + 1 : 1;
-        const prevTodayXp = prev.td?.d === today ? prev.td.xp : 0;
-        const nextXp = prev.xp + amount;
-        const nextTodayXp = prevTodayXp + amount;
-        const reachedMilestone = getCrossedXpMilestone(prev.xp, nextXp);
-        if (reachedMilestone) {
-          playMilestoneSound();
-          launchMilestoneConfetti();
-        }
-        const updated: StudentProfile = {
-          ...prev,
-          xp: nextXp,
-          streak: nextStreak,
-          last: today,
-          td: { d: today, xp: nextTodayXp },
-        };
-        saveProfile(updated);
-        return updated;
-      });
-
-      refreshLeaderboard(false);
-    },
-    [impersonated, recordTap, refreshLeaderboard]
-  );
-
-  // Unified All-Time & Today Leaderboards (150 Indian bots + live Supabase students, zero distinction)
-  const { allTimeEntries, todayEntries } = useMemo(() => {
-    const myToday = effectiveProfile.td?.d === todayUTC(0) ? effectiveProfile.td.xp : 0;
-
-    const resolvedBots = BENCHMARK_PLAYERS.filter((b) => b.name !== impersonated?.botOriginalName).map((b) => {
-      const ov = botOverrides[b.name];
+    // Prevent stale UTC today_xp (12:00 AM - 5:29 AM IST) if legacy get_leaderboard fallback was used
+    const isUtcMismatchWindow = !liveLeaderboardIstSynced && todayKeyIst !== todayUTC(0);
+    const resolvedLivePlayers = livePlayers.map((l) => {
+      const baseToday = isUtcMismatchWindow ? 0 : Math.max(0, l.today_xp || 0);
+      const adminDelta = adminTodayDeltaByName.get((l.name || "").trim().toLowerCase()) || 0;
       return {
-        name: ov?.name ?? b.name,
-        xp: ov?.xp ?? b.xp,
-        todayXp: ov?.todayXp ?? b.todayXp,
+        name: l.name,
+        xp: l.xp || 0,
+        todayXp: Math.max(0, baseToday + adminDelta),
       };
     });
 
+    const realTodayScores = [myToday, ...resolvedLivePlayers.map((l) => l.todayXp)];
+    const {
+      bots,
+      clock: botRosterClock,
+      competitionCeiling: botLiveCeil,
+    } = resolveBotRoster(botOverrides, realTodayScores, botClockTick, botDailyCeilings);
+    const resolvedBots = bots.filter((b) => b.originalName !== impersonated?.botOriginalName);
+
+    const sortWithMePriority = (a: RankEntry, b: RankEntry) => {
+      if (b.xp !== a.xp) return b.xp - a.xp;
+      if (a.isMe !== b.isMe) return a.isMe ? -1 : 1;
+      return 0;
+    };
+
+    const chatDirUuidByName = new Map<string, string>();
+    for (const u of chatDirectory) {
+      if (u.guest_uuid && u.display_name) {
+        chatDirUuidByName.set(u.display_name.trim().toLowerCase(), u.guest_uuid);
+      }
+    }
+
+    const botDirList: ChatDirectoryUser[] = resolvedBots.map((b) => ({
+      guest_uuid: `bot_${b.originalName}`,
+      display_name: b.name,
+      xp: b.xp,
+    }));
+
     const allList: RankEntry[] = [
-      ...resolvedBots.map((b) => ({ name: b.name, xp: b.xp, isMe: false })),
-      ...livePlayers.map((l) => ({ name: l.name, xp: l.xp || 0, isMe: false })),
+      ...resolvedBots.map((b) => ({ name: b.name, xp: b.xp, isMe: false, peerUuid: `bot_${b.originalName}` })),
+      ...resolvedLivePlayers.map((l) => ({
+        name: l.name,
+        xp: l.xp,
+        isMe: false,
+        peerUuid: chatDirUuidByName.get((l.name || "").trim().toLowerCase()),
+      })),
       { name: effectiveProfile.name || "You", xp: effectiveProfile.xp, isMe: true },
-    ].sort((a, b) => b.xp - a.xp);
+    ].sort(sortWithMePriority);
 
+    const sortedBotsByToday = [...resolvedBots].sort((a, b) => b.todayXp - a.todayXp || b.xp - a.xp);
     const tdList: RankEntry[] = [
-      ...resolvedBots
-        .filter((b) => b.todayXp > 0)
-        .map((b) => ({ name: b.name, xp: b.todayXp, isMe: false })),
-      ...livePlayers
-        .filter((l) => (l.today_xp || 0) > 0)
-        .map((l) => ({ name: l.name, xp: l.today_xp || 0, isMe: false })),
+      ...sortedBotsByToday.map((b) => ({
+        name: b.name,
+        xp: b.todayXp,
+        isMe: false,
+        peerUuid: `bot_${b.originalName}`,
+      })),
+      ...resolvedLivePlayers.map((l) => ({
+        name: l.name,
+        xp: l.todayXp,
+        isMe: false,
+        peerUuid: chatDirUuidByName.get((l.name || "").trim().toLowerCase()),
+      })),
       { name: effectiveProfile.name || "You", xp: myToday, isMe: true },
-    ].sort((a, b) => b.xp - a.xp);
+    ].sort(sortWithMePriority);
 
-    return { allTimeEntries: allList, todayEntries: tdList };
-  }, [botOverrides, effectiveProfile.name, effectiveProfile.td, effectiveProfile.xp, impersonated?.botOriginalName, livePlayers]);
+    return {
+      allTimeEntries: allList,
+      todayEntries: tdList,
+      botChatDirectory: botDirList,
+      botRosterDateKey: botRosterClock.dateKey,
+      botLiveCeiling: botLiveCeil,
+    };
+  }, [
+    botClockTick,
+    botDailyCeilings,
+    botOverrides,
+    candidateTodayOverrides,
+    chatDirectory,
+    effectiveGuestId,
+    effectiveProfile.name,
+    effectiveProfile.td,
+    effectiveProfile.xp,
+    impersonated?.botOriginalName,
+    liveLeaderboardIstSynced,
+    livePlayers,
+  ]);
 
-  const hideHeader = view === "quiz" || view === "admin";
-  const hideNav = view === "quiz" || view === "gate" || view === "admin";
+  useEffect(() => {
+    if (botLiveCeiling > (botDailyCeilings[botRosterDateKey] || 0)) {
+      const next = { ...botDailyCeilings, [botRosterDateKey]: botLiveCeiling };
+      setBotDailyCeilings(next);
+      saveBotDailyCeilings(next);
+    }
+  }, [botDailyCeilings, botLiveCeiling, botRosterDateKey]);
+
+  const myEffectiveRank = useMemo(() => {
+    const allIdx = allTimeEntries.findIndex((e) => e.isMe);
+    const tdIdx = todayEntries.findIndex((e) => e.isMe);
+    const rAll = allIdx >= 0 ? allIdx + 1 : allTimeEntries.length + 1;
+    const rTd = tdIdx >= 0 ? tdIdx + 1 : todayEntries.length + 1;
+    return Math.min(rAll, rTd);
+  }, [allTimeEntries, todayEntries]);
+
+  const openSubjectConfig = (key: QuizKey) => {
+    if (!impersonated && !hasCompleteAccount) {
+      setView("gate");
+      return;
+    }
+    recordTap("Select Subject", `Subject: ${key}`, "subs");
+    setConfigKey(key);
+    if (key === "mix") {
+      const rule = getRankDifficultyRule(myEffectiveRank);
+      setConfigLevel(rule.defaultLevel);
+    } else {
+      setConfigLevel(1);
+    }
+    setConfigLength(10);
+    setView("sub");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const startQuiz = (k = configKey, L = configLevel, N = configLength) => {
+    if (!impersonated && !hasCompleteAccount) {
+      setView("gate");
+      return;
+    }
+    const rule = k === "mix" ? getRankDifficultyRule(myEffectiveRank) : null;
+    const resolvedLevel = rule ? Math.max(L, rule.minLevel) : L;
+    const qs = buildQuizSet(k, resolvedLevel, N, mergedBank, {
+      guestId: effectiveGuestId,
+      playerRank: myEffectiveRank,
+    });
+    if (qs.length === 0) return;
+    markQuestionsSeen(effectiveGuestId, qs);
+    recordTap("Start Quiz", `${k.toUpperCase()} · ${LEVELS[resolvedLevel]} · ${N} Qs`, "quiz");
+    const minutes = QUIZ_LENGTHS[N] ?? 2;
+    setQuiz({
+      k,
+      L: resolvedLevel,
+      N: qs.length,
+      qs,
+      i: 0,
+      sel: Array(qs.length).fill(undefined),
+      t: minutes * 60,
+      done: false,
+    });
+    setView("quiz");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // Fire an exact tick right at 11:00 PM IST cutoff and 12:00 AM IST daily reset
+  useEffect(() => {
+    const status = getTodayCutoffStatus(botClockTick);
+    const targetSec = status.isLocked ? status.resetSeconds : status.remainingSeconds;
+    const delayMs = Math.max(1000, (targetSec + 1) * 1000);
+    if (delayMs > 43200000) return;
+    const timer = window.setTimeout(() => {
+      setBotClockTick(Date.now());
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [botClockTick]);
+
+  // Automatically award Today #1, #2, or #3 badge once 11:00 PM IST cutoff is reached
+  useEffect(() => {
+    if (impersonated || !profile.name) return;
+    const cutoff = getTodayCutoffStatus(botClockTick);
+    if (!cutoff.isLocked) return;
+
+    const myTodayEntry = todayEntries.find((e) => e.isMe);
+    const myTodayXp = myTodayEntry?.xp ?? 0;
+    if (myTodayXp <= 0) return;
+
+    const myTodayRank = 1 + todayEntries.filter((e) => !e.isMe && e.xp > myTodayXp).length;
+    if (myTodayRank !== 1 && myTodayRank !== 2 && myTodayRank !== 3) return;
+
+    const existing = profile.earnedDailyBadges ?? [];
+    if (existing.some((b) => b.date === cutoff.dateKey)) return;
+
+    const nextRecord: DailyBadgeRecord = {
+      date: cutoff.dateKey,
+      rank: myTodayRank as 1 | 2 | 3,
+      xp: myTodayXp,
+    };
+
+    setProfile((prev) => {
+      const prevList = prev.earnedDailyBadges ?? [];
+      if (prevList.some((b) => b.date === cutoff.dateKey)) return prev;
+      const updated: StudentProfile = {
+        ...prev,
+        earnedDailyBadges: [nextRecord, ...prevList].slice(0, 60),
+      };
+      saveProfile(updated);
+      return updated;
+    });
+
+    playMilestoneSound();
+    launchMilestoneConfetti(1000);
+  }, [botClockTick, impersonated, profile.earnedDailyBadges, profile.name, todayEntries]);
+
+  const openBadgeModal = useCallback(
+    (spec?: BadgeDesignSpec, source = "app") => {
+      recordTap("Open Badge", "Opened shareable badge", source);
+      setSelectedBadgeSpec(spec ?? null);
+      setShowBadgeModal(true);
+    },
+    [recordTap]
+  );
+
+  const mustCompleteGate = view !== "admin" && !impersonated && !hasCompleteAccount;
+  const effectiveView: AppRoute = mustCompleteGate ? "gate" : view;
+  const hideHeader = effectiveView === "quiz" || effectiveView === "admin";
+  const hideNav =
+    effectiveView === "quiz" ||
+    effectiveView === "gate" ||
+    effectiveView === "admin";
 
   return (
     <div className="min-h-screen relative flex flex-col">
+      {showLaunchSplash && effectiveView !== "admin" && (
+        <LaunchSplash onDone={() => setShowLaunchSplash(false)} />
+      )}
       <div className="amay-bg-mesh" aria-hidden="true" />
 
       <div className="relative z-10 flex-1 flex flex-col">
-        {impersonated && view !== "admin" && (
+        {impersonated && effectiveView !== "admin" && (
           <div className="sticky top-0 z-40 bg-[#0B1B4D] text-white text-xs font-bold px-4 py-2 flex items-center justify-between gap-2 shadow-md">
             <span className="truncate">
               Viewing ID: <strong>{impersonated.profile.name}</strong> ({impersonated.profile.xp.toLocaleString()} XP)
@@ -642,6 +1187,7 @@ export default function App() {
               type="button"
               onClick={() => {
                 setImpersonated(null);
+                setPendingChatPeer(null);
                 setQuiz(null);
                 setView("admin");
                 refreshLeaderboard(true, guestId);
@@ -664,17 +1210,42 @@ export default function App() {
             onNavigateHome={() => navigate("home")}
             showInstallButton={!isInstalled}
             onInstallClick={handleInstallClick}
+            unreadNotifications={effectiveView !== "gate" ? unreadNotifCount : 0}
+            onOpenNotifications={
+              effectiveView !== "gate"
+                ? () => {
+                    fetchNotifications().then((list) => setAllNotifications(list));
+                    setShowNotifInbox(true);
+                    if (!impersonated) {
+                      markNotifsSeen(myNotifications.map((n) => n.id));
+                    }
+                  }
+                : undefined
+            }
           />
         )}
 
         <main
           className={`w-full mx-auto px-4 pt-4 ${
-            view === "admin" ? "max-w-5xl pb-12" : `max-w-[560px] ${hideNav ? "pb-10" : "pb-32"}`
+            effectiveView === "admin" ? "max-w-5xl pb-12" : `max-w-[560px] ${hideNav ? "pb-10" : "pb-32"}`
           }`}
         >
-          {view === "gate" && <GateView onComplete={handleCompleteOnboarding} />}
+          {effectiveView === "gate" && (
+            <GateView
+              existingAccount={
+                profile.name ? { name: profile.name, xp: profile.xp, nameAt: profile.nameAt } : null
+              }
+              showInstallBanner={!isInstalled}
+              onInstallClick={handleInstallClick}
+              isInAppBrowser={isInAppBrowser}
+              externalBrowserUrl={externalBrowserUrl}
+              onRegister={handleRegister}
+              onClaimExisting={handleClaimExistingCredentials}
+              onLogin={handleLogin}
+            />
+          )}
 
-          {view === "home" && (
+          {effectiveView === "home" && (
             <HomeView
               profile={effectiveProfile}
               allTimeEntries={allTimeEntries}
@@ -683,24 +1254,19 @@ export default function App() {
               onStartNormalQuiz={() => openSubjectConfig("mix")}
               onOpenSubjects={() => navigate("subs")}
               onOpenRank={() => navigate("rank")}
-              onOpenBadge={() => {
-                recordTap("Open Badge", "Opened shareable badge", "home");
-                setShowBadgeModal(true);
-              }}
-              onOpenClass10Hub={() => navigate("class10-hub")}
-              onOpenClass10Map={() => navigate("class10-map")}
-              onOpenClass10Timeline={() => navigate("class10-timeline")}
-              onOpenClass10AR={() => navigate("class10-ar")}
             />
           )}
 
-          {view === "subs" && <SubjectsGridView onSelectSubject={openSubjectConfig} />}
+          {effectiveView === "subs" && (
+            <SubjectsGridView onSelectSubject={openSubjectConfig} mergedBank={mergedBank} />
+          )}
 
-          {view === "sub" && (
+          {effectiveView === "sub" && (
             <SubjectConfigView
               subjectKey={configKey}
               level={configLevel}
               length={configLength}
+              playerRank={myEffectiveRank}
               mergedBank={mergedBank}
               onChangeLevel={(lvl) => {
                 setConfigLevel(lvl);
@@ -715,7 +1281,7 @@ export default function App() {
             />
           )}
 
-          {view === "quiz" && quiz && (
+          {effectiveView === "quiz" && quiz && (
             <QuizView
               quiz={quiz}
               profile={effectiveProfile}
@@ -748,82 +1314,107 @@ export default function App() {
               onRetry={() => startQuiz(quiz.k, quiz.L, quiz.N)}
               onChangeSetup={() => openSubjectConfig(quiz.k)}
               onOpenRank={() => navigate("rank")}
-              onOpenBadge={() => setShowBadgeModal(true)}
+              onOpenBadge={() => openBadgeModal(undefined, "quiz")}
             />
           )}
 
-          {view === "rank" && (
-            <RankView allTimeEntries={allTimeEntries} todayEntries={todayEntries} />
+          {effectiveView === "chat" && (
+            <ChatView
+              guestId={effectiveGuestId}
+              myName={effectiveProfile.name || "Candidate"}
+              extraDirectory={botChatDirectory}
+              initialPeer={pendingChatPeer}
+              onClearInitialPeer={() => setPendingChatPeer(null)}
+              onUnreadCountChange={setUnreadChatCount}
+            />
           )}
 
-          {view === "me" && (
+          {effectiveView === "rank" && (
+            <RankView
+              allTimeEntries={allTimeEntries}
+              todayEntries={todayEntries}
+              onStartQuiz={() => openSubjectConfig("mix")}
+              onChatWithPlayer={(peer) => {
+                recordTap("Chat from Rank", `Opened chat with ${peer.name}`, "rank");
+                setPendingChatPeer(peer);
+                setQuiz(null);
+                setView("chat");
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            />
+          )}
+
+          {effectiveView === "me" && (
             <ProfileView
               profile={effectiveProfile}
               isDark={isDark}
               onToggleTheme={handleToggleTheme}
               onUpdateName={handleUpdateName}
-              onOpenBadge={() => {
-                recordTap("Open Badge", "Opened shareable badge", "me");
-                setShowBadgeModal(true);
-              }}
+              onSetCredentials={handleSetCredentials}
+              onSignOut={handleSignOut}
+              onShareApp={() => recordTap("Share App", "Shared app link", "me")}
+              isImpersonating={Boolean(impersonated)}
+              onOpenBadge={(spec) => openBadgeModal(spec, "me")}
             />
           )}
 
-          {view === "admin" && (
+          {effectiveView === "admin" && (
             <AdminView
               onBack={() => {
                 if (window.location.hash === "#admin") {
                   window.history.replaceState(null, "", window.location.pathname);
                 }
                 setImpersonated(null);
-                setView(profile.name ? "home" : "gate");
+                setView(hasCompleteAccount ? "home" : "gate");
               }}
               onQuestionsChanged={refreshDynamicQuestions}
               onBotsChanged={(ov) => setBotOverrides(ov)}
+              onBotDailyCeilingsChanged={(c) =>
+                setBotDailyCeilings((prev) => mergeBotDailyCeilingMaps(prev, c))
+              }
+              onCandidateTodayChanged={(ov) => setCandidateTodayOverrides(ov)}
               onLatestVideoChanged={(v) => setLatestVideo(v)}
+              onNotificationsChanged={(list) => setAllNotifications(list)}
               onOpenCandidateId={handleOpenCandidateId}
-            />
-          )}
-
-          {view === "class10-hub" && (
-            <Class10HubView
-              onBack={() => navigate("home")}
-              onOpenMap={() => navigate("class10-map")}
-              onOpenTimeline={() => navigate("class10-timeline")}
-              onOpenAssertionReason={() => navigate("class10-ar")}
-            />
-          )}
-
-          {view === "class10-map" && (
-            <MapWorkView
-              onBack={() => navigate("class10-hub")}
-              onAwardXp={handleAwardClass10Xp}
-            />
-          )}
-
-          {view === "class10-timeline" && (
-            <TimelineSorterView
-              onBack={() => navigate("class10-hub")}
-              onAwardXp={handleAwardClass10Xp}
-            />
-          )}
-
-          {view === "class10-ar" && (
-            <AssertionReasonLabView
-              onBack={() => navigate("class10-hub")}
-              onAwardXp={handleAwardClass10Xp}
             />
           )}
         </main>
       </div>
 
-      {!hideNav && <BottomNav activeView={view} onNavigate={navigate} />}
+      {!hideNav && (
+        <BottomNav activeView={effectiveView} onNavigate={navigate} unreadChatCount={unreadChatCount} />
+      )}
 
       {showBadgeModal && (
         <BadgeModal
           xp={effectiveProfile.xp}
           name={effectiveProfile.name}
-          onClose={() => setShowBadgeModal(false)}
+          earnedDailyBadges={effectiveProfile.earnedDailyBadges}
+          initialSpec={selectedBadgeSpec}
+          onClose={() => {
+            setShowBadgeModal(false);
+            setSelectedBadgeSpec(null);
+          }}
+        />
+      )}
+
+      {showNotifInbox && (
+        <NotificationInboxModal
+          notifications={myNotifications}
+          latestVideoUrl={latestVideo.url}
+          onPlayNow={() => openSubjectConfig("mix")}
+          onOpenRanks={() => navigate("rank")}
+          onClose={() => setShowNotifInbox(false)}
+        />
+      )}
+
+      {activePopupNotif && (
+        <NotificationPopupModal
+          notification={activePopupNotif}
+          latestVideoUrl={latestVideo.url}
+          onPlayNow={() => openSubjectConfig("mix")}
+          onOpenRanks={() => navigate("rank")}
+          onDismiss={() => markNotifsSeen([activePopupNotif.id])}
         />
       )}
 
@@ -831,6 +1422,8 @@ export default function App() {
         <PWAInstallModal
           canNativeInstall={canNativeInstall}
           isIOS={isIOS}
+          isInAppBrowser={isInAppBrowser}
+          externalBrowserUrl={externalBrowserUrl}
           onInstall={async () => {
             const outcome = await install();
             if (outcome === "accepted") {
