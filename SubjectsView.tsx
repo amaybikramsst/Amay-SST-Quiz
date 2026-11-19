@@ -161,7 +161,7 @@ const SubjectEmblem: React.FC<{ subjectKey: QuizKey }> = ({ subjectKey }) => {
             fill="currentColor"
             fontSize="20"
             fontWeight="800"
-            fontFamily="'Plus Jakarta Sans', sans-serif"
+            fontFamily="'Plus Jakarta Sans', 'Noto Sans Devanagari', sans-serif"
             className="amay-gentle-bob"
           >
             अ
