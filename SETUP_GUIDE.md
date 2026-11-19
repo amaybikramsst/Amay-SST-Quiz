@@ -82,3 +82,37 @@ sst,0,"Who wrote the Indian National Anthem?","Bankim Chandra","Rabindranath Tag
 sci,1,"What is the chemical symbol for Gold?","Ag","Fe","Au","Cu",C,"Au comes from the Latin word Aurum."
 ```
 *(Subject codes: `math`, `sci`, `sst`, `eng`, `hin`, `ca` · Level codes: `0` = Easy, `1` = Medium, `2` = Hard, `3` = Amay Special)*
+
+---
+
+## Step 5: Class 10 Board Special (CBSE) Modules & Data Extension
+
+The new Class 10 Board Special section is located directly on your dashboard with 3 dedicated interactive modes:
+
+1. **Interactive India Map-Work (`src/data/class10/mapData.ts`)**:
+   - Vector SVG map of India with pinch/zoom & pan controls.
+   - Clickable pins for all official CBSE Class 10 Board items:
+     - INC Sessions (Calcutta Sept 1920, Nagpur Dec 1920, Madras 1927).
+     - Satyagraha Centers (Champaran, Kheda, Ahmedabad, Amritsar, Chauri Chaura, Dandi).
+     - Major Dams (Salal, Bhakra Nangal, Tehri, Rana Pratap Sagar, Sardar Sarovar, Hirakud, Nagarjuna Sagar, Tungabhadra).
+     - Sea Ports (Kandla, Mumbai, Marmagao, New Mangalore, Kochi, Tuticorin, Chennai, Visakhapatnam, Paradip, Haldia) & Major Airports.
+   - Awards +10 XP for correct spots, glows green, and provides correct position guidance if wrong.
+
+2. **Chronology & Timeline Sorter (`src/data/class10/timelineData.ts`)**:
+   - Shuffled event cards without dates.
+   - Tap-to-reorder, up/down arrows, and drag-and-drop.
+   - Evaluates chronology and reveals exact dates in green (correct) or red (wrong).
+   - Covers Nationalism in India, Non-Cooperation, Civil Disobedience, Rise of Nationalism in Europe, and Print Culture.
+
+3. **Assertion & Reason Logic Lab (`src/data/class10/assertionReasonData.ts`)**:
+   - 3-step interactive logic toggles:
+     - Step 1: Is Assertion (A) True or False?
+     - Step 2: Is Reason (R) True or False?
+     - Step 3 (Unlocks only if both are True): Does Reason (R) explain Assertion (A)?
+   - Automatically maps toggles to CBSE official options (A, B, C, D) and shows 2-line NCERT explanations.
+
+### How to add more questions or events:
+- To add more Map pins: Open `src/data/class10/mapData.ts` and add items to `CLASS_10_MAP_ITEMS`.
+- To add more Timelines: Open `src/data/class10/timelineData.ts` and add sets to `CLASS_10_TIMELINE_SETS`.
+- To add more Assertion-Reason questions: Open `src/data/class10/assertionReasonData.ts` and add entries to `CLASS_10_AR_QUESTIONS`.
+
