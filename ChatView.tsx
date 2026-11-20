@@ -783,4 +783,680 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   sizeClass="w-10 h-10 ring-2 ring-[#1457E0]/30"
                 />
               )}
-              <span className
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#080D1B] absolute bottom-0 right-0" />
+            </div>
+
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <strong className="block text-[15px] font-extrabold text-[#0B1B4D] dark:text-white truncate">
+                  {activePeerName}
+                </strong>
+
+                {peerRank && (
+                  <span className="px-1.5 py-0.5 rounded-md bg-[#1457E0]/12 dark:bg-white/10 text-[#1457E0] dark:text-[#93A3CC] text-[10px] font-mono font-bold shrink-0">
+                    #{peerRank}
+                  </span>
+                )}
+
+                {openedUnseen &&
+                  openedUnseen.peerUuid === activePeerUuid &&
+                  openedUnseen.count > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-[#E5091E] text-white text-[10px] font-extrabold shrink-0">
+                      {openedUnseen.count} new
+                    </span>
+                  )}
+              </div>
+              <span className="block text-[11px] text-[#5A6A92] dark:text-[#93A3CC]">
+                {isHelp
+                  ? "Official Support · Active now"
+                  : "Active · Double-tap a message to ❤️"}
+              </span>
+            </div>
+          </div>
+
+          {activeMessages.length > 0 && !confirmDeleteThread && (
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteThread(true)}
+              aria-label="Delete chat"
+              className="h-9 px-3 rounded-full bg-[#D92D3A]/10 text-[#D92D3A] dark:text-[#FF6B76] text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shrink-0"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Delete</span>
+            </button>
+          )}
+        </div>
+
+        {confirmDeleteThread && (
+          <div className="amay-card rounded-2xl p-3.5 border border-[#D92D3A]/25 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-[#0B1B4D] dark:text-white">
+              Delete this entire chat from your ID? It will remain in the other chat.
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={deletingThread}
+                onClick={handleDeleteEntireThread}
+                className="px-3 py-1.5 rounded-full bg-[#D92D3A] text-white text-xs font-bold cursor-pointer disabled:opacity-60"
+              >
+                {deletingThread ? "Deleting…" : "Yes, Delete"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteThread(false)}
+                className="px-3 py-1.5 rounded-full amay-card text-xs font-bold text-[#0B1B4D] dark:text-white cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="amay-card rounded-[28px] p-3.5 flex flex-col min-h-[410px] max-h-[63vh]">
+          <div className="flex-1 overflow-y-auto px-1 space-y-1">
+            {activeMessages.length === 0 ? (
+              <div className="py-12 text-center flex flex-col items-center space-y-2">
+                {isHelp ? (
+                  <div className="w-16 h-16 rounded-full flex items-center justify-center font-extrabold text-xl text-white mb-1 bg-gradient-to-br from-[#38B0FF] to-[#0B57DD] ring-4 ring-[#1457E0]/20">
+                    <LifeBuoy className="w-7 h-7" />
+                  </div>
+                ) : (
+                  <ProfileSilhouetteAvatar
+                    name={activePeerName}
+                    sizeClass="w-16 h-16 mb-1 ring-4 ring-[#1457E0]/25"
+                  />
+                )}
+                <p className="text-base font-extrabold text-[#0B1B4D] dark:text-white">
+                  {activePeerName}
+                </p>
+                <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] max-w-[240px]">
+                  {isHelp
+                    ? "Need help with quizzes, XP, or chapters? Send a message below."
+                    : `AmaySST Quiz · Chatting as ${myName}`}
+                </p>
+              </div>
+            ) : (
+              activeMessages.map((m, idx) => {
+                const isMine = m.sender_uuid === guestId;
+                const prevMsg = idx > 0 ? activeMessages[idx - 1] : null;
+                const nextMsg = idx < activeMessages.length - 1 ? activeMessages[idx + 1] : null;
+                const sameAsPrev = prevMsg?.sender_uuid === m.sender_uuid;
+                const sameAsNext = nextMsg?.sender_uuid === m.sender_uuid;
+
+                const isSelected = isMine && selectedMsgId === m.id;
+                const isUnsending = unsendingMsgId === m.id;
+                const isLiked = Boolean(likedIds[m.id]);
+                const isBursting = heartBurstId === m.id;
+                const { replyQuote, cleanBody } = parseReplyFormat(m.body);
+
+                const showUnseenDivider =
+                  openedUnseen &&
+                  openedUnseen.peerUuid === activePeerUuid &&
+                  openedUnseen.count > 0 &&
+                  openedUnseen.firstMsgId === m.id;
+
+                const dividerEl = showUnseenDivider ? (
+                  <div
+                    ref={unseenDividerRef}
+                    className="flex items-center gap-2.5 py-2.5"
+                    aria-label={`${openedUnseen.count} unseen ${openedUnseen.count === 1 ? "message" : "messages"}`}
+                  >
+                    <span className="flex-1 h-px bg-[#1457E0]/25 dark:bg-[#5AA2FF]/25" />
+                    <span className="px-3 py-1 rounded-full bg-[#1457E0]/12 dark:bg-[#5AA2FF]/15 text-[#1457E0] dark:text-[#5AA2FF] text-[11px] font-extrabold tracking-tight shrink-0">
+                      {openedUnseen.count} unseen {openedUnseen.count === 1 ? "message" : "messages"}
+                    </span>
+                    <span className="flex-1 h-px bg-[#1457E0]/25 dark:bg-[#5AA2FF]/25" />
+                  </div>
+                ) : null;
+
+                const mineRadius = `${sameAsPrev ? "rounded-tr-[6px]" : "rounded-tr-[20px]"} ${
+                  sameAsNext ? "rounded-br-[6px]" : "rounded-br-[20px]"
+                } rounded-l-[20px]`;
+
+                const peerRadius = `${sameAsPrev ? "rounded-tl-[6px]" : "rounded-tl-[20px]"} ${
+                  sameAsNext ? "rounded-bl-[6px]" : "rounded-bl-[20px]"
+                } rounded-r-[20px]`;
+
+                if (!isMine) {
+                  return (
+                    <React.Fragment key={m.id}>
+                      {dividerEl}
+                      <div
+                        className={`group flex items-end gap-2 justify-start ${
+                          sameAsPrev ? "mt-0.5" : "mt-2.5"
+                        } ${isLiked ? "mb-2" : ""}`}
+                      >
+                        <div className="w-6 h-6 shrink-0">
+                          {!sameAsNext &&
+                            (isHelp ? (
+                              <div className="w-6 h-6 rounded-full flex items-center justify-center text-white bg-gradient-to-br from-[#38B0FF] to-[#0B57DD]">
+                                <LifeBuoy className="w-3.5 h-3.5" />
+                              </div>
+                            ) : (
+                              <ProfileSilhouetteAvatar name={activePeerName} sizeClass="w-6 h-6" />
+                            ))}
+                        </div>
+
+                        <div className="relative max-w-[75%]">
+                          <div
+                            onClick={() => handleMessageTap(m.id, false)}
+                            onDoubleClick={() => triggerHeartLike(m.id)}
+                            className={`relative px-3.5 py-2 text-[14px] leading-relaxed break-words bg-white/90 dark:bg-[#131E3A] text-[#0B1B4D] dark:text-white border border-[#1846AA]/12 dark:border-white/10 select-none cursor-pointer transition active:scale-[0.99] ${peerRadius}`}
+                          >
+                            {replyQuote && (
+                              <div className="mb-1.5 pl-2 border-l-2 border-[#38B0FF] text-[11px] text-[#5A6A92] dark:text-[#93A3CC] line-clamp-2">
+                                {replyQuote}
+                              </div>
+                            )}
+                            <p className="whitespace-pre-wrap">{cleanBody}</p>
+                            {!sameAsNext && (
+                              <span className="block text-[9px] font-mono mt-1 text-[#5A6A92] dark:text-[#93A3CC]">
+                                {formatMsgTime(m.created_at)}
+                              </span>
+                            )}
+
+                            {isBursting && (
+                              <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <Heart className="w-8 h-8 text-[#FF3040] fill-[#FF3040] animate-ping" />
+                              </span>
+                            )}
+                          </div>
+
+                          {isLiked && (
+                            <button
+                              type="button"
+                              onClick={() => triggerHeartLike(m.id)}
+                              aria-label="Remove heart"
+                              className="absolute -bottom-2.5 left-2 px-1.5 py-0.5 rounded-full bg-[#10182B] border border-white/15 text-[10px] leading-none shadow-md cursor-pointer"
+                            >
+                              ❤️
+                            </button>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReplyingTo({
+                              sender: activePeerName,
+                              snippet: cleanBody.slice(0, 60),
+                            });
+                            inputRef.current?.focus();
+                          }}
+                          aria-label="Reply to message"
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-[#5A6A92] dark:text-[#93A3CC] opacity-60 hover:opacity-100 hover:bg-white/10 transition cursor-pointer shrink-0"
+                        >
+                          <Reply className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </React.Fragment>
+                  );
+                }
+
+                return (
+                  <React.Fragment key={m.id}>
+                    {dividerEl}
+                    <div
+                      className={`group flex flex-col items-end ${
+                        sameAsPrev ? "mt-0.5" : "mt-2.5"
+                      } ${isLiked ? "mb-2" : ""}`}
+                    >
+                      <div className="flex items-center justify-end gap-1.5 max-w-full">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReplyingTo({
+                              sender: "You",
+                              snippet: cleanBody.slice(0, 60),
+                            });
+                            inputRef.current?.focus();
+                          }}
+                          aria-label="Reply to your message"
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-[#5A6A92] dark:text-[#93A3CC] opacity-50 hover:opacity-100 hover:bg-white/10 transition cursor-pointer shrink-0"
+                        >
+                          <Reply className="w-3.5 h-3.5" />
+                        </button>
+
+                        <div className="relative max-w-[76%]">
+                          <div
+                            onClick={() => handleMessageTap(m.id, true)}
+                            onDoubleClick={() => triggerHeartLike(m.id)}
+                            role="button"
+                            tabIndex={0}
+                            aria-expanded={isSelected}
+                            className={`relative px-3.5 py-2 text-[14px] leading-relaxed break-words text-left bg-gradient-to-b from-[#256EF6] to-[#1457E0] text-white shadow-sm cursor-pointer select-none transition active:scale-[0.99] ${mineRadius} ${
+                              isSelected ? "ring-2 ring-[#5AA2FF]" : ""
+                            }`}
+                          >
+                            {replyQuote && (
+                              <div className="mb-1.5 pl-2 border-l-2 border-white/60 text-[11px] text-white/80 line-clamp-2">
+                                {replyQuote}
+                              </div>
+                            )}
+                            <p className="whitespace-pre-wrap">{cleanBody}</p>
+                            {!sameAsNext && (
+                              <span className="block text-[9px] font-mono mt-1 text-white/75 text-right">
+                                {formatMsgTime(m.created_at)}
+                              </span>
+                            )}
+
+                            {isBursting && (
+                              <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <Heart className="w-8 h-8 text-white fill-white animate-ping" />
+                              </span>
+                            )}
+                          </div>
+
+                          {isLiked && (
+                            <button
+                              type="button"
+                              onClick={() => triggerHeartLike(m.id)}
+                              aria-label="Remove heart"
+                              className="absolute -bottom-2.5 right-2 px-1.5 py-0.5 rounded-full bg-[#10182B] border border-white/15 text-[10px] leading-none shadow-md cursor-pointer"
+                            >
+                              ❤️
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {isSelected && (
+                        <div className="flex items-center gap-1.5 pr-1 mt-1.5">
+                          <button
+                            type="button"
+                            disabled={isUnsending}
+                            onClick={() => handleUnsendMessage(m.id)}
+                            className="px-3 py-1 rounded-full bg-[#D92D3A] text-white text-xs font-bold shadow-sm hover:brightness-105 active:scale-[0.98] transition cursor-pointer disabled:opacity-60"
+                          >
+                            {isUnsending ? "Unsending…" : "Unsend"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </React.Fragment>
+                );
+              })
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          {sendError && (
+            <p className="text-xs font-semibold text-[#D92D3A] dark:text-[#FF6B76] mt-2 px-1">
+              {sendError}
+            </p>
+          )}
+
+          {replyingTo && (
+            <div className="mt-2 px-3 py-2 rounded-2xl bg-[#1457E0]/10 dark:bg-[#131E3A] border-l-4 border-[#1457E0] flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <span className="block text-[10px] font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
+                  Replying to {replyingTo.sender}
+                </span>
+                <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] truncate">
+                  {replyingTo.snippet}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReplyingTo(null)}
+                aria-label="Cancel reply"
+                className="w-6 h-6 rounded-full flex items-center justify-center text-[#5A6A92] dark:text-[#93A3CC] hover:bg-white/10 cursor-pointer shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          <form onSubmit={handleSend} className="pt-2.5 mt-2 flex items-center gap-2">
+            <div className="flex-1 h-11 pl-4 pr-1.5 rounded-full bg-white/90 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 flex items-center gap-2 focus-within:border-[#1457E0]">
+              <input
+                ref={inputRef}
+                type="text"
+                maxLength={1000}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={isHelp ? "Message Help…" : `Message ${activePeerName}…`}
+                className="flex-1 bg-transparent text-[14px] text-[#0B1B4D] dark:text-white placeholder:text-[#5A6A92]/60 focus:outline-none"
+              />
+              {draft.trim().length > 0 ? (
+                <button
+                  type="submit"
+                  disabled={sending}
+                  aria-label="Send message"
+                  className="w-8 h-8 rounded-full bg-gradient-to-br from-[#2B7BFF] to-[#1457E0] text-white flex items-center justify-center cursor-pointer disabled:opacity-50 shrink-0 shadow-sm active:scale-95 transition"
+                >
+                  <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraft("❤️");
+                    inputRef.current?.focus();
+                  }}
+                  aria-label="Quick heart"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-[#5A6A92] dark:text-[#93A3CC] hover:text-[#FF3040] cursor-pointer shrink-0 transition"
+                >
+                  <Heart className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="px-1 flex items-center justify-between">
+        <div>
+          <h1 className="text-[26px] font-extrabold tracking-tight text-[#0B1B4D] dark:text-[#EAF0FF]">
+            Messages
+          </h1>
+          <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+            Text messages only · Tap Help or search by name
+          </p>
+        </div>
+      </div>
+
+      {needsSetup && (
+        <div className="amay-card rounded-2xl p-4 text-xs text-amber-800 dark:text-amber-300 border border-amber-400/40">
+          Messaging database setup is pending. Run the updated SQL from the Admin Console once to enable chat.
+        </div>
+      )}
+
+      <div className="flex items-start gap-3.5 overflow-x-auto pb-1 pt-4 px-1 no-scrollbar">
+        <button
+          type="button"
+          onClick={() => {
+            setNoteDraft(myNote);
+            setEditingNote(true);
+          }}
+          className="flex flex-col items-center shrink-0 w-[68px] relative group cursor-pointer"
+        >
+          <div className="absolute -top-3.5 z-10 max-w-[74px] px-2 py-1 rounded-2xl bg-white dark:bg-[#162240] border border-[#1846AA]/15 dark:border-white/15 shadow-md text-[10px] leading-tight font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
+            {myNote || "Study note…"}
+          </div>
+          <div className="w-14 h-14 rounded-full p-[2px] bg-[#1846AA]/20 dark:bg-white/15 relative">
+            <ProfileSilhouetteAvatar name={myName} sizeClass="w-full h-full" />
+            <span className="w-5 h-5 rounded-full bg-[#1457E0] text-white border-2 border-[#F4F7FC] dark:border-[#080D1B] flex items-center justify-center absolute -bottom-0.5 -right-0.5">
+              <Plus className="w-3 h-3 stroke-[3]" />
+            </span>
+          </div>
+          <span className="text-[11px] font-semibold text-[#5A6A92] dark:text-[#93A3CC] mt-1.5 truncate w-full text-center">
+            Your note
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActivePeerFallbackName("Help");
+            setActivePeerUuid(HELP_CHAT_UUID);
+          }}
+          className="flex flex-col items-center shrink-0 w-[68px] relative cursor-pointer"
+        >
+          <div className="absolute -top-3.5 z-10 max-w-[74px] px-2 py-1 rounded-2xl bg-white dark:bg-[#162240] border border-[#1457E0]/25 shadow-md text-[10px] leading-tight font-semibold text-[#1457E0] dark:text-[#5AA2FF] truncate">
+            Ask doubts!
+          </div>
+          <div className="w-14 h-14 rounded-full p-[2px] bg-gradient-to-tr from-[#1457E0] to-[#38B0FF] relative">
+            <div className="w-full h-full rounded-full bg-[#0E1833] text-[#38B0FF] flex items-center justify-center">
+              <LifeBuoy className="w-6 h-6" />
+            </div>
+            <span className="w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#080D1B] absolute bottom-0 right-0" />
+          </div>
+          <span className="text-[11px] font-bold text-[#0B1B4D] dark:text-white mt-1.5 truncate w-full text-center">
+            Help
+          </span>
+        </button>
+
+        {recentThreads.slice(0, 6).map((t) => (
+          <button
+            key={t.peerUuid}
+            type="button"
+            onClick={() => {
+              setActivePeerFallbackName(t.peerName);
+              setActivePeerUuid(t.peerUuid);
+            }}
+            className="flex flex-col items-center shrink-0 w-[68px] relative cursor-pointer"
+          >
+            <div
+              className={`w-14 h-14 rounded-full p-[2px] relative ${
+                t.unread > 0
+                  ? "bg-gradient-to-tr from-[#1457E0] to-[#38B0FF]"
+                  : "bg-[#1846AA]/20 dark:bg-white/15"
+              }`}
+            >
+              <ProfileSilhouetteAvatar name={t.peerName} sizeClass="w-full h-full" />
+              <span className="w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#080D1B] absolute bottom-0 right-0" />
+            </div>
+            <span className="text-[11px] font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] mt-1.5 truncate w-full text-center">
+              {t.peerName}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {editingNote && (
+        <form
+          onSubmit={handleSaveStudyNote}
+          className="amay-card rounded-2xl p-3.5 border border-[#1457E0]/30 space-y-2.5"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-extrabold text-[#0B1B4D] dark:text-white">
+              Set your study note (visible to you)
+            </span>
+            <button
+              type="button"
+              onClick={() => setEditingNote(false)}
+              className="text-xs text-[#5A6A92] dark:text-[#93A3CC] cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              maxLength={42}
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              placeholder="e.g. Revising History Ch 1 🇮🇳"
+              className="flex-1 h-10 px-3.5 rounded-xl bg-white/90 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-xs text-[#0B1B4D] dark:text-white focus:outline-none focus:border-[#1457E0]"
+            />
+            <button
+              type="submit"
+              className="h-10 px-4 rounded-xl bg-[#1457E0] text-white text-xs font-bold cursor-pointer"
+            >
+              Share
+            </button>
+          </div>
+        </form>
+      )}
+
+      <button
+        type="button"
+        onClick={() => {
+          setActivePeerFallbackName("Help");
+          setActivePeerUuid(HELP_CHAT_UUID);
+        }}
+        className="w-full amay-card rounded-[26px] p-4 flex items-center gap-3.5 text-left hover:brightness-[0.99] active:scale-[0.99] transition cursor-pointer border-2 border-[#1457E0]/20 dark:border-[#5AA2FF]/25"
+      >
+        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#38B0FF] to-[#0B57DD] text-white flex items-center justify-center shrink-0 shadow-[0_10px_20px_-10px_rgba(11,87,221,0.85)]">
+          <LifeBuoy className="w-6 h-6" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <strong className="text-base font-extrabold text-[#0B1B4D] dark:text-white">
+                Help
+              </strong>
+              <span className="px-1.5 py-0.5 rounded-md bg-[#1457E0]/15 dark:bg-[#38B0FF]/15 text-[#1457E0] dark:text-[#5AA2FF] text-[10px] font-extrabold">
+                Official
+              </span>
+            </div>
+            {helpThread?.lastMessage && (
+              <span className="text-[11px] font-mono text-[#5A6A92] dark:text-[#93A3CC]">
+                {formatMsgTime(helpThread.lastMessage.created_at)}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] truncate mt-0.5">
+            {helpThread?.lastMessage
+              ? parseReplyFormat(helpThread.lastMessage.body).cleanBody
+              : "Tap to message Help for doubts or support"}
+          </p>
+        </div>
+        {(helpThread?.unread ?? 0) > 0 && (
+          <span className="min-w-[22px] h-[22px] px-1.5 rounded-full bg-[#E5091E] text-white text-[11px] font-extrabold flex items-center justify-center shrink-0">
+            {helpThread!.unread}
+          </span>
+        )}
+      </button>
+
+      <div className="relative">
+        <Search className="w-4 h-4 text-[#5A6A92] absolute left-4 top-1/2 -translate-y-1/2" />
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search a name to start a chat…"
+          className="w-full h-11 pl-10 pr-4 rounded-full amay-card text-sm text-[#0B1B4D] dark:text-white placeholder:text-[#5A6A92]/70 focus:outline-none"
+        />
+      </div>
+
+      {search.trim().length > 0 && (
+        <div className="amay-card rounded-[28px] p-4 space-y-2">
+          <h2 className="text-xs font-extrabold uppercase tracking-wider text-[#5A6A92] dark:text-[#93A3CC] px-1">
+            Search Results
+          </h2>
+          {searchMatches.length === 0 ? (
+            <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] py-3 text-center">
+              No matching name found.
+            </p>
+          ) : (
+            <div className="divide-y divide-[#1846AA]/10 dark:divide-white/10 max-h-[260px] overflow-y-auto">
+              {searchMatches.map((u) => {
+                const rank = rankMap.get(u.guest_uuid);
+                return (
+                  <button
+                    key={u.guest_uuid}
+                    type="button"
+                    onClick={() => {
+                      setActivePeerFallbackName(u.display_name);
+                      setActivePeerUuid(u.guest_uuid);
+                    }}
+                    className="w-full py-2.5 px-1 flex items-center justify-between gap-3 text-left cursor-pointer hover:opacity-90"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <ProfileSilhouetteAvatar
+                        name={u.display_name}
+                        sizeClass="w-9 h-9 ring-1 ring-white/10"
+                      />
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <strong className="text-sm font-bold text-[#0B1B4D] dark:text-white truncate">
+                          {u.display_name}
+                        </strong>
+                        {rank && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-[#1457E0]/10 dark:bg-white/10 text-[#1457E0] dark:text-[#93A3CC] text-[10px] font-mono font-bold shrink-0">
+                            #{rank}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <span className="px-3 py-1.5 rounded-full bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 text-[#1457E0] dark:text-[#5AA2FF] text-xs font-bold inline-flex items-center gap-1 shrink-0">
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      <span>Message</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="amay-card rounded-[28px] p-4 space-y-2">
+        <h2 className="text-xs font-extrabold uppercase tracking-wider text-[#5A6A92] dark:text-[#93A3CC] px-1">
+          Your Chats
+        </h2>
+        {recentThreads.length === 0 ? (
+          <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] py-6 text-center">
+            No chats yet. Tap Help above or search a name to start messaging.
+          </p>
+        ) : (
+          <div className="divide-y divide-[#1846AA]/10 dark:divide-white/10">
+            {recentThreads.map((t) => {
+              const rank = rankMap.get(t.peerUuid);
+              const previewText = t.lastMessage
+                ? parseReplyFormat(t.lastMessage.body).cleanBody
+                : "";
+              const isMineLast = t.lastMessage?.sender_uuid === guestId;
+
+              return (
+                <button
+                  key={t.peerUuid}
+                  type="button"
+                  onClick={() => {
+                    setActivePeerFallbackName(t.peerName);
+                    setActivePeerUuid(t.peerUuid);
+                  }}
+                  className="w-full py-3 px-1 flex items-center gap-3 text-left cursor-pointer hover:opacity-90"
+                >
+                  <div
+                    className={`w-11 h-11 rounded-full p-[2px] shrink-0 ${
+                      t.unread > 0
+                        ? "bg-gradient-to-tr from-[#1457E0] to-[#38B0FF]"
+                        : "bg-transparent"
+                    }`}
+                  >
+                    <ProfileSilhouetteAvatar name={t.peerName} sizeClass="w-full h-full" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <strong
+                          className={`text-sm truncate ${
+                            t.unread > 0
+                              ? "font-extrabold text-[#0B1B4D] dark:text-white"
+                              : "font-bold text-[#0B1B4D] dark:text-white"
+                          }`}
+                        >
+                          {t.peerName}
+                        </strong>
+                        {rank && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-[#1457E0]/10 dark:bg-white/10 text-[#1457E0] dark:text-[#93A3CC] text-[10px] font-mono font-bold shrink-0">
+                            #{rank}
+                          </span>
+                        )}
+                      </div>
+                      {t.lastMessage && (
+                        <span className="text-[11px] font-mono text-[#5A6A92] dark:text-[#93A3CC] shrink-0">
+                          {formatMsgTime(t.lastMessage.created_at)}
+                        </span>
+                      )}
+                    </div>
+                    <p
+                      className={`text-xs truncate mt-0.5 ${
+                        t.unread > 0
+                          ? "font-bold text-[#0B1B4D] dark:text-white"
+                          : "text-[#5A6A92] dark:text-[#93A3CC]"
+                      }`}
+                    >
+                      {isMineLast ? `You: ${previewText}` : previewText}
+                    </p>
+                  </div>
+                  {t.unread > 0 && (
+                    <span className="min-w-[20px] h-[20px] px-1.5 rounded-full bg-[#1457E0] text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">
+                      {t.unread}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
