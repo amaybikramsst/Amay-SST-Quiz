@@ -30,7 +30,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { BENCHMARK_PLAYERS } from "../data/benchmarks";
-import type { SubjectKey } from "../data/questions";
+import { STATIC_QUESTIONS, type SubjectKey } from "../data/questions";
 import {
   getCompetitionCeiling,
   getIstClock,
@@ -53,6 +53,7 @@ import {
   adminBulkInsertQuestions,
   adminDeleteNotification,
   adminDeleteQuestion,
+  adminDeleteQuestionsBatch,
   adminGetSession,
   adminInsertQuestion,
   adminLoadAllChatMessages,
@@ -123,6 +124,15 @@ interface AdminViewProps {
   onLatestVideoChanged: (video: LatestVideoConfig) => void;
   onNotificationsChanged: (list: AppNotification[]) => void;
   onOpenCandidateId: (target: OpenCandidateIdPayload) => void;
+}
+
+function fingerprintQuestionText(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/^(?:q\.?\s*\d+[\).:\-]?\s*|\d+[\).:\-]\s*)/i, "")
+    .replace(/[^a-z0-9\u0900-\u097f]+/g, " ")
+    .trim();
 }
 
 const TAP_SQL = `create table if not exists public.candidate_events (
@@ -264,6 +274,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   // Question Entry Mode: single vs bulk
   const [qEntryMode, setQEntryMode] = useState<"single" | "bulk">("single");
+  const [showDuplicatesDrawer, setShowDuplicatesDrawer] = useState(false);
+  const [removingDuplicates, setRemovingDuplicates] = useState(false);
 
   // Single question form
   const [qSub, setQSub] = useState<SubjectKey>("ca");
@@ -327,8 +339,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
     const mergedBots = { ...cloudBots, ...localBots };
     const mergedCandToday = { ...cloudCandToday, ...localCandToday };
 
-    // Reconstruct every historical IST day's bot competition ceiling from attempts + live today scores
-    // so XP earned by bots in Today mode permanently rolls into Overall XP after 12:00 AM IST.
     const mergedCeilings = mergeBotDailyCeilingMaps(localCeilings, cloudCeilings);
     const reconstructedCeilings = reconstructBotDailyCeilingsFromAttempts(atts, mergedCeilings);
     const todayKey = getIstClock().dateKey;
@@ -771,11 +781,83 @@ export const AdminView: React.FC<AdminViewProps> = ({
     onQuestionsChanged();
   };
 
+  // Detect duplicate dynamic questions (comparing oldest-first so the original copy is kept,
+  // and also catching uploaded rows that duplicate built-in static questions)
+  const duplicateAnalysis = useMemo(() => {
+    const staticFingerprints = new Set<string>();
+    for (const subj of Object.keys(STATIC_QUESTIONS) as SubjectKey[]) {
+      for (const item of STATIC_QUESTIONS[subj].q) {
+        const fp = fingerprintQuestionText(item[0]);
+        if (fp) staticFingerprints.add(`${subj}::${fp}`);
+      }
+    }
+
+    const chronological = [...dynamicQuestions].reverse();
+    const seenKept = new Map<string, DynamicQuestionRow>();
+    const duplicates: Array<{
+      duplicateRow: DynamicQuestionRow;
+      keptSourceLabel: string;
+    }> = [];
+
+    for (const row of chronological) {
+      const fp = fingerprintQuestionText(row.question_text);
+      if (!fp) continue;
+      const key = `${row.subject}::${fp}`;
+
+      if (staticFingerprints.has(key)) {
+        duplicates.push({
+          duplicateRow: row,
+          keptSourceLabel: "Built-in question bank",
+        });
+        continue;
+      }
+
+      const existing = seenKept.get(key);
+      if (existing) {
+        duplicates.push({
+          duplicateRow: row,
+          keptSourceLabel: existing.question_text,
+        });
+      } else {
+        seenKept.set(key, row);
+      }
+    }
+
+    return {
+      duplicates,
+      duplicateIds: duplicates.map((d) => d.duplicateRow.id),
+    };
+  }, [dynamicQuestions]);
+
+  const handleRemoveAllDuplicates = async () => {
+    if (duplicateAnalysis.duplicateIds.length === 0 || removingDuplicates) return;
+    setRemovingDuplicates(true);
+    setFeedback(null);
+
+    const { deletedCount, error } = await adminDeleteQuestionsBatch(duplicateAnalysis.duplicateIds);
+    setRemovingDuplicates(false);
+
+    if (error) {
+      setFeedback({
+        text: `Removed ${deletedCount} duplicates before error: ${error.message}`,
+        ok: false,
+      });
+    } else {
+      setShowDuplicatesDrawer(false);
+      setFeedback({
+        text: `Removed ${deletedCount} duplicate question${deletedCount === 1 ? "" : "s"} from live quizzes!`,
+        ok: true,
+      });
+    }
+
+    await loadAllAdminData();
+    onQuestionsChanged();
+  };
+
   const handleVideoUrlChange = (nextUrl: string) => {
     const prevAutoThumb = deriveYouTubeThumbnail(videoUrl);
     const nextAutoThumb = deriveYouTubeThumbnail(nextUrl);
     setVideoUrl(nextUrl);
-    // Automatically update thumbnail if it's currently empty or was previously auto-derived from YouTube
     if (nextAutoThumb && (!videoThumb || videoThumb === prevAutoThumb)) {
       setVideoThumb(nextAutoThumb);
     }
@@ -986,7 +1068,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
     });
   }, [candidates, installFilter, installStatusMap, searchQuery]);
 
-  // Derived Help support conversations & Full All-Chats Audit (including student-deleted messages!)
   const { helpThreads, botThreads, auditThreads, deletedMessageCount } = useMemo(() => {
     const nameByUuid = new Map<string, { displayName: string; username?: string | null; isBot?: boolean }>();
     for (const c of candidates) {
@@ -1050,7 +1131,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
       const isDeleted = Boolean(m.deleted_for_everyone || m.deleted_by_sender || m.deleted_by_recipient);
       if (isDeleted) totalDeleted++;
 
-      // 1. Help inbox grouping
       if (m.sender_uuid === HELP_CHAT_UUID || m.recipient_uuid === HELP_CHAT_UUID) {
         const candUuid = m.sender_uuid === HELP_CHAT_UUID ? m.recipient_uuid : m.sender_uuid;
         const fallback = m.sender_uuid === HELP_CHAT_UUID ? m.recipient_name : m.sender_name;
@@ -1069,7 +1149,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
         helpMap.set(candUuid, existing);
       }
 
-      // 2. All conversation pairs grouping (for Admin Audit)
       const [aUuid, bUuid] =
         m.sender_uuid < m.recipient_uuid
           ? [m.sender_uuid, m.recipient_uuid]
@@ -2036,6 +2115,100 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {/* TAB 4: QUESTIONS & BULK FILE UPLOAD */}
       {tab === "questions" && (
         <div className="space-y-5">
+          {/* 1-Tap Duplicate Question Cleaner Card */}
+          <div className="amay-card rounded-[26px] p-4 sm:p-5 border border-[#1846AA]/15 dark:border-white/10 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <span
+                  className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                    duplicateAnalysis.duplicateIds.length > 0
+                      ? "bg-[#D92D3A]/15 text-[#D92D3A] dark:text-[#FF6B76]"
+                      : "bg-[#12A150]/15 text-[#12A150] dark:text-emerald-400"
+                  }`}
+                >
+                  {duplicateAnalysis.duplicateIds.length > 0 ? (
+                    <AlertTriangle className="w-5 h-5" />
+                  ) : (
+                    <CheckCircle2 className="w-5 h-5" />
+                  )}
+                </span>
+                <div>
+                  <h2 className="text-base font-extrabold text-[#0B1B4D] dark:text-white">
+                    {duplicateAnalysis.duplicateIds.length > 0
+                      ? `${duplicateAnalysis.duplicateIds.length} Duplicate Question${
+                          duplicateAnalysis.duplicateIds.length === 1 ? "" : "s"
+                        } Detected`
+                      : "Duplicate Scanner: 0 Duplicates Found"}
+                  </h2>
+                  <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+                    {duplicateAnalysis.duplicateIds.length > 0
+                      ? "Auto-scanned all uploaded & built-in questions. Tap once to permanently remove all duplicate copies from live quizzes."
+                      : `Scanned ${dynamicQuestions.length.toLocaleString()} uploaded questions — every question in your live quiz bank is unique.`}
+                  </p>
+                </div>
+              </div>
+
+              {duplicateAnalysis.duplicateIds.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowDuplicatesDrawer((prev) => !prev)}
+                    className="h-10 px-3.5 rounded-xl amay-card text-xs font-bold text-[#0B1B4D] dark:text-white inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>{showDuplicatesDrawer ? "Hide List" : "Preview Duplicates"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={removingDuplicates}
+                    onClick={handleRemoveAllDuplicates}
+                    className="h-10 px-4 rounded-xl bg-[#D92D3A] hover:brightness-105 text-white text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-60"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>
+                      {removingDuplicates
+                        ? "Removing…"
+                        : `Remove All Duplicates (${duplicateAnalysis.duplicateIds.length})`}
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {showDuplicatesDrawer && duplicateAnalysis.duplicates.length > 0 && (
+              <div className="pt-3 border-t border-[#1846AA]/10 dark:border-white/10 max-h-64 overflow-y-auto divide-y divide-[#1846AA]/10 dark:divide-white/10 text-xs">
+                {duplicateAnalysis.duplicates.slice(0, 100).map((item) => (
+                  <div
+                    key={item.duplicateRow.id}
+                    className="py-2.5 flex items-start justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-bold text-[#0B1B4D] dark:text-white truncate">
+                        {item.duplicateRow.question_text}
+                      </p>
+                      <span className="text-[11px] text-[#5A6A92] dark:text-[#93A3CC]">
+                        {item.duplicateRow.subject.toUpperCase()} · {LEVELS[item.duplicateRow.level] || "Medium"} · Duplicate of:{" "}
+                        <em className="not-italic font-semibold">{item.keptSourceLabel.slice(0, 70)}</em>
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteQuestion(item.duplicateRow.id)}
+                      className="px-2.5 py-1 rounded-lg bg-[#D92D3A]/10 text-[#D92D3A] dark:text-[#FF6B76] font-bold shrink-0 cursor-pointer"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+                {duplicateAnalysis.duplicates.length > 100 && (
+                  <p className="py-2 text-center text-[11px] text-[#5A6A92]">
+                    Showing first 100 of {duplicateAnalysis.duplicates.length} duplicates. Click &ldquo;Remove All Duplicates&rdquo; to clear all at once.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Question Bank Inventory & High-Level Gap Advisor */}
           <div className="amay-card rounded-[28px] p-5 sm:p-6 space-y-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2369,7 +2542,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
                 <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
                   Upload a <strong>PDF</strong>, <strong>CSV</strong>, <strong>TXT</strong>, or <strong>JSON</strong> file.
-                  For PDF/TXT, format questions like: <code>1. Question? A) Opt1 B) Opt2 C) Opt3 D) Opt4 Answer: A</code>.
+                  Questions are <strong>auto-categorised</strong> into Easy, Medium, Hard &amp; Amay Special automatically upon upload!
                 </p>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -2392,15 +2565,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-[#5A6A92] dark:text-[#93A3CC] mb-1">
-                      Default Difficulty
+                      Difficulty Mode
                     </label>
                     <select
                       value={bulkDefaultLvl}
                       onChange={(e) => setBulkDefaultLvl(Number(e.target.value))}
                       className="w-full h-10 px-3 rounded-xl bg-white/80 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-sm"
                     >
+                      <option value={1}>Auto-Categorise (Easy / Med / Hard / Special)</option>
                       <option value={0}>Easy (10 XP)</option>
-                      <option value={1}>Medium (15 XP)</option>
                       <option value={2}>Hard (20 XP)</option>
                       <option value={3}>Amay Special (30 XP)</option>
                     </select>
@@ -2458,7 +2631,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                           className="px-3 py-1.5 rounded-xl amay-card text-xs font-bold text-[#1457E0] dark:text-[#5AA2FF] inline-flex items-center gap-1 cursor-pointer"
                         >
                           <Sparkles className="w-3.5 h-3.5" />
-                          <span>Auto-Categorise All</span>
+                          <span>Re-Run Auto-Categorise</span>
                         </button>
                         <button
                           type="button"
@@ -2571,12 +2744,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC]">No added questions yet.</p>
               ) : (
                 <div className="divide-y divide-[#1846AA]/10 dark:divide-white/10 max-h-[460px] overflow-y-auto pr-1">
-                  {dynamicQuestions.map((dq) => (
+                  {dynamicQuestions.slice(0, 200).map((dq) => (
                     <div key={dq.id} className="py-3 flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-[#0B1B4D] dark:text-white">{dq.question_text}</p>
                         <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] mt-0.5">
-                          <span>{dq.subject.toUpperCase()}</span> · Level {dq.level + 1} ·{" "}
+                          <span>{dq.subject.toUpperCase()}</span> · {LEVELS[dq.level] || `Level ${dq.level + 1}`} ·{" "}
                           {[dq.option_a, dq.option_b, dq.option_c, dq.option_d][dq.correct_index]}
                         </p>
                       </div>
@@ -2590,6 +2763,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       </button>
                     </div>
                   ))}
+                  {dynamicQuestions.length > 200 && (
+                    <p className="py-2 text-center text-xs text-[#5A6A92]">
+                      Showing latest 200 of {dynamicQuestions.length.toLocaleString()} live questions.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -2842,7 +3020,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </div>
               </div>
 
-              {/* Exact 2 Audience Options */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <button
                   type="button"
@@ -2952,7 +3129,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 />
               </div>
 
-              {/* Attach Picture (Optional) */}
               <div className="space-y-2 rounded-2xl bg-[#1457E0]/[0.04] dark:bg-white/[0.04] p-3.5 border border-[#1846AA]/12 dark:border-white/10">
                 <label className="block text-xs font-bold text-[#0B1B4D] dark:text-white">
                   Picture / Poster (Optional)
@@ -3066,7 +3242,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </button>
             </form>
 
-            {/* Sent Notifications History + Live Seen Count */}
             <div className="lg:col-span-5 amay-card rounded-[28px] p-5 sm:p-6 space-y-4">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-extrabold text-[#0B1B4D] dark:text-white">
@@ -3178,7 +3353,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
         </div>
       )}
 
-      {/* TAB: MESSAGES, HELP SUPPORT INBOX & ALL-CHATS AUDIT (INCLUDES DELETED) */}
+      {/* TAB: MESSAGES, HELP SUPPORT INBOX & ALL-CHATS AUDIT */}
       {tab === "messages" && (
         <div className="space-y-4">
           {needsChatTable && (
@@ -3270,7 +3445,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
           {msgSubTab === "help" ? (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-              {/* Left column: Help conversations + start Help chat with any candidate */}
               <div className="lg:col-span-4 amay-card rounded-[26px] p-4 space-y-3">
                 <div>
                   <h3 className="text-sm font-extrabold text-[#0B1B4D] dark:text-white">
@@ -3344,7 +3518,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 )}
               </div>
 
-              {/* Right column: Active Help thread transcript & reply box */}
               <div className="lg:col-span-8 amay-card rounded-[26px] p-5 flex flex-col min-h-[440px]">
                 {!selectedHelpUuid ? (
                   <div className="flex-1 flex items-center justify-center text-sm text-[#5A6A92] dark:text-[#93A3CC]">
@@ -3454,7 +3627,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-              {/* Left column: Bot conversations OR All conversations */}
               <div className="lg:col-span-5 amay-card rounded-[26px] p-4 space-y-3">
                 <div>
                   <h3 className="text-sm font-extrabold text-[#0B1B4D] dark:text-white">
@@ -3582,13 +3754,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 )}
               </div>
 
-              {/* Right column: Full audit transcript + reply on behalf of bot */}
               <div className="lg:col-span-7 amay-card rounded-[26px] p-5 min-h-[440px] flex flex-col">
                 {(() => {
                   const pool = msgSubTab === "bots" ? botThreads : auditThreads;
                   let chosen = pool.find((t) => t.pairKey === selectedAuditPairKey) || null;
 
-                  // Support newly started Bot conversation even before first message is sent
                   if (!chosen && selectedAuditPairKey && selectedAuditPairKey.includes("::")) {
                     const [aUuid, bUuid] = selectedAuditPairKey.split("::");
                     const resolvePairSide = (u: string) => {
