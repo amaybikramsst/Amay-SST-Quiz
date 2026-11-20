@@ -328,8 +328,17 @@ export function saveQueue(q: QueuedAttempt[]): void {
 const SEEN_QUESTIONS_KEY = "amaysst_seen_q_v1";
 const MAX_SEEN_HISTORY = 500;
 
+/**
+ * Canonical fingerprint ignoring casing, extra spaces, and punctuation
+ * so duplicate or near-duplicate questions can never appear twice in any quiz.
+ */
 function normalizeQuestionKey(text: string): string {
-  return text.trim().toLowerCase().replace(/\s+/g, " ");
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/^(?:q\.?\s*\d+[\).:\-]?\s*|\d+[\).:\-]\s*)/i, "")
+    .replace(/[^a-z0-9\u0900-\u097f]+/g, " ")
+    .trim();
 }
 
 export function loadSeenQuestionKeys(guestId = "default"): string[] {
@@ -612,10 +621,11 @@ export function generateMathQuestions(level: number, count: number): RawQuestion
   const poolFns =
     level >= 3 ? amaySpecialFns : level === 2 ? hardFns : level === 1 ? medFns : easyFns;
   let guard = 0;
-  while (out.length < count && guard++ < count * 20) {
+  while (out.length < count && guard++ < count * 25) {
     const [q, a, e] = poolFns[R(0, poolFns.length - 1)]();
-    if (seen.has(q)) continue;
-    seen.add(q);
+    const norm = normalizeQuestionKey(q);
+    if (seen.has(norm)) continue;
+    seen.add(norm);
     const wrong = new Set<number>();
     const offsets = [1, -1, 2, -2, 3, -3, 10, -10];
     while (wrong.size < 3) {
@@ -631,11 +641,23 @@ export function generateMathQuestions(level: number, count: number): RawQuestion
 export function mergeDynamicQuestions(dynamicRows: DynamicQuestionRow[]): Record<SubjectKey, RawQuestion[]> {
   const merged = {} as Record<SubjectKey, RawQuestion[]>;
   for (const k of SUBJECT_ORDER) {
-    merged[k] = [...STATIC_QUESTIONS[k].q];
+    const seen = new Set<string>();
+    const deduped: RawQuestion[] = [];
+    for (const item of STATIC_QUESTIONS[k].q) {
+      const norm = normalizeQuestionKey(item[0]);
+      if (seen.has(norm)) continue;
+      seen.add(norm);
+      deduped.push(item);
+    }
+    merged[k] = deduped;
   }
   for (const row of dynamicRows) {
     const subj = row.subject as SubjectKey;
     if (!merged[subj]) continue;
+    const norm = normalizeQuestionKey(row.question_text);
+    if (!norm || merged[subj].some((existing) => normalizeQuestionKey(existing[0]) === norm)) {
+      continue;
+    }
     const raw: RawQuestion = [
       row.question_text,
       [row.option_a, row.option_b, row.option_c, row.option_d],
@@ -708,13 +730,11 @@ export function buildQuizSet(
       const isSeen = seenIdx !== undefined;
       const lvlDiff = Math.abs(q[4] - targetLvl);
 
-      // Exact level match first (for Top 20 on Hard, allow Amay Special closely alongside Hard)
       let levelBucket = lvlDiff * 10000;
       if (isTop20 && targetLvl === 2 && q[4] === 3) {
         levelBucket = 1500;
       }
 
-      // Unseen questions strictly beat seen questions; oldest-seen beats recently-seen
       const seenPenalty = isSeen ? 500 + (seenIdx as number) : 0;
       return levelBucket + seenPenalty;
     };
@@ -723,36 +743,34 @@ export function buildQuizSet(
   };
 
   let picked: RawQuestion[] = [];
+  const usedInThisQuiz = new Set<string>();
 
   if (k === "mix") {
     const rotatedSubjects = shuffle(SUBJECT_ORDER);
     const pools = rotatedSubjects.map((subj, idx) => {
-      // Top 20 players playing Hard get ~40% Amay Special questions mixed in automatically
       const slotTarget =
         isTop20 && effectiveLevel === 2 && idx % 2 === 1 ? 3 : effectiveLevel;
       return poolForSubject(subj, slotTarget);
     });
-    const usedText = new Set<string>();
     let idx = 0;
     let guard = 0;
-    while (picked.length < count && pools.some((p) => p.length > 0) && guard++ < count * 20) {
+    while (picked.length < count && pools.some((p) => p.length > 0) && guard++ < count * 30) {
       const p = pools[idx++ % pools.length];
       const next = p.shift();
       if (!next) continue;
       const norm = normalizeQuestionKey(next[0]);
-      if (usedText.has(norm)) continue;
-      usedText.add(norm);
+      if (!norm || usedInThisQuiz.has(norm)) continue;
+      usedInThisQuiz.add(norm);
       picked.push(next);
     }
     picked = shuffle(picked);
   } else {
     const pool = poolForSubject(k, effectiveLevel);
-    const usedText = new Set<string>();
     for (const q of pool) {
       if (picked.length >= count) break;
       const norm = normalizeQuestionKey(q[0]);
-      if (usedText.has(norm)) continue;
-      usedText.add(norm);
+      if (!norm || usedInThisQuiz.has(norm)) continue;
+      usedInThisQuiz.add(norm);
       picked.push(q);
     }
     picked = shuffle(picked);
