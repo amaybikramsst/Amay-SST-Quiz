@@ -103,7 +103,6 @@ function parseReplyFormat(rawBody: string): { replyQuote: string | null; cleanBo
   return { replyQuote: null, cleanBody: rawBody };
 }
 
-// Detect likely gender from display name for Facebook-style default silhouette
 function inferAvatarGender(name: string): "male" | "female" {
   const clean = name.trim().toLowerCase().replace(/[^a-z\s]/g, "");
   const parts = clean.split(/\s+/).filter(Boolean);
@@ -167,10 +166,14 @@ function inferAvatarGender(name: string): "male" | "female" {
   ]);
 
   if (maleExceptions.has(first)) return "male";
-  if (last === "kumar" || last === "singh" || last === "yadav" || last === "sharma" || last === "verma") {
-    if (last === "kumar") return "male";
-  }
-  if (last === "kumari" || last === "devi" || last === "bano" || last === "khatoon" || last === "parveen") {
+  if (last === "kumar") return "male";
+  if (
+    last === "kumari" ||
+    last === "devi" ||
+    last === "bano" ||
+    last === "khatoon" ||
+    last === "parveen"
+  ) {
     return "female";
   }
 
@@ -298,7 +301,6 @@ function inferAvatarGender(name: string): "male" | "female" {
   return "male";
 }
 
-// Classic Facebook-style default silhouette SVG (Male & Female variants)
 const FacebookSilhouetteAvatar: React.FC<{
   name: string;
   sizeClass?: string;
@@ -307,37 +309,29 @@ const FacebookSilhouetteAvatar: React.FC<{
 
   return (
     <div
-      className={`${sizeClass} rounded-full overflow-hidden flex items-end justify-center shrink-0 select-none${
+      className={`${sizeClass} rounded-full overflow-hidden flex items-end justify-center shrink-0 select-none ${
         gender === "female"
           ? "bg-gradient-to-b from-[#2A4B8D] to-[#132652]"
           : "bg-gradient-to-b from-[#244688] to-[#102046]"
       }`}
     >
       {gender === "female" ? (
-        /* Facebook-style Female Silhouette */
         <svg viewBox="0 0 64 64" className="w-full h-full" aria-hidden="true">
-          {/* Hair back */}
           <path
             d="M17 28c0-10.5 6.7-18 15-18s15 7.5 15 18c0 6.5-1.5 11.8-3.8 14.5-1.4-2.2-4.6-3.7-11.2-3.7s-9.8 1.5-11.2 3.7C18.5 39.8 17 34.5 17 28z"
             fill="#CFE0FF"
             fillOpacity="0.92"
           />
-          {/* Head & Neck */}
           <circle cx="32" cy="26" r="9.5" fill="#EAF2FF" />
-          {/* Shoulders / Bust */}
           <path
             d="M11 64c1.6-11.2 9.8-17.5 21-17.5S51.4 52.8 53 64H11z"
             fill="#EAF2FF"
           />
         </svg>
       ) : (
-        /* Facebook-style Male Silhouette */
         <svg viewBox="0 0 64 64" className="w-full h-full" aria-hidden="true">
-          {/* Head */}
           <circle cx="32" cy="24" r="10.5" fill="#EAF2FF" />
-          {/* Neck */}
           <rect x="27.5" y="33" width="9" height="7" rx="3" fill="#EAF2FF" />
-          {/* Broad Shoulders / Bust */}
           <path
             d="M9 64c1.8-12.5 10.4-19.5 23-19.5S53.2 51.5 55 64H9z"
             fill="#EAF2FF"
@@ -378,7 +372,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     firstMsgId: string | null;
   } | null>(null);
 
-  // Instagram-style Study Notes, Double-Tap Likes & Reply State
   const [myNote, setMyNote] = useState<string>(() => loadMyNote());
   const [editingNote, setEditingNote] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
@@ -436,7 +429,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     };
   }, [guestId, refreshChatData]);
 
-  // Mark active thread as read (resilient to minor client/server clock skew)
   const markPeerRead = useCallback((peerUuid: string, peerMessages?: ChatMessageRow[]) => {
     let latestMs = Date.now();
     if (peerMessages) {
@@ -459,7 +451,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     });
   }, []);
 
-  // Capture unseen messages count when a chat is opened, then mark that ID as read
   useEffect(() => {
     if (!activePeerUuid) {
       capturedSessionPeerRef.current = null;
@@ -498,7 +489,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   }, [activePeerUuid, guestId, hasLoadedMessages, markPeerRead, messages]);
 
-  // Compute threads & unread counts
   const { threadsMap, totalUnread } = useMemo(() => {
     const map = new Map<
       string,
@@ -716,7 +706,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     setEditingNote(false);
   };
 
-  // Show recent threads + ONLY show search results when user actually types a name
   const { recentThreads, searchMatches } = useMemo(() => {
     const q = search.trim().toLowerCase();
 
@@ -741,14 +730,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const helpThread = threadsMap.get(HELP_CHAT_UUID);
 
-  // CONVERSATION SCREEN (Instagram DM UI + Facebook-style Silhouettes)
   if (activePeerUuid) {
     const isHelp = activePeerUuid === HELP_CHAT_UUID;
     const peerRank = !isHelp ? rankMap.get(activePeerUuid) : undefined;
 
     return (
       <div className="space-y-3">
-        {/* IG-Style Thread Header */}
         <div className="amay-card rounded-[26px] p-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
             <button
@@ -848,7 +835,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         )}
 
-        {/* IG Message Feed Card */}
         <div className="amay-card rounded-[28px] p-3.5 flex flex-col min-h-[410px] max-h-[63vh]">
           <div className="flex-1 overflow-y-auto px-1 space-y-1">
             {activeMessages.length === 0 ? (
@@ -896,7 +882,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <div
                     ref={unseenDividerRef}
                     className="flex items-center gap-2.5 py-2.5"
-                    aria-label={`${openedUnseen.count} unseen${openedUnseen.count === 1 ? "message" : "messages"}`}
+                    aria-label={`${openedUnseen.count} unseen ${openedUnseen.count === 1 ? "message" : "messages"}`}
                   >
                     <span className="flex-1 h-px bg-[#1457E0]/25 dark:bg-[#5AA2FF]/25" />
                     <span className="px-3 py-1 rounded-full bg-[#1457E0]/12 dark:bg-[#5AA2FF]/15 text-[#1457E0] dark:text-[#5AA2FF] text-[11px] font-extrabold tracking-tight shrink-0">
@@ -906,7 +892,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </div>
                 ) : null;
 
-                // Instagram grouped corner radius logic
                 const mineRadius = `${sameAsPrev ? "rounded-tr-[6px]" : "rounded-tr-[20px]"} ${
                   sameAsNext ? "rounded-br-[6px]" : "rounded-br-[20px]"
                 } rounded-l-[20px]`;
@@ -920,9 +905,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     <React.Fragment key={m.id}>
                       {dividerEl}
                       <div
-                        className={`group flex items-end gap-2 justify-start ${ sameAsPrev ? "mt-0.5" : "mt-2.5" } ${isLiked ? "mb-2" : ""}`}
+                        className={`group flex items-end gap-2 justify-start ${
+                          sameAsPrev ? "mt-0.5" : "mt-2.5"
+                        } ${isLiked ? "mb-2" : ""}`}
                       >
-                        {/* Small Facebook Silhouette Avatar on last bubble in stack */}
                         <div className="w-6 h-6 shrink-0">
                           {!sameAsNext &&
                             (isHelp ? (
@@ -971,7 +957,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           )}
                         </div>
 
-                        {/* Quick Reply Button */}
                         <button
                           type="button"
                           onClick={() => {
@@ -995,10 +980,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <React.Fragment key={m.id}>
                     {dividerEl}
                     <div
-                      className={`group flex flex-col items-end ${ sameAsPrev ? "mt-0.5" : "mt-2.5" } ${isLiked ? "mb-2" : ""}`}
+                      className={`group flex flex-col items-end ${
+                        sameAsPrev ? "mt-0.5" : "mt-2.5"
+                      } ${isLiked ? "mb-2" : ""}`}
                     >
                       <div className="flex items-center justify-end gap-1.5 max-w-full">
-                        {/* Quick Reply Button */}
                         <button
                           type="button"
                           onClick={() => {
@@ -1021,7 +1007,98 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             role="button"
                             tabIndex={0}
                             aria-expanded={isSelected}
-                            className={`relative px-3.5 py-2 text-[14px] leading-relaxed break-words text-left bg-gradient-to-b from-[#256EF6] to-[#1457E0] text-white shadow-sm cursor-pointer select-none transition active:scale-[0.99] ${mineRadius} ${ isSelected ? "ring-2 ring-[#5AA2FF]" : "" }`} > {replyQuote && ( <div className="mb-1.5 pl-2 border-l-2 border-white/60 text-[11px] text-white/80 line-clamp-2"> {replyQuote} </div> )} <p className="whitespace-pre-wrap">{cleanBody}</p> {!sameAsNext && ( <span className="block text-[9px] font-mono mt-1 text-white/75 text-right"> {formatMsgTime(m.created_at)} </span> )}  {isBursting && ( <span className="absolute inset-0 flex items-center justify-center pointer-events-none"> <Heart className="w-8 h-8 text-white fill-white animate-ping" /> </span> )} </div>  {isLiked && ( <button type="button" onClick={() => triggerHeartLike(m.id)} aria-label="Remove heart" className="absolute -bottom-2.5 right-2 px-1.5 py-0.5 rounded-full bg-[#10182B] border border-white/15 text-[10px] leading-none shadow-md cursor-pointer" > ❤️ </button> )} </div> </div>  {isSelected && ( <div className="flex items-center gap-1.5 pr-1 mt-1.5"> <button type="button" disabled={isUnsending} onClick={() => handleUnsendMessage(m.id)} className="px-3 py-1 rounded-full bg-[#D92D3A] text-white text-xs font-bold shadow-sm hover:brightness-105 active:scale-[0.98] transition cursor-pointer disabled:opacity-60" > {isUnsending ? "Unsending…" : "Unsend"} </button> </div> )} </div> </React.Fragment> ); }) )} <div ref={bottomRef} /> </div>  {sendError && ( <p className="text-xs font-semibold text-[#D92D3A] dark:text-[#FF6B76] mt-2 px-1"> {sendError} </p> )}  {/* IG Quoted Reply Preview Bar */} {replyingTo && ( <div className="mt-2 px-3 py-2 rounded-2xl bg-[#1457E0]/10 dark:bg-[#131E3A] border-l-4 border-[#1457E0] flex items-center justify-between gap-2"> <div className="min-w-0"> <span className="block text-[10px] font-extrabold text-[#1457E0] dark:text-[#5AA2FF]"> Replying to {replyingTo.sender} </span> <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] truncate"> {replyingTo.snippet} </p> </div> <button type="button" onClick={() => setReplyingTo(null)} aria-label="Cancel reply" className="w-6 h-6 rounded-full flex items-center justify-center text-[#5A6A92] dark:text-[#93A3CC] hover:bg-white/10 cursor-pointer shrink-0" > <X className="w-3.5 h-3.5" /> </button> </div> )}  {/* IG Capsule Composer */} <form onSubmit={handleSend} className="pt-2.5 mt-2 flex items-center gap-2"> <div className="flex-1 h-11 pl-4 pr-1.5 rounded-full bg-white/90 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 flex items-center gap-2 focus-within:border-[#1457E0]"> <input ref={inputRef} type="text" maxLength={1000} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={isHelp ? "Message Help…" : `Message ${activePeerName}…`}
+                            className={`relative px-3.5 py-2 text-[14px] leading-relaxed break-words text-left bg-gradient-to-b from-[#256EF6] to-[#1457E0] text-white shadow-sm cursor-pointer select-none transition active:scale-[0.99] ${mineRadius} ${
+                              isSelected ? "ring-2 ring-[#5AA2FF]" : ""
+                            }`}
+                          >
+                            {replyQuote && (
+                              <div className="mb-1.5 pl-2 border-l-2 border-white/60 text-[11px] text-white/80 line-clamp-2">
+                                {replyQuote}
+                              </div>
+                            )}
+                            <p className="whitespace-pre-wrap">{cleanBody}</p>
+                            {!sameAsNext && (
+                              <span className="block text-[9px] font-mono mt-1 text-white/75 text-right">
+                                {formatMsgTime(m.created_at)}
+                              </span>
+                            )}
+
+                            {isBursting && (
+                              <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <Heart className="w-8 h-8 text-white fill-white animate-ping" />
+                              </span>
+                            )}
+                          </div>
+
+                          {isLiked && (
+                            <button
+                              type="button"
+                              onClick={() => triggerHeartLike(m.id)}
+                              aria-label="Remove heart"
+                              className="absolute -bottom-2.5 right-2 px-1.5 py-0.5 rounded-full bg-[#10182B] border border-white/15 text-[10px] leading-none shadow-md cursor-pointer"
+                            >
+                              ❤️
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {isSelected && (
+                        <div className="flex items-center gap-1.5 pr-1 mt-1.5">
+                          <button
+                            type="button"
+                            disabled={isUnsending}
+                            onClick={() => handleUnsendMessage(m.id)}
+                            className="px-3 py-1 rounded-full bg-[#D92D3A] text-white text-xs font-bold shadow-sm hover:brightness-105 active:scale-[0.98] transition cursor-pointer disabled:opacity-60"
+                          >
+                            {isUnsending ? "Unsending…" : "Unsend"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </React.Fragment>
+                );
+              })
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          {sendError && (
+            <p className="text-xs font-semibold text-[#D92D3A] dark:text-[#FF6B76] mt-2 px-1">
+              {sendError}
+            </p>
+          )}
+
+          {replyingTo && (
+            <div className="mt-2 px-3 py-2 rounded-2xl bg-[#1457E0]/10 dark:bg-[#131E3A] border-l-4 border-[#1457E0] flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <span className="block text-[10px] font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
+                  Replying to {replyingTo.sender}
+                </span>
+                <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] truncate">
+                  {replyingTo.snippet}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReplyingTo(null)}
+                aria-label="Cancel reply"
+                className="w-6 h-6 rounded-full flex items-center justify-center text-[#5A6A92] dark:text-[#93A3CC] hover:bg-white/10 cursor-pointer shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          <form onSubmit={handleSend} className="pt-2.5 mt-2 flex items-center gap-2">
+            <div className="flex-1 h-11 pl-4 pr-1.5 rounded-full bg-white/90 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 flex items-center gap-2 focus-within:border-[#1457E0]">
+              <input
+                ref={inputRef}
+                type="text"
+                maxLength={1000}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={isHelp ? "Message Help…" : `Message ${activePeerName}…`}
                 className="flex-1 bg-transparent text-[14px] text-[#0B1B4D] dark:text-white placeholder:text-[#5A6A92]/60 focus:outline-none"
               />
               {draft.trim().length > 0 ? (
@@ -1053,7 +1130,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
     );
   }
 
-  // INBOX SCREEN (Instagram Study Notes + Facebook-style Silhouettes + Help + Search + Chats)
   return (
     <div className="space-y-4">
       <div className="px-1 flex items-center justify-between">
@@ -1073,9 +1149,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
       )}
 
-      {/* Instagram-Style Study Notes Tray */}
       <div className="flex items-start gap-3.5 overflow-x-auto pb-1 pt-4 px-1 no-scrollbar">
-        {/* Your Own Study Note */}
         <button
           type="button"
           onClick={() => {
@@ -1098,7 +1172,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </span>
         </button>
 
-        {/* Pinned Help Note */}
         <button
           type="button"
           onClick={() => {
@@ -1121,7 +1194,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </span>
         </button>
 
-        {/* Recent Chat Contacts in IG Ring Tray */}
         {recentThreads.slice(0, 6).map((t) => (
           <button
             key={t.peerUuid}
@@ -1149,7 +1221,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
         ))}
       </div>
 
-      {/* Study Note Editor Modal */}
       {editingNote && (
         <form
           onSubmit={handleSaveStudyNote}
@@ -1186,7 +1257,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </form>
       )}
 
-      {/* Pinned Help Support Card */}
       <button
         type="button"
         onClick={() => {
@@ -1227,7 +1297,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
         )}
       </button>
 
-      {/* Search by Name (only shows matching results while typing) */}
       <div className="relative">
         <Search className="w-4 h-4 text-[#5A6A92] absolute left-4 top-1/2 -translate-y-1/2" />
         <input
@@ -1239,7 +1308,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
         />
       </div>
 
-      {/* Search Results (shown ONLY when typing a search query) */}
       {search.trim().length > 0 && (
         <div className="amay-card rounded-[28px] p-4 space-y-2">
           <h2 className="text-xs font-extrabold uppercase tracking-wider text-[#5A6A92] dark:text-[#93A3CC] px-1">
@@ -1291,7 +1359,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
       )}
 
-      {/* Recent Conversations */}
       <div className="amay-card rounded-[28px] p-4 space-y-2">
         <h2 className="text-xs font-extrabold uppercase tracking-wider text-[#5A6A92] dark:text-[#93A3CC] px-1">
           Your Chats
@@ -1334,4 +1401,45 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         <strong
                           className={`text-sm truncate ${
                             t.unread > 0
-                              ? "font-
+                              ? "font-extrabold text-[#0B1B4D] dark:text-white"
+                              : "font-bold text-[#0B1B4D] dark:text-white"
+                          }`}
+                        >
+                          {t.peerName}
+                        </strong>
+                        {rank && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-[#1457E0]/10 dark:bg-white/10 text-[#1457E0] dark:text-[#93A3CC] text-[10px] font-mono font-bold shrink-0">
+                            #{rank}
+                          </span>
+                        )}
+                      </div>
+                      {t.lastMessage && (
+                        <span className="text-[11px] font-mono text-[#5A6A92] dark:text-[#93A3CC] shrink-0">
+                          {formatMsgTime(t.lastMessage.created_at)}
+                        </span>
+                      )}
+                    </div>
+                    <p
+                      className={`text-xs truncate mt-0.5 ${
+                        t.unread > 0
+                          ? "font-bold text-[#0B1B4D] dark:text-white"
+                          : "text-[#5A6A92] dark:text-[#93A3CC]"
+                      }`}
+                    >
+                      {isMineLast ? `You: ${previewText}` : previewText}
+                    </p>
+                  </div>
+                  {t.unread > 0 && (
+                    <span className="min-w-[20px] h-[20px] px-1.5 rounded-full bg-[#1457E0] text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">
+                      {t.unread}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
