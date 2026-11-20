@@ -185,7 +185,6 @@ export async function setMyCredentials(
     if (error) {
       const missing = /could not find the function|function .* does not exist/i.test(error.message);
       if (missing && cleanedName.length >= 2) {
-        // Fallback if database still has the 3-argument signature
         const legacyRes = await supabase.rpc("set_my_credentials", {
           p_guest: guestId,
           p_username: username.trim().toLowerCase(),
@@ -311,18 +310,39 @@ export async function getLeaderboard(guestId: string): Promise<LeaderboardFetchR
 
 const STANDARD_SUBJECT_SET = new Set<SubjectKey>(["math", "sci", "sst", "eng", "hin", "ca"]);
 
+// Paginated fetch so 5,000–20,000+ uploaded questions load completely without any 1,000-row cutoff
 export async function fetchDynamicQuestions(): Promise<DynamicQuestionRow[]> {
+  const allRows: DynamicQuestionRow[] = [];
+  const pageSize = 1000;
+  let from = 0;
+
   try {
-    const { data, error } = await supabase
-      .from("dynamic_questions")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error || !Array.isArray(data)) return [];
-    return (data as DynamicQuestionRow[]).filter((row) =>
-      STANDARD_SUBJECT_SET.has(row.subject)
-    );
+    while (from < 25000) {
+      const { data, error } = await supabase
+        .from("dynamic_questions")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(from, from + pageSize - 1);
+
+      if (error || !Array.isArray(data) || data.length === 0) {
+        break;
+      }
+
+      for (const row of data as DynamicQuestionRow[]) {
+        if (STANDARD_SUBJECT_SET.has(row.subject)) {
+          allRows.push(row);
+        }
+      }
+
+      if (data.length < pageSize) {
+        break;
+      }
+      from += pageSize;
+    }
+    return allRows;
   } catch {
-    return [];
+    return allRows;
   }
 }
 
@@ -419,13 +439,34 @@ export async function adminBulkInsertQuestions(
   rows: Array<Omit<DynamicQuestionRow, "id" | "created_at">>
 ): Promise<{ error: { message: string } | null }> {
   if (rows.length === 0) return { error: null };
-  const res = await supabase.from("dynamic_questions").insert(rows);
-  if (!res.error) return { error: null };
-  return { error: { message: res.error.message } };
+  const chunkSize = 500;
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const slice = rows.slice(i, i + chunkSize);
+    const res = await supabase.from("dynamic_questions").insert(slice);
+    if (res.error) return { error: { message: res.error.message } };
+  }
+  return { error: null };
 }
 
 export async function adminDeleteQuestion(id: string) {
   return supabase.from("dynamic_questions").delete().eq("id", id);
+}
+
+export async function adminDeleteQuestionsBatch(
+  ids: string[]
+): Promise<{ deletedCount: number; error: { message: string } | null }> {
+  if (ids.length === 0) return { deletedCount: 0, error: null };
+  const chunkSize = 200;
+  let deletedCount = 0;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const slice = ids.slice(i, i + chunkSize);
+    const { error } = await supabase.from("dynamic_questions").delete().in("id", slice);
+    if (error) {
+      return { deletedCount, error: { message: error.message } };
+    }
+    deletedCount += slice.length;
+  }
+  return { deletedCount, error: null };
 }
 
 export async function adminLoadCandidates(): Promise<AdminCandidateRow[]> {
@@ -497,7 +538,6 @@ export async function reportAppInstallStatus(
   if (!guestId || !candidateName) return false;
   let ok = false;
 
-  // 1. Update candidates.app_installed via RPC if present
   try {
     const { error } = await supabase.rpc("report_app_install", {
       p_guest: guestId,
@@ -508,7 +548,6 @@ export async function reportAppInstallStatus(
     // RPC may not be added yet; fallback to candidate_events works immediately
   }
 
-  // 2. Also record latest install state in candidate_events (works immediately with existing table)
   try {
     await logCandidateTap(
       guestId,
@@ -528,8 +567,6 @@ export async function reportAppInstallStatus(
 export async function adminLoadInstallStatusMap(): Promise<Record<string, boolean>> {
   const map: Record<string, boolean> = {};
   try {
-    // Query only "App Installed" events (up to 5000) so previous installs stay visible
-    // and are never overwritten by later browser-tab opens ("App Not Installed").
     const { data, error } = await supabase
       .from("candidate_events")
       .select("guest_uuid")
