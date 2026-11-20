@@ -33,20 +33,21 @@ function normalizeSubject(raw: string | undefined, fallback: SubjectKey): Subjec
   return fallback;
 }
 
-function normalizeLevel(raw: string | number | undefined, fallback: number): number {
+function parseExplicitLevel(raw: string | number | undefined): number | null {
   if (typeof raw === "number" && raw >= 0 && raw <= 3) return raw;
   const s = String(raw || "").trim().toLowerCase();
+  if (!s || s === "auto" || s === "ai") return null;
   if (s === "0" || s.includes("easy")) return 0;
   if (s === "1" || s.includes("med")) return 1;
   if (s === "2" || s.includes("hard")) return 2;
   if (s === "3" || s.includes("amay") || s.includes("spec")) return 3;
-  return fallback;
+  return null;
 }
 
 function normalizeAnswerIndex(raw: string | number | undefined): number {
   if (typeof raw === "number" && raw >= 0 && raw <= 3) return raw;
   const s = String(raw || "").trim().toUpperCase();
-  if (s === "A" || s === "1" || s === "0") return s === "1" ? 0 : 0;
+  if (s === "A" || s === "1" || s === "0") return 0;
   if (s === "B" || s === "2") return 1;
   if (s === "C" || s === "3") return 2;
   if (s === "D" || s === "4") return 3;
@@ -82,7 +83,7 @@ function parseCsvLine(line: string): string[] {
 export function parseCsvQuestions(
   text: string,
   defaultSubject: SubjectKey,
-  defaultLevel: number
+  _defaultLevel: number
 ): ParsedBulkQuestion[] {
   const lines = text
     .split(/\r?\n/)
@@ -96,6 +97,7 @@ export function parseCsvQuestions(
 
   const startIdx = hasHeader ? 1 : 0;
   const out: ParsedBulkQuestion[] = [];
+  const seenInFile = new Set<string>();
 
   for (let i = startIdx; i < lines.length; i++) {
     const cols = parseCsvLine(lines[i]);
@@ -107,9 +109,20 @@ export function parseCsvQuestions(
     if (cols.length >= 8) {
       const [subj, lvl, q, a, b, c, d, ans, exp] = cols;
       if (!q || !a || !b || !c || !d) continue;
+      const dedupKey = q.trim().toLowerCase().replace(/[^a-z0-9\u0900-\u097f]+/g, "");
+      if (seenInFile.has(dedupKey)) continue;
+      seenInFile.add(dedupKey);
+
+      const resolvedSubject = normalizeSubject(subj, defaultSubject);
+      const explicitLevel = parseExplicitLevel(lvl);
+      const autoLevel =
+        explicitLevel !== null
+          ? explicitLevel
+          : classifyQuestionDifficulty(resolvedSubject, q, [a, b, c, d], exp || "");
+
       out.push({
-        subject: normalizeSubject(subj, defaultSubject),
-        level: normalizeLevel(lvl, defaultLevel),
+        subject: resolvedSubject,
+        level: autoLevel,
         question_text: q,
         option_a: a,
         option_b: b,
@@ -121,9 +134,15 @@ export function parseCsvQuestions(
     } else {
       const [q, a, b, c, d, ans, exp] = cols;
       if (!q || !a || !b || !c || !d) continue;
+      const dedupKey = q.trim().toLowerCase().replace(/[^a-z0-9\u0900-\u097f]+/g, "");
+      if (seenInFile.has(dedupKey)) continue;
+      seenInFile.add(dedupKey);
+
+      const autoLevel = classifyQuestionDifficulty(defaultSubject, q, [a, b, c, d], exp || "");
+
       out.push({
         subject: defaultSubject,
-        level: defaultLevel,
+        level: autoLevel,
         question_text: q,
         option_a: a,
         option_b: b,
@@ -141,7 +160,7 @@ export function parseCsvQuestions(
 export function parseJsonQuestions(
   text: string,
   defaultSubject: SubjectKey,
-  defaultLevel: number
+  _defaultLevel: number
 ): ParsedBulkQuestion[] {
   try {
     const parsed = JSON.parse(text);
@@ -156,16 +175,29 @@ export function parseJsonQuestions(
       const c = item.option_c ?? item.c ?? opts[2] ?? "";
       const d = item.option_d ?? item.d ?? opts[3] ?? "";
       if (!qText || !a || !b || !c || !d) continue;
+
+      const resolvedSubject = normalizeSubject(item.subject, defaultSubject);
+      const explicitLevel = parseExplicitLevel(item.level ?? item.difficulty);
+      const cleanQ = String(qText).trim();
+      const cleanA = String(a).trim();
+      const cleanB = String(b).trim();
+      const cleanC = String(c).trim();
+      const cleanD = String(d).trim();
+      const cleanExp = String(item.explanation ?? item.exp ?? "").trim();
+
       out.push({
-        subject: normalizeSubject(item.subject, defaultSubject),
-        level: normalizeLevel(item.level, defaultLevel),
-        question_text: String(qText).trim(),
-        option_a: String(a).trim(),
-        option_b: String(b).trim(),
-        option_c: String(c).trim(),
-        option_d: String(d).trim(),
+        subject: resolvedSubject,
+        level:
+          explicitLevel !== null
+            ? explicitLevel
+            : classifyQuestionDifficulty(resolvedSubject, cleanQ, [cleanA, cleanB, cleanC, cleanD], cleanExp),
+        question_text: cleanQ,
+        option_a: cleanA,
+        option_b: cleanB,
+        option_c: cleanC,
+        option_d: cleanD,
         correct_index: normalizeAnswerIndex(item.correct_index ?? item.correct ?? item.answer),
-        explanation: String(item.explanation ?? item.exp ?? "").trim(),
+        explanation: cleanExp,
       });
     }
     return out;
@@ -177,9 +209,8 @@ export function parseJsonQuestions(
 export function parseTextMcqQuestions(
   rawText: string,
   defaultSubject: SubjectKey,
-  defaultLevel: number
+  _defaultLevel: number
 ): ParsedBulkQuestion[] {
-  // Normalize common PDF spacing so options on same line get split cleanly
   const normalized = rawText
     .replace(/\r/g, "\n")
     .replace(/\s+(?=\(?[A-Da-d][\).]\s)/g, "\n")
@@ -200,16 +231,21 @@ export function parseTextMcqQuestions(
   const flush = () => {
     const qText = curQ.join(" ").replace(/^(?:Q\.?\s*\d+[\).:\-]?\s*|\d+[\).:\-]\s*|\(\d+\)\s*)/i, "").trim();
     if (qText && opts.A && opts.B && opts.C && opts.D) {
+      const cleanA = opts.A.trim();
+      const cleanB = opts.B.trim();
+      const cleanC = opts.C.trim();
+      const cleanD = opts.D.trim();
+      const cleanExp = exp.join(" ").trim();
       out.push({
         subject: defaultSubject,
-        level: defaultLevel,
+        level: classifyQuestionDifficulty(defaultSubject, qText, [cleanA, cleanB, cleanC, cleanD], cleanExp),
         question_text: qText,
-        option_a: opts.A.trim(),
-        option_b: opts.B.trim(),
-        option_c: opts.C.trim(),
-        option_d: opts.D.trim(),
+        option_a: cleanA,
+        option_b: cleanB,
+        option_c: cleanC,
+        option_d: cleanD,
         correct_index: ans ?? 0,
-        explanation: exp.join(" ").trim(),
+        explanation: cleanExp,
       });
     }
     curQ = [];
@@ -220,7 +256,6 @@ export function parseTextMcqQuestions(
   };
 
   for (const line of lines) {
-    // Check if new question starts (e.g., "1. ..." or "Q2) ...")
     const qStart = line.match(/^(?:Q\.?\s*\d+[\).:\-]|\d+[\).:]|\(\d+\))\s+(.+)/i);
     if (qStart && (opts.A || curQ.length > 0)) {
       if (opts.A && opts.B && opts.C && opts.D) {
@@ -233,7 +268,6 @@ export function parseTextMcqQuestions(
       continue;
     }
 
-    // Check option A/B/C/D
     const optMatch = line.match(/^\(?([A-Da-d])[\).:\-]\s*(.+)$/);
     if (optMatch) {
       const letter = optMatch[1].toUpperCase() as "A" | "B" | "C" | "D";
@@ -242,14 +276,12 @@ export function parseTextMcqQuestions(
       continue;
     }
 
-    // Check Answer line
     const ansMatch = line.match(/^(?:Answer|Ans|Correct(?:\s*Option)?|Key)\s*[:.\-]?\s*\(?([A-Da-d1-4])\)?/i);
     if (ansMatch) {
       ans = normalizeAnswerIndex(ansMatch[1]);
       continue;
     }
 
-    // Check Explanation line
     const expMatch = line.match(/^(?:Explanation|Sol|Solution|Hint)\s*[:.\-]?\s*(.+)$/i);
     if (expMatch) {
       exp.push(expMatch[1]);
@@ -321,7 +353,6 @@ export async function parseBulkQuestionFile(
     return { questions, rawTextPreview: txt.slice(0, 800) };
   }
 
-  // Fallback .txt or other plain text
   const txt = await file.text();
   const asCsv = parseCsvQuestions(txt, defaultSubject, defaultLevel);
   if (asCsv.length > 0) return { questions: asCsv };
@@ -329,51 +360,89 @@ export async function parseBulkQuestionFile(
   return { questions, rawTextPreview: txt.slice(0, 800) };
 }
 
+/**
+ * Smart AI-style heuristic classifier for Easy (0), Medium (1), Hard (2), and Amay Special (3).
+ * Analyzes CBSE/NCERT exam formats (Assertion-Reason, Multi-statement, Match-the-Following,
+ * Chronology, Negative traps, Multi-step numericals, and conceptual depth).
+ */
 export function classifyQuestionDifficulty(
   subject: SubjectKey,
   questionText: string,
   options: string[] = [],
   explanation = ""
 ): 0 | 1 | 2 | 3 {
-  const text = `${questionText} ${explanation} ${options.join(" ")}`.toLowerCase();
   const qOnly = questionText.trim();
+  const optsJoined = options.join(" ");
+  const text = `${qOnly} ${explanation} ${optsJoined}`.toLowerCase();
   const wordCount = qOnly.split(/\s+/).filter(Boolean).length;
-  let score = 1; // baseline Medium
+  let score = 1; // Baseline: Medium (1)
 
-  // Clear Amay Special (hardest) competitive/multi-step/analytical markers
+  // 1. Amay Special (Level 3 - Hardest Exam / Board / Competitive Patterns)
+  const isAssertionReason =
+    /assertion\s*\(?a\)?.*reason\s*\(?r\)?|both a and r are true|कथन\s*\(?a\)?.*कारण\s*\(?r\)?/i.test(text);
+  const isMultiStatement =
+    /(statement\s*(i|1|ii|2)|consider the following statements|which of the following statements (is|are) (correct|true|incorrect)|only i and ii|i, ii and iii|निम्नलिखित कथनों पर विचार)/i.test(
+      text
+    );
+  const isMatchOrChronology =
+    /(match list|match the following|column\s*i.*column\s*ii|chronological order|arrange the following in (correct|ascending|descending|chronological)|कालानुक्रमिक|सुमेलित कीजिए)/i.test(
+      text
+    );
+
+  if (isAssertionReason || isMultiStatement || isMatchOrChronology) {
+    score += 2;
+  }
+
+  // Deep analytical / board-topper / competitive keywords
   if (
-    /kesavananda|basic structure|itcz|monetary policy|article (100|148|279a|352|356|360)|schedule|ryotwari|mahalwari|khadar|bangar|synecdoche|inversion|scarcely|hardly had|lest you|conditional|sec²|cosec|α²|β²|discriminant|empirical mode|melted|recast|equidistant|dihybrid|mendel|isoto|ph of a solution|lactic acid|hypermetropia|refactive|refractive index|अयादि|विसर्ग|श्लेष|उत्प्रेक्षा|ज्ञानपीठ|चौपाई|दोहा|अतिशयोक्ति|lagrange|bimstec|ramsar|pslv|biosphere/i.test(
+    /kesavananda|basic structure|itcz|monetary policy|article\s*(100|148|279a|352|356|360)|schedule|ryotwari|mahalwari|khadar|bangar|zollverein|frankfurt parliament|satyagraha|non-cooperation|civil disobedience|bretton woods|power sharing|federalism|concurrent list|synecdoche|inversion|scarcely|hardly had|lest you|conditional|sec²|cosec|α²|β²|discriminant|empirical mode|melted|recast|equidistant|dihybrid|mendel|isoto|ph of a solution|lactic acid|hypermetropia|myopia|refractive index|homologous series|saponification|esterification|अयादि|विसर्ग|श्लेष|उत्प्रेक्षा|ज्ञानपीठ|चौपाई|दोहा|अतिशयोक्ति|lagrange|bimstec|ramsar|pslv|biosphere/i.test(
       text
     )
   ) {
     score += 2;
   }
 
-  // Clear Hard markers
+  // 2. Hard (Level 2 - Negative Traps, Causes/Consequences, Multi-step Formulas)
+  const hasNegativeTrap =
+    /\b(not true|not correct|incorrect|except|does not|is not a|which one is false|निम्न में से कौन.*नहीं)\b/i.test(
+      qOnly
+    );
+  if (hasNegativeTrap) {
+    score += 1;
+  }
+
   if (
-    /constitutional|amendment|treaty|viceroy|governor-general|concurrent list|union list|state list|unemployment|hydroelectric|dam|steel plant|oxidation|reduction|displacement|enzyme|pancreatic|allotrope|cathode|anode|capacitor|inductance|radioactivity|oxymoron|extempore|passive|indirect speech|idiom|ephemeral|laconic|pragmatic|बहुव्रीहि|कर्मधारय|तत्सम|यमक|रस का स्थायी|अलंकार|रचयिता|election commission|niti aayog|gst council|curvilinear|curved surface|cone|cylinder|probability|doublet|quadratic|trigonometr/i.test(
+    /constitutional|amendment|treaty|viceroy|governor-general|union list|state list|unemployment|hydroelectric|steel plant|oxidation|reduction|displacement|double displacement|enzyme|pancreatic|allotrope|cathode|anode|capacitor|inductance|radioactivity|oxymoron|extempore|passive|indirect speech|idiom|ephemeral|laconic|pragmatic|बहुव्रीहि|कर्मधारय|तत्सम|यमक|रस का स्थायी|अलंकार|रचयिता|election commission|niti aayog|gst council|curvilinear|curved surface|cone|cylinder|probability|doublet|quadratic|trigonometr|nationalism|industrialisation|globalisation|print culture/i.test(
       text
     )
   ) {
     score += 1;
   }
 
-  // Multi-clause / multi-step numerical complexity
-  if (wordCount >= 18) score += 1;
+  // Long or multi-clause questions require higher reading & reasoning effort
+  if (wordCount >= 22) score += 1;
+  if (wordCount >= 32) score += 1;
   if (/\d+\s*[x²³^√÷×]/.test(qOnly) && wordCount >= 10) score += 1;
 
-  // Clear Easy basic-recall markers
-  if (
-    wordCount <= 9 &&
-    /(what is \d+\s*[+\-×]\s*\d+|capital of (india|france|germany|russia|italy|japan|nepal|egypt)|opposite of|past tense of|plural of|national (bird|flower|animal|fruit|tree)|festival of|symbol of (carbon|oxygen|gold|iron|sodium|nitrogen|calcium)|planet (nearest|largest|red|blue)|विलोम|पर्यायवाची)/i.test(
+  // 3. Easy (Level 0 - Short, direct single-fact recall)
+  const isShortRecall =
+    wordCount <= 11 &&
+    !hasNegativeTrap &&
+    !isAssertionReason &&
+    !isMultiStatement &&
+    /(what is \d+\s*[+\-×]\s*\d+|who wrote|who discovered|who invented|capital of|currency of|opposite of|synonym of|antonym of|past tense of|plural of|national (bird|flower|animal|fruit|tree|anthem|song)|festival of|symbol of|si unit of|chemical formula of|planet (nearest|largest|red|blue)|how many (states|union territories|continents|oceans|bones|planets)|father of|full form of|विलोम|पर्यायवाची)/i.test(
       text
-    )
-  ) {
+    );
+
+  if (isShortRecall) {
     score -= 1;
+  } else if (wordCount <= 7 && !hasNegativeTrap && score === 1) {
+    // Very short single-line recall questions default to Easy
+    score = 0;
   }
 
-  // Subject-specific nuance
-  if (subject === "math" && /ratio|melted|roots|section formula|collinear|probability/.test(text)) {
+  // Subject-specific floor
+  if (subject === "math" && /ratio|melted|roots|section formula|collinear|probability|trigonometr/.test(text)) {
     score = Math.max(score, 2);
   }
 
