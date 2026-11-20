@@ -23,6 +23,270 @@ interface ProfileViewProps {
   onOpenBadge: (spec?: BadgeDesignSpec) => void;
 }
 
+const AVATAR_GENDER_KEY = "amaysst_avatar_gender";
+
+function loadSavedGender(): "male" | "female" | null {
+  try {
+    const val = localStorage.getItem(AVATAR_GENDER_KEY);
+    return val === "male" || val === "female" ? val : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveGenderPreference(gender: "male" | "female") {
+  try {
+    localStorage.setItem(AVATAR_GENDER_KEY, gender);
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function inferAvatarGender(name: string): "male" | "female" {
+  const clean = name.trim().toLowerCase().replace(/[^a-z\s]/g, "");
+  const parts = clean.split(/\s+/).filter(Boolean);
+  const first = parts[0] || "";
+  const last = parts[parts.length - 1] || "";
+
+  if (!first) return "male";
+
+  const maleExceptions = new Set([
+    "rabi",
+    "ravi",
+    "aditya",
+    "krishna",
+    "shiva",
+    "surya",
+    "arya",
+    "rudra",
+    "kabir",
+    "jasin",
+    "aman",
+    "amit",
+    "sumit",
+    "rohit",
+    "mohit",
+    "ankit",
+    "rahul",
+    "abhishek",
+    "akash",
+    "vikash",
+    "vikas",
+    "deepak",
+    "prince",
+    "harsh",
+    "yash",
+    "ayush",
+    "piyush",
+    "amay",
+    "sunny",
+    "lucky",
+    "bunny",
+    "vicky",
+    "bobby",
+    "monty",
+    "sonu",
+    "monu",
+    "golu",
+    "chhotu",
+    "raja",
+    "rana",
+    "mustafa",
+    "hamza",
+    "ali",
+    "usman",
+    "umar",
+    "farhan",
+    "arjun",
+    "karan",
+    "varun",
+    "tarun",
+    "arun",
+  ]);
+
+  if (maleExceptions.has(first)) return "male";
+  if (last === "kumar") return "male";
+  if (
+    last === "kumari" ||
+    last === "devi" ||
+    last === "bano" ||
+    last === "khatoon" ||
+    last === "parveen"
+  ) {
+    return "female";
+  }
+
+  const femaleExact = new Set([
+    "priya",
+    "neha",
+    "pooja",
+    "puja",
+    "anjali",
+    "sneha",
+    "swati",
+    "kavita",
+    "sunita",
+    "anita",
+    "nikita",
+    "ankita",
+    "shreya",
+    "divya",
+    "riya",
+    "siya",
+    "jiya",
+    "diya",
+    "tanya",
+    "sanya",
+    "anya",
+    "isha",
+    "nisha",
+    "asha",
+    "usha",
+    "kiran",
+    "simran",
+    "muskan",
+    "khushi",
+    "kajal",
+    "komal",
+    "sonam",
+    "poonam",
+    "rekha",
+    "seema",
+    "meena",
+    "geeta",
+    "sita",
+    "radha",
+    "ganga",
+    "laxmi",
+    "lakshmi",
+    "saraswati",
+    "durga",
+    "parvati",
+    "nandini",
+    "roshni",
+    "chandni",
+    "jyoti",
+    "arti",
+    "aarti",
+    "bharti",
+    "sweta",
+    "shweta",
+    "sakshi",
+    "megha",
+    "varsha",
+    "richa",
+    "ruchika",
+    "monika",
+    "sonia",
+    "soniya",
+    "tina",
+    "nina",
+    "mina",
+    "hina",
+    "sana",
+    "zoya",
+    "fatima",
+    "ayesha",
+    "aisha",
+    "sadia",
+    "nazia",
+    "rubina",
+    "shabnam",
+    "palak",
+    "mahak",
+    "mehak",
+    "payal",
+    "sheetal",
+    "sapna",
+    "archana",
+    "vandana",
+    "sadhana",
+    "kalpana",
+    "arpita",
+    "ipsita",
+    "susmita",
+    "sushmita",
+    "madhu",
+    "nidhi",
+    "siddhi",
+    "riddhi",
+    "vrinda",
+    "shruti",
+    "smriti",
+    "kriti",
+    "aditi",
+    "stuti",
+    "pragati",
+    "unnati",
+    "bhavya",
+    "navya",
+    "kavya",
+    "saumya",
+    "soumya",
+  ]);
+
+  if (femaleExact.has(first)) return "female";
+
+  if (
+    first.endsWith("a") ||
+    first.endsWith("i") ||
+    first.endsWith("ee") ||
+    first.endsWith("ya") ||
+    first.endsWith("shi")
+  ) {
+    return "female";
+  }
+
+  return "male";
+}
+
+const ProfileSilhouetteAvatar: React.FC<{
+  gender: "male" | "female";
+  sizeClass?: string;
+}> = ({ gender, sizeClass = "w-16 h-16" }) => {
+  return (
+    <div
+      className={`${sizeClass} rounded-full overflow-hidden flex items-center justify-center shrink-0 select-none shadow-[0_10px_20px_-10px_rgba(11,87,221,0.8)] ${
+        gender === "female"
+          ? "bg-gradient-to-br from-[#38B0FF] to-[#1457E0]"
+          : "bg-gradient-to-br from-[#2B7BFF] to-[#0B57DD]"
+      }`}
+    >
+      {gender === "female" ? (
+        <svg viewBox="0 0 100 100" className="w-[84%] h-[84%]" aria-hidden="true">
+          <path
+            d="M52 13c-13.5 0-22.5 9.2-24 23.5-1.1 10.6 0.4 18.8 3.2 24.2 1.3 2.5 3.1 4.2 5.4 4.8-1.4-2.8-1.8-6.4-0.8-10.3 0.7-2.6 1.9-5.1 3.4-7.1-1.3-4.8-1.3-11.2 1.6-15.8 1.5-2.4 3.8-4.1 6.2-4.8-3.5 3.6-4.6 9.5-3.6 15.2 1 5.6 4.4 10.4 9.2 12.1 2.2 0.8 4.6 0.9 6.8 0.3 4.8-1.4 8.2-5.9 9.5-11.4 1.1-4.8 0.6-10.1-1.6-14.2 2.4 3.2 3.8 7.5 3.7 12.2-0.1 4.4-1.5 8.6-3.8 11.8 1.8 3.1 4.5 5.4 7.8 6.4-1.6-2.5-2.4-5.7-2.2-9.2 0.3-5.2 1.8-11.6 1.1-18.8C72.7 21.8 64.5 13 52 13z"
+            fill="#FFFFFF"
+          />
+          <path
+            d="M44.5 28.5c-2.6 3.5-2.8 9.2-1.7 14.3 1.1 5 4.2 9.2 8.4 10.6 2 0.7 4.2 0.7 6.1 0.1 4.2-1.3 7.2-5.2 8.3-10.1 1-4.4 0.5-9.2-1.5-12.8-2.4-4.2-6.6-6.3-11.2-6.1-3.4 0.1-6.5 1.6-8.4 4z"
+            fill="#FFFFFF"
+          />
+          <path
+            d="M44.5 53.5c0.2 3.4-0.6 6.2-2.6 7.7-4.8 3.2-13.5 4.2-17.2 8.6-2.1 2.5-2.9 6.1-2.5 9.6 0.3 2.5 1.8 4.4 4.1 5.5 6.8 3.2 13.8 6.4 18.8 10.6 2.8 2.3 6.9 2.3 9.7 0 5-4.2 12-7.4 18.8-10.6 2.3-1.1 3.8-3 4.1-5.5 0.4-3.5-0.4-7.1-2.5-9.6-3.7-4.4-12.4-5.4-17.2-8.6-2-1.5-2.8-4.3-2.6-7.7-3.6 1.2-7.3 1.2-10.9 0z"
+            fill="#FFFFFF"
+          />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 100 100" className="w-[84%] h-[84%]" aria-hidden="true">
+          <path
+            d="M50 12c-3.5 0-6.8 1.2-9.4 2.7l1.6-2.2c-4.4 0.6-8.4 2.9-11.2 6.2l0.8-2.3c-3.4 2.1-5.8 5.6-6.7 9.6l1.4-1.2c-0.9 3.2-1 6.7-0.2 10-1.9 0.3-3.1 2.3-2.5 4.9 0.6 2.5 2.4 4.4 4.3 4.6 1.4 4.6 4.4 8.3 8.4 10.2 2.4 1.1 5.1 1.6 7.8 1.4 3.5-0.3 6.8-1.9 9.2-4.6 2.3-2.6 3.9-5.9 4.7-9.4 1.8-0.3 3.4-2.1 4-4.5 0.6-2.5-0.5-4.5-2.4-4.8 0.9-4.1 0.6-8.5-1.2-12.2-2.6-5.3-7.9-8.4-13.6-8.4z"
+            fill="#FFFFFF"
+          />
+          <path
+            d="M42.2 52.5c0.3 3.3-0.3 6-1.8 7.8 3.2 4.1 6.4 7.4 9.6 9.6 3.2-2.2 6.4-5.5 9.6-9.6-1.5-1.8-2.1-4.5-1.8-7.8-5.1 1.8-10.5 1.8-15.6 0z"
+            fill="#FFFFFF"
+          />
+          <path
+            d="M38.2 61.8c-5.4 2.3-12.4 3.8-15.6 7.9-2.2 2.8-2.9 6.6-2.4 10.3 0.3 2.5 1.9 4.5 4.2 5.6 7.1 3.3 14.5 6.6 19.8 11 2.9 2.4 7.1 2.4 10 0 5.3-4.4 12.7-7.7 19.8-11 2.3-1.1 3.9-3.1 4.2-5.6 0.5-3.7-0.2-7.5-2.4-10.3-3.2-4.1-10.2-5.6-15.6-7.9-3.4 4.3-6.8 7.8-10.2 10.2-3.4-2.4-6.8-5.9-10.2-10.2z"
+            fill="#FFFFFF"
+          />
+        </svg>
+      )}
+    </div>
+  );
+};
+
 export const ProfileView: React.FC<ProfileViewProps> = ({
   profile,
   isDark,
@@ -38,6 +302,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [draftName, setDraftName] = useState(profile.name);
   const [error, setError] = useState("");
   const [cutoff, setCutoff] = useState(() => getTodayCutoffStatus());
+  const [selectedGender, setSelectedGender] = useState<"male" | "female">(
+    () => loadSavedGender() ?? inferAvatarGender(profile.name)
+  );
 
   // Legacy credential claim state (only shown if profile.username isn't set yet)
   const [claimUser, setClaimUser] = useState("");
@@ -54,6 +321,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }, 1000);
     return () => window.clearInterval(id);
   }, []);
+
+  const handleSelectGender = (gender: "male" | "female") => {
+    setSelectedGender(gender);
+    saveGenderPreference(gender);
+  };
 
   const msLeft = Math.max(0, (profile.nameAt || 0) + 864e5 - Date.now());
   const formatWait = (ms: number) => {
@@ -74,7 +346,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const badges = getBadges(profile);
   const dailyBadges: DailyBadgeRecord[] = profile.earnedDailyBadges ?? [];
   const hasAnyBadge = profile.xp >= 100 || dailyBadges.length > 0;
-  const initial = (profile.name || "?").trim().charAt(0).toUpperCase();
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,6 +360,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
     if (cleaned !== profile.name) {
       onUpdateName(cleaned);
+      if (!loadSavedGender()) {
+        setSelectedGender(inferAvatarGender(cleaned));
+      }
     }
     setError("");
     setEditing(false);
@@ -149,12 +423,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       </div>
 
-      {/* Profile Card (Name only — zero State, zero Admin link) */}
-      <div className="amay-card rounded-[30px] p-5 space-y-3">
+      {/* Profile Card (Name + Male/Female Avatar Selector) */}
+      <div className="amay-card rounded-[30px] p-5 space-y-3.5">
         <div className="flex items-center gap-3.5">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#38B0FF] to-[#0B57DD] text-white text-[28px] font-extrabold grid place-items-center shrink-0 shadow-[0_10px_20px_-10px_rgba(11,87,221,0.8)]">
-            {initial}
-          </div>
+          <ProfileSilhouetteAvatar
+            gender={selectedGender}
+            sizeClass="w-16 h-16 ring-2 ring-[#38B0FF]/35"
+          />
           <div className="flex-1 min-w-0">
             <strong className="block text-[22px] font-extrabold tracking-tight text-[#0B1B4D] dark:text-white truncate">
               {profile.name}
@@ -179,6 +454,37 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               Edit
             </button>
           )}
+        </div>
+
+        {/* Gender Selector (Male / Female) */}
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <span className="text-xs font-bold uppercase tracking-wider text-[#5A6A92] dark:text-[#93A3CC]">
+            Profile Avatar
+          </span>
+          <div className="inline-flex p-1 rounded-full bg-[#1457E0]/[0.07] dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10">
+            <button
+              type="button"
+              onClick={() => handleSelectGender("male")}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold transition cursor-pointer ${
+                selectedGender === "male"
+                  ? "bg-gradient-to-r from-[#2B7BFF] to-[#1457E0] text-white shadow-sm"
+                  : "text-[#5A6A92] dark:text-[#93A3CC] hover:text-[#0B1B4D] dark:hover:text-white"
+              }`}
+            >
+              Male
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectGender("female")}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold transition cursor-pointer ${
+                selectedGender === "female"
+                  ? "bg-gradient-to-r from-[#2B7BFF] to-[#1457E0] text-white shadow-sm"
+                  : "text-[#5A6A92] dark:text-[#93A3CC] hover:text-[#0B1B4D] dark:hover:text-white"
+              }`}
+            >
+              Female
+            </button>
+          </div>
         </div>
 
         {editing && (
