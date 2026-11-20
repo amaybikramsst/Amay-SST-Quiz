@@ -1,11 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  ArrowUp,
+  BadgeCheck,
+  Heart,
   LifeBuoy,
   MessageCircle,
+  Plus,
+  Reply,
   Search,
-  Send,
   Trash2,
+  X,
 } from "lucide-react";
 import {
   deleteChatMessage,
@@ -29,6 +34,8 @@ interface ChatViewProps {
 }
 
 const CHAT_READ_KEY = "amaysst_chat_read_at";
+const CHAT_NOTE_KEY = "amaysst_my_study_note";
+const CHAT_LIKES_KEY = "amaysst_chat_likes_v1";
 
 function loadReadMap(): Record<string, string> {
   try {
@@ -46,10 +53,60 @@ function saveReadMap(map: Record<string, string>) {
   }
 }
 
+function loadMyNote(): string {
+  try {
+    return localStorage.getItem(CHAT_NOTE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveMyNote(note: string) {
+  try {
+    localStorage.setItem(CHAT_NOTE_KEY, note);
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function loadLikesMap(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(CHAT_LIKES_KEY) || "{}") || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLikesMap(map: Record<string, boolean>) {
+  try {
+    localStorage.setItem(CHAT_LIKES_KEY, JSON.stringify(map));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 function formatMsgTime(iso: string): string {
   const ms = Date.parse(iso);
   if (!Number.isFinite(ms)) return "";
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function isTeacherAccount(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  return n === "amay" || n === "amay sir" || n === "amaysst" || n === "amay bikram";
+}
+
+function parseReplyFormat(rawBody: string): { replyQuote: string | null; cleanBody: string } {
+  if (rawBody.startsWith("↪ ")) {
+    const splitIdx = rawBody.indexOf("\n\n");
+    if (splitIdx !== -1) {
+      return {
+        replyQuote: rawBody.slice(2, splitIdx).trim(),
+        cleanBody: rawBody.slice(splitIdx + 2),
+      };
+    }
+  }
+  return { replyQuote: null, cleanBody: rawBody };
 }
 
 export const ChatView: React.FC<ChatViewProps> = ({
@@ -82,11 +139,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
     firstMsgId: string | null;
   } | null>(null);
 
+  // Instagram-style Study Notes, Double-Tap Likes & Reply State
+  const [myNote, setMyNote] = useState<string>(() => loadMyNote());
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [likedIds, setLikedIds] = useState<Record<string, boolean>>(() => loadLikesMap());
+  const [heartBurstId, setHeartBurstId] = useState<string | null>(null);
+  const [replyingTo, setReplyingTo] = useState<{ sender: string; snippet: string } | null>(null);
+
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const unseenDividerRef = useRef<HTMLDivElement | null>(null);
   const capturedSessionPeerRef = useRef<string | null>(null);
   const scrolledUnseenPeerRef = useRef<string | null>(null);
   const prevActiveCountRef = useRef<number>(0);
+  const lastTapRef = useRef<{ id: string; time: number }>({ id: "", time: 0 });
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (initialPeer?.uuid) {
@@ -94,6 +161,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       setActivePeerFallbackName(initialPeer.name);
       setConfirmDeleteThread(false);
       setSelectedMsgId(null);
+      setReplyingTo(null);
       setSendError("");
     }
   }, [initialPeer?.uuid, initialPeer?.name]);
@@ -243,7 +311,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   }, [hasLoadedMessages, onUnreadCountChange, totalUnread]);
 
-  const mergedDirectory = useMemo(() => {
+  const { mergedDirectory, rankMap } = useMemo(() => {
     const map = new Map<string, ChatDirectoryUser>();
     for (const u of directory) {
       if (u.guest_uuid && u.guest_uuid !== guestId) {
@@ -255,7 +323,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
         map.set(u.guest_uuid, u);
       }
     }
-    return Array.from(map.values()).sort((a, b) => (b.xp || 0) - (a.xp || 0));
+    const sorted = Array.from(map.values()).sort((a, b) => (b.xp || 0) - (a.xp || 0));
+    const ranks = new Map<string, number>();
+    sorted.forEach((u, idx) => {
+      if (!isTeacherAccount(u.display_name)) {
+        ranks.set(u.guest_uuid, idx + 1);
+      }
+    });
+    return { mergedDirectory: sorted, rankMap: ranks };
   }, [directory, extraDirectory, guestId]);
 
   const activePeerName = useMemo(() => {
@@ -307,21 +382,51 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   }, [activePeerUuid, activeMessages.length, openedUnseen]);
 
+  const triggerHeartLike = (msgId: string) => {
+    setLikedIds((prev) => {
+      const next = { ...prev, [msgId]: !prev[msgId] };
+      saveLikesMap(next);
+      return next;
+    });
+    setHeartBurstId(msgId);
+    setTimeout(() => {
+      setHeartBurstId((curr) => (curr === msgId ? null : curr));
+    }, 650);
+  };
+
+  const handleMessageTap = (msgId: string, isMine: boolean) => {
+    const now = Date.now();
+    if (lastTapRef.current.id === msgId && now - lastTapRef.current.time < 300) {
+      lastTapRef.current = { id: "", time: 0 };
+      triggerHeartLike(msgId);
+      return;
+    }
+    lastTapRef.current = { id: msgId, time: now };
+    if (isMine) {
+      setSelectedMsgId((prev) => (prev === msgId ? null : msgId));
+    }
+  };
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activePeerUuid || sending) return;
-    const text = draft.trim();
-    if (!text) return;
+    const rawText = draft.trim();
+    if (!rawText) return;
+
+    const finalPayload = replyingTo
+      ? `↪ ${replyingTo.sender}: "${replyingTo.snippet}"\n\n${rawText}`
+      : rawText;
 
     setSendError("");
     setSending(true);
     setDraft("");
+    setReplyingTo(null);
 
-    const res = await sendChatMessage(guestId, activePeerUuid, text);
+    const res = await sendChatMessage(guestId, activePeerUuid, finalPayload);
     setSending(false);
 
     if (!res.ok || !res.message) {
-      setDraft(text);
+      setDraft(rawText);
       setSendError(res.error || "Could not send message.");
       return;
     }
@@ -366,7 +471,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
     onClearInitialPeer?.();
   };
 
-  // Show recent threads + ONLY show search results when user actually types a name (no directory listing of who is available!)
+  const handleSaveStudyNote = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleaned = noteDraft.trim().slice(0, 42);
+    setMyNote(cleaned);
+    saveMyNote(cleaned);
+    setEditingNote(false);
+  };
+
+  // Show recent threads + ONLY show search results when user actually types a name
   const { recentThreads, searchMatches } = useMemo(() => {
     const q = search.trim().toLowerCase();
 
@@ -391,12 +504,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const helpThread = threadsMap.get(HELP_CHAT_UUID);
 
-  // CONVERSATION SCREEN (strictly text-only, no photo/file uploads)
+  // CONVERSATION SCREEN (Instagram DM UI + Real Supabase Messaging)
   if (activePeerUuid) {
     const isHelp = activePeerUuid === HELP_CHAT_UUID;
+    const isPeerTeacher = isTeacherAccount(activePeerName);
+    const peerRank = !isHelp && !isPeerTeacher ? rankMap.get(activePeerUuid) : undefined;
+
     return (
       <div className="space-y-3">
-        <div className="amay-card rounded-[26px] p-3.5 flex items-center justify-between gap-2">
+        {/* IG-Style Thread Header */}
+        <div className="amay-card rounded-[26px] p-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
             <button
               type="button"
@@ -405,40 +522,64 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 setActivePeerFallbackName("");
                 setConfirmDeleteThread(false);
                 setSelectedMsgId(null);
+                setReplyingTo(null);
                 setSendError("");
                 onClearInitialPeer?.();
               }}
               aria-label="Back to messages"
-              className="w-10 h-10 rounded-xl amay-card flex items-center justify-center text-[#1457E0] dark:text-[#5AA2FF] cursor-pointer shrink-0"
+              className="w-9 h-9 rounded-full amay-card flex items-center justify-center text-[#1457E0] dark:text-[#5AA2FF] cursor-pointer shrink-0 active:scale-95 transition"
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
 
-            <div
-              className={`w-10 h-10 rounded-full flex items-center justify-center font-extrabold text-sm text-white shrink-0 ${
-                isHelp
-                  ? "bg-gradient-to-br from-[#38B0FF] to-[#0B57DD]"
-                  : "bg-gradient-to-br from-[#2B7BFF] to-[#1457E0]"
-              }`}
-            >
-              {isHelp ? <LifeBuoy className="w-5 h-5" /> : activePeerName.charAt(0).toUpperCase()}
+            <div className="relative shrink-0">
+              <div
+                className={`w-10 h-10 rounded-full flex items-center justify-center font-extrabold text-sm text-white ${
+                  isHelp || isPeerTeacher
+                    ? "bg-gradient-to-br from-[#38B0FF] to-[#0B57DD] ring-2 ring-[#38B0FF]/35"
+                    : "bg-gradient-to-br from-[#2B7BFF] to-[#1457E0]"
+                }`}
+              >
+                {isHelp ? <LifeBuoy className="w-5 h-5" /> : activePeerName.charAt(0).toUpperCase()}
+              </div>
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#080D1B] absolute bottom-0 right-0" />
             </div>
 
             <div className="min-w-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <strong className="block text-base font-extrabold text-[#0B1B4D] dark:text-white truncate">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <strong className="block text-[15px] font-extrabold text-[#0B1B4D] dark:text-white truncate">
                   {activePeerName}
                 </strong>
+
+                {isPeerTeacher && (
+                  <>
+                    <BadgeCheck className="w-4 h-4 text-[#38B0FF] shrink-0" />
+                    <span className="px-1.5 py-0.5 rounded-md bg-[#1457E0]/15 dark:bg-[#38B0FF]/15 text-[#1457E0] dark:text-[#5AA2FF] text-[10px] font-extrabold shrink-0">
+                      Teacher
+                    </span>
+                  </>
+                )}
+
+                {peerRank && (
+                  <span className="px-1.5 py-0.5 rounded-md bg-[#1457E0]/12 dark:bg-white/10 text-[#1457E0] dark:text-[#93A3CC] text-[10px] font-mono font-bold shrink-0">
+                    #{peerRank}
+                  </span>
+                )}
+
                 {openedUnseen &&
                   openedUnseen.peerUuid === activePeerUuid &&
                   openedUnseen.count > 0 && (
                     <span className="px-2 py-0.5 rounded-full bg-[#E5091E] text-white text-[10px] font-extrabold shrink-0">
-                      {openedUnseen.count} unseen
+                      {openedUnseen.count} new
                     </span>
                   )}
               </div>
               <span className="block text-[11px] text-[#5A6A92] dark:text-[#93A3CC]">
-                {isHelp ? "Support · Text only" : "Text messages only"}
+                {isHelp
+                  ? "Official Support · Active now"
+                  : isPeerTeacher
+                    ? "Verified Educator · AmaySST"
+                    : "Active · Double-tap a message to ❤️"}
               </span>
             </div>
           </div>
@@ -447,10 +588,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <button
               type="button"
               onClick={() => setConfirmDeleteThread(true)}
-              className="h-9 px-3 rounded-xl bg-[#D92D3A]/10 text-[#D92D3A] dark:text-[#FF6B76] text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shrink-0"
+              aria-label="Delete chat"
+              className="h-9 px-3 rounded-full bg-[#D92D3A]/10 text-[#D92D3A] dark:text-[#FF6B76] text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shrink-0"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete chat</span>
+              <span className="hidden sm:inline">Delete</span>
             </button>
           )}
         </div>
@@ -465,14 +607,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 type="button"
                 disabled={deletingThread}
                 onClick={handleDeleteEntireThread}
-                className="px-3 py-1.5 rounded-xl bg-[#D92D3A] text-white text-xs font-bold cursor-pointer disabled:opacity-60"
+                className="px-3 py-1.5 rounded-full bg-[#D92D3A] text-white text-xs font-bold cursor-pointer disabled:opacity-60"
               >
                 {deletingThread ? "Deleting…" : "Yes, Delete"}
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmDeleteThread(false)}
-                className="px-3 py-1.5 rounded-xl amay-card text-xs font-bold text-[#0B1B4D] dark:text-white cursor-pointer"
+                className="px-3 py-1.5 rounded-full amay-card text-xs font-bold text-[#0B1B4D] dark:text-white cursor-pointer"
               >
                 Cancel
               </button>
@@ -480,24 +622,46 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         )}
 
-        <div className="amay-card rounded-[28px] p-4 flex flex-col min-h-[380px] max-h-[60vh]">
-          <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+        {/* IG Message Feed Card */}
+        <div className="amay-card rounded-[28px] p-3.5 flex flex-col min-h-[410px] max-h-[63vh]">
+          <div className="flex-1 overflow-y-auto px-1 space-y-1">
             {activeMessages.length === 0 ? (
-              <div className="py-16 text-center space-y-1.5">
-                <p className="text-sm font-bold text-[#0B1B4D] dark:text-white">
-                  {isHelp ? "Need help with anything?" : `Say hi to ${activePeerName}!`}
-                </p>
-                <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+              <div className="py-12 text-center flex flex-col items-center space-y-2">
+                <div
+                  className={`w-16 h-16 rounded-full flex items-center justify-center font-extrabold text-xl text-white mb-1 ${
+                    isHelp || isPeerTeacher
+                      ? "bg-gradient-to-br from-[#38B0FF] to-[#0B57DD] ring-4 ring-[#1457E0]/20"
+                      : "bg-gradient-to-br from-[#2B7BFF] to-[#1457E0]"
+                  }`}
+                >
+                  {isHelp ? <LifeBuoy className="w-7 h-7" /> : activePeerName.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-base font-extrabold text-[#0B1B4D] dark:text-white">
+                    {activePeerName}
+                  </p>
+                  {isPeerTeacher && <BadgeCheck className="w-4 h-4 text-[#38B0FF]" />}
+                </div>
+                <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] max-w-[240px]">
                   {isHelp
-                    ? "Send a text message here and Help will reply in this chat."
-                    : `Chatting as ${myName}. Text messages only.`}
+                    ? "Need help with quizzes, XP, or chapters? Send a message below."
+                    : `AmaySST Quiz · Chatting as ${myName}`}
                 </p>
               </div>
             ) : (
-              activeMessages.map((m) => {
+              activeMessages.map((m, idx) => {
                 const isMine = m.sender_uuid === guestId;
+                const prevMsg = idx > 0 ? activeMessages[idx - 1] : null;
+                const nextMsg = idx < activeMessages.length - 1 ? activeMessages[idx + 1] : null;
+                const sameAsPrev = prevMsg?.sender_uuid === m.sender_uuid;
+                const sameAsNext = nextMsg?.sender_uuid === m.sender_uuid;
+
                 const isSelected = isMine && selectedMsgId === m.id;
                 const isUnsending = unsendingMsgId === m.id;
+                const isLiked = Boolean(likedIds[m.id]);
+                const isBursting = heartBurstId === m.id;
+                const { replyQuote, cleanBody } = parseReplyFormat(m.body);
+
                 const showUnseenDivider =
                   openedUnseen &&
                   openedUnseen.peerUuid === activePeerUuid &&
@@ -507,7 +671,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 const dividerEl = showUnseenDivider ? (
                   <div
                     ref={unseenDividerRef}
-                    className="flex items-center gap-2.5 py-1.5"
+                    className="flex items-center gap-2.5 py-2.5"
                     aria-label={`${openedUnseen.count} unseen ${openedUnseen.count === 1 ? "message" : "messages"}`}
                   >
                     <span className="flex-1 h-px bg-[#1457E0]/25 dark:bg-[#5AA2FF]/25" />
@@ -518,17 +682,95 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </div>
                 ) : null;
 
+                // Instagram grouped corner radius logic
+                const mineRadius = `${sameAsPrev ? "rounded-tr-[6px]" : "rounded-tr-[20px]"} ${
+                  sameAsNext ? "rounded-br-[6px]" : "rounded-br-[20px]"
+                } rounded-l-[20px]`;
+
+                const peerRadius = `${sameAsPrev ? "rounded-tl-[6px]" : "rounded-tl-[20px]"} ${
+                  sameAsNext ? "rounded-bl-[6px]" : "rounded-bl-[20px]"
+                } rounded-r-[20px]`;
+
                 if (!isMine) {
                   return (
                     <React.Fragment key={m.id}>
                       {dividerEl}
-                      <div className="flex items-end gap-1.5 justify-start">
-                        <div className="max-w-[78%] rounded-[20px] px-3.5 py-2.5 text-sm leading-relaxed break-words bg-white/85 dark:bg-[#131E3A] text-[#0B1B4D] dark:text-white border border-[#1846AA]/12 dark:border-white/10 rounded-bl-md">
-                          <p className="whitespace-pre-wrap">{m.body}</p>
-                          <span className="block text-[10px] font-mono-nums mt-1 text-[#5A6A92] dark:text-[#93A3CC]">
-                            {formatMsgTime(m.created_at)}
-                          </span>
+                      <div
+                        className={`group flex items-end gap-2 justify-start ${
+                          sameAsPrev ? "mt-0.5" : "mt-2.5"
+                        } ${isLiked ? "mb-2" : ""}`}
+                      >
+                        {/* Small IG Avatar on last bubble in stack */}
+                        <div className="w-6 h-6 shrink-0">
+                          {!sameAsNext && (
+                            <div
+                              className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-extrabold text-white ${
+                                isHelp || isPeerTeacher
+                                  ? "bg-gradient-to-br from-[#38B0FF] to-[#0B57DD]"
+                                  : "bg-[#1C2A4D]"
+                              }`}
+                            >
+                              {isHelp ? (
+                                <LifeBuoy className="w-3.5 h-3.5" />
+                              ) : (
+                                activePeerName.charAt(0).toUpperCase()
+                              )}
+                            </div>
+                          )}
                         </div>
+
+                        <div className="relative max-w-[75%]">
+                          <div
+                            onClick={() => handleMessageTap(m.id, false)}
+                            onDoubleClick={() => triggerHeartLike(m.id)}
+                            className={`relative px-3.5 py-2 text-[14px] leading-relaxed break-words bg-white/90 dark:bg-[#131E3A] text-[#0B1B4D] dark:text-white border border-[#1846AA]/12 dark:border-white/10 select-none cursor-pointer transition active:scale-[0.99] ${peerRadius}`}
+                          >
+                            {replyQuote && (
+                              <div className="mb-1.5 pl-2 border-l-2 border-[#38B0FF] text-[11px] text-[#5A6A92] dark:text-[#93A3CC] line-clamp-2">
+                                {replyQuote}
+                              </div>
+                            )}
+                            <p className="whitespace-pre-wrap">{cleanBody}</p>
+                            {!sameAsNext && (
+                              <span className="block text-[9px] font-mono mt-1 text-[#5A6A92] dark:text-[#93A3CC]">
+                                {formatMsgTime(m.created_at)}
+                              </span>
+                            )}
+
+                            {isBursting && (
+                              <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <Heart className="w-8 h-8 text-[#FF3040] fill-[#FF3040] animate-ping" />
+                              </span>
+                            )}
+                          </div>
+
+                          {isLiked && (
+                            <button
+                              type="button"
+                              onClick={() => triggerHeartLike(m.id)}
+                              aria-label="Remove heart"
+                              className="absolute -bottom-2.5 left-2 px-1.5 py-0.5 rounded-full bg-[#10182B] border border-white/15 text-[10px] leading-none shadow-md cursor-pointer"
+                            >
+                              ❤️
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Quick Reply Button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReplyingTo({
+                              sender: activePeerName,
+                              snippet: cleanBody.slice(0, 60),
+                            });
+                            inputRef.current?.focus();
+                          }}
+                          aria-label="Reply to message"
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-[#5A6A92] dark:text-[#93A3CC] opacity-60 hover:opacity-100 hover:bg-white/10 transition cursor-pointer shrink-0"
+                        >
+                          <Reply className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </React.Fragment>
                   );
@@ -537,30 +779,78 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 return (
                   <React.Fragment key={m.id}>
                     {dividerEl}
-                    <div className="flex flex-col items-end gap-1">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSelectedMsgId((prev) => (prev === m.id ? null : m.id))
-                        }
-                        aria-expanded={isSelected}
-                        className={`max-w-[78%] rounded-[20px] px-3.5 py-2.5 text-sm leading-relaxed break-words text-left bg-gradient-to-br from-[#2B7BFF] to-[#1457E0] text-white rounded-br-md shadow-sm cursor-pointer transition ${
-                          isSelected ? "ring-2 ring-[#1457E0]/40 dark:ring-[#5AA2FF]/60" : ""
-                        }`}
-                      >
-                        <p className="whitespace-pre-wrap">{m.body}</p>
-                        <span className="block text-[10px] font-mono-nums mt-1 text-white/75 text-right">
-                          {formatMsgTime(m.created_at)}
-                        </span>
-                      </button>
+                    <div
+                      className={`group flex flex-col items-end ${
+                        sameAsPrev ? "mt-0.5" : "mt-2.5"
+                      } ${isLiked ? "mb-2" : ""}`}
+                    >
+                      <div className="flex items-center justify-end gap-1.5 max-w-full">
+                        {/* Quick Reply Button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReplyingTo({
+                              sender: "You",
+                              snippet: cleanBody.slice(0, 60),
+                            });
+                            inputRef.current?.focus();
+                          }}
+                          aria-label="Reply to your message"
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-[#5A6A92] dark:text-[#93A3CC] opacity-50 hover:opacity-100 hover:bg-white/10 transition cursor-pointer shrink-0"
+                        >
+                          <Reply className="w-3.5 h-3.5" />
+                        </button>
+
+                        <div className="relative max-w-[76%]">
+                          <div
+                            onClick={() => handleMessageTap(m.id, true)}
+                            onDoubleClick={() => triggerHeartLike(m.id)}
+                            role="button"
+                            tabIndex={0}
+                            aria-expanded={isSelected}
+                            className={`relative px-3.5 py-2 text-[14px] leading-relaxed break-words text-left bg-gradient-to-b from-[#256EF6] to-[#1457E0] text-white shadow-sm cursor-pointer select-none transition active:scale-[0.99] ${mineRadius} ${
+                              isSelected ? "ring-2 ring-[#5AA2FF]" : ""
+                            }`}
+                          >
+                            {replyQuote && (
+                              <div className="mb-1.5 pl-2 border-l-2 border-white/60 text-[11px] text-white/80 line-clamp-2">
+                                {replyQuote}
+                              </div>
+                            )}
+                            <p className="whitespace-pre-wrap">{cleanBody}</p>
+                            {!sameAsNext && (
+                              <span className="block text-[9px] font-mono mt-1 text-white/75 text-right">
+                                {formatMsgTime(m.created_at)}
+                              </span>
+                            )}
+
+                            {isBursting && (
+                              <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <Heart className="w-8 h-8 text-white fill-white animate-ping" />
+                              </span>
+                            )}
+                          </div>
+
+                          {isLiked && (
+                            <button
+                              type="button"
+                              onClick={() => triggerHeartLike(m.id)}
+                              aria-label="Remove heart"
+                              className="absolute -bottom-2.5 right-2 px-1.5 py-0.5 rounded-full bg-[#10182B] border border-white/15 text-[10px] leading-none shadow-md cursor-pointer"
+                            >
+                              ❤️
+                            </button>
+                          )}
+                        </div>
+                      </div>
 
                       {isSelected && (
-                        <div className="flex items-center gap-1.5 pr-1">
+                        <div className="flex items-center gap-1.5 pr-1 mt-1.5">
                           <button
                             type="button"
                             disabled={isUnsending}
                             onClick={() => handleUnsendMessage(m.id)}
-                            className="px-3 py-1 rounded-xl bg-[#D92D3A] text-white text-xs font-bold shadow-sm hover:brightness-105 active:scale-[0.98] transition cursor-pointer disabled:opacity-60"
+                            className="px-3 py-1 rounded-full bg-[#D92D3A] text-white text-xs font-bold shadow-sm hover:brightness-105 active:scale-[0.98] transition cursor-pointer disabled:opacity-60"
                           >
                             {isUnsending ? "Unsending…" : "Unsend"}
                           </button>
@@ -575,48 +865,217 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
 
           {sendError && (
-            <p className="text-xs font-semibold text-[#D92D3A] dark:text-[#FF6B76] mt-2">{sendError}</p>
+            <p className="text-xs font-semibold text-[#D92D3A] dark:text-[#FF6B76] mt-2 px-1">
+              {sendError}
+            </p>
           )}
 
-          <form onSubmit={handleSend} className="pt-3 mt-2 border-t border-[#1846AA]/10 dark:border-white/10 flex items-center gap-2">
-            <input
-              type="text"
-              maxLength={1000}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={isHelp ? "Type a text message to Help…" : `Type a text message to ${activePeerName}…`}
-              className="flex-1 h-11 px-4 rounded-2xl bg-white/85 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-base text-[#0B1B4D] dark:text-white placeholder:text-[#5A6A92]/60 focus:outline-none focus:border-[#1457E0]"
-            />
-            <button
-              type="submit"
-              disabled={sending || !draft.trim()}
-              aria-label="Send message"
-              className="w-11 h-11 rounded-2xl amay-play-btn text-white flex items-center justify-center cursor-pointer disabled:opacity-50 shrink-0"
-            >
-              <Send className="w-4 h-4" />
-            </button>
+          {/* IG Quoted Reply Preview Bar */}
+          {replyingTo && (
+            <div className="mt-2 px-3 py-2 rounded-2xl bg-[#1457E0]/10 dark:bg-[#131E3A] border-l-4 border-[#1457E0] flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <span className="block text-[10px] font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
+                  Replying to {replyingTo.sender}
+                </span>
+                <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] truncate">
+                  {replyingTo.snippet}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReplyingTo(null)}
+                aria-label="Cancel reply"
+                className="w-6 h-6 rounded-full flex items-center justify-center text-[#5A6A92] dark:text-[#93A3CC] hover:bg-white/10 cursor-pointer shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* IG Capsule Composer */}
+          <form onSubmit={handleSend} className="pt-2.5 mt-2 flex items-center gap-2">
+            <div className="flex-1 h-11 pl-4 pr-1.5 rounded-full bg-white/90 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 flex items-center gap-2 focus-within:border-[#1457E0]">
+              <input
+                ref={inputRef}
+                type="text"
+                maxLength={1000}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={isHelp ? "Message Help…" : `Message ${activePeerName}…`}
+                className="flex-1 bg-transparent text-[14px] text-[#0B1B4D] dark:text-white placeholder:text-[#5A6A92]/60 focus:outline-none"
+              />
+              {draft.trim().length > 0 ? (
+                <button
+                  type="submit"
+                  disabled={sending}
+                  aria-label="Send message"
+                  className="w-8 h-8 rounded-full bg-gradient-to-br from-[#2B7BFF] to-[#1457E0] text-white flex items-center justify-center cursor-pointer disabled:opacity-50 shrink-0 shadow-sm active:scale-95 transition"
+                >
+                  <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraft("❤️");
+                    inputRef.current?.focus();
+                  }}
+                  aria-label="Quick heart"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-[#5A6A92] dark:text-[#93A3CC] hover:text-[#FF3040] cursor-pointer shrink-0 transition"
+                >
+                  <Heart className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </form>
         </div>
       </div>
     );
   }
 
-  // INBOX SCREEN (no directory listing showing who is available/not!)
+  // INBOX SCREEN (Instagram Study Notes + Help + Search + Chats)
   return (
     <div className="space-y-4">
-      <div className="px-1">
-        <h1 className="text-[26px] font-extrabold tracking-tight text-[#0B1B4D] dark:text-[#EAF0FF]">
-          Messages
-        </h1>
-        <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
-          Text messages only · Tap Help or search by name below
-        </p>
+      <div className="px-1 flex items-center justify-between">
+        <div>
+          <h1 className="text-[26px] font-extrabold tracking-tight text-[#0B1B4D] dark:text-[#EAF0FF]">
+            Messages
+          </h1>
+          <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC]">
+            Text messages only · Tap Help or search by name
+          </p>
+        </div>
       </div>
 
       {needsSetup && (
         <div className="amay-card rounded-2xl p-4 text-xs text-amber-800 dark:text-amber-300 border border-amber-400/40">
           Messaging database setup is pending. Run the updated SQL from the Admin Console once to enable chat.
         </div>
+      )}
+
+      {/* Instagram-Style Study Notes Tray */}
+      <div className="flex items-start gap-3.5 overflow-x-auto pb-1 pt-4 px-1 no-scrollbar">
+        {/* Your Own Study Note */}
+        <button
+          type="button"
+          onClick={() => {
+            setNoteDraft(myNote);
+            setEditingNote(true);
+          }}
+          className="flex flex-col items-center shrink-0 w-[68px] relative group cursor-pointer"
+        >
+          <div className="absolute -top-3.5 z-10 max-w-[74px] px-2 py-1 rounded-2xl bg-white dark:bg-[#162240] border border-[#1846AA]/15 dark:border-white/15 shadow-md text-[10px] leading-tight font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
+            {myNote || "Study note…"}
+          </div>
+          <div className="w-14 h-14 rounded-full p-[2px] bg-[#1846AA]/20 dark:bg-white/15 relative">
+            <div className="w-full h-full rounded-full bg-gradient-to-br from-[#2B7BFF] to-[#1457E0] text-white font-extrabold text-base flex items-center justify-center">
+              {myName.charAt(0).toUpperCase()}
+            </div>
+            <span className="w-5 h-5 rounded-full bg-[#1457E0] text-white border-2 border-[#F4F7FC] dark:border-[#080D1B] flex items-center justify-center absolute -bottom-0.5 -right-0.5">
+              <Plus className="w-3 h-3 stroke-[3]" />
+            </span>
+          </div>
+          <span className="text-[11px] font-semibold text-[#5A6A92] dark:text-[#93A3CC] mt-1.5 truncate w-full text-center">
+            Your note
+          </span>
+        </button>
+
+        {/* Pinned Help Note */}
+        <button
+          type="button"
+          onClick={() => {
+            setActivePeerFallbackName("Help");
+            setActivePeerUuid(HELP_CHAT_UUID);
+          }}
+          className="flex flex-col items-center shrink-0 w-[68px] relative cursor-pointer"
+        >
+          <div className="absolute -top-3.5 z-10 max-w-[74px] px-2 py-1 rounded-2xl bg-white dark:bg-[#162240] border border-[#1457E0]/25 shadow-md text-[10px] leading-tight font-semibold text-[#1457E0] dark:text-[#5AA2FF] truncate">
+            Ask doubts!
+          </div>
+          <div className="w-14 h-14 rounded-full p-[2px] bg-gradient-to-tr from-[#1457E0] to-[#38B0FF] relative">
+            <div className="w-full h-full rounded-full bg-[#0E1833] text-[#38B0FF] flex items-center justify-center">
+              <LifeBuoy className="w-6 h-6" />
+            </div>
+            <span className="w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#080D1B] absolute bottom-0 right-0" />
+          </div>
+          <span className="text-[11px] font-bold text-[#0B1B4D] dark:text-white mt-1.5 truncate w-full text-center">
+            Help
+          </span>
+        </button>
+
+        {/* Recent Chat Contacts in IG Ring Tray */}
+        {recentThreads.slice(0, 6).map((t) => {
+          const isTeacher = isTeacherAccount(t.peerName);
+          return (
+            <button
+              key={t.peerUuid}
+              type="button"
+              onClick={() => {
+                setActivePeerFallbackName(t.peerName);
+                setActivePeerUuid(t.peerUuid);
+              }}
+              className="flex flex-col items-center shrink-0 w-[68px] relative cursor-pointer"
+            >
+              {isTeacher && (
+                <div className="absolute -top-3.5 z-10 max-w-[74px] px-2 py-1 rounded-2xl bg-white dark:bg-[#162240] border border-[#38B0FF]/30 shadow-md text-[10px] leading-tight font-bold text-[#1457E0] dark:text-[#5AA2FF] truncate">
+                  Teacher
+                </div>
+              )}
+              <div
+                className={`w-14 h-14 rounded-full p-[2px] relative ${
+                  isTeacher || t.unread > 0
+                    ? "bg-gradient-to-tr from-[#1457E0] to-[#38B0FF]"
+                    : "bg-[#1846AA]/20 dark:bg-white/15"
+                }`}
+              >
+                <div className="w-full h-full rounded-full bg-[#131E3A] text-white font-extrabold text-base flex items-center justify-center">
+                  {t.peerName.charAt(0).toUpperCase()}
+                </div>
+                <span className="w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#080D1B] absolute bottom-0 right-0" />
+              </div>
+              <span className="text-[11px] font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] mt-1.5 truncate w-full text-center">
+                {t.peerName}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Study Note Editor Modal */}
+      {editingNote && (
+        <form
+          onSubmit={handleSaveStudyNote}
+          className="amay-card rounded-2xl p-3.5 border border-[#1457E0]/30 space-y-2.5"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-extrabold text-[#0B1B4D] dark:text-white">
+              Set your study note (visible to you)
+            </span>
+            <button
+              type="button"
+              onClick={() => setEditingNote(false)}
+              className="text-xs text-[#5A6A92] dark:text-[#93A3CC] cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              maxLength={42}
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              placeholder="e.g. Revising History Ch 1 🇮🇳"
+              className="flex-1 h-10 px-3.5 rounded-xl bg-white/90 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 text-xs text-[#0B1B4D] dark:text-white focus:outline-none focus:border-[#1457E0]"
+            />
+            <button
+              type="submit"
+              className="h-10 px-4 rounded-xl bg-[#1457E0] text-white text-xs font-bold cursor-pointer"
+            >
+              Share
+            </button>
+          </div>
+        </form>
       )}
 
       {/* Pinned Help Support Card */}
@@ -633,18 +1092,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
-            <strong className="text-base font-extrabold text-[#0B1B4D] dark:text-white">
-              Help
-            </strong>
+            <div className="flex items-center gap-1.5">
+              <strong className="text-base font-extrabold text-[#0B1B4D] dark:text-white">
+                Help
+              </strong>
+              <span className="px-1.5 py-0.5 rounded-md bg-[#1457E0]/15 dark:bg-[#38B0FF]/15 text-[#1457E0] dark:text-[#5AA2FF] text-[10px] font-extrabold">
+                Official
+              </span>
+            </div>
             {helpThread?.lastMessage && (
-              <span className="text-[11px] font-mono-nums text-[#5A6A92] dark:text-[#93A3CC]">
+              <span className="text-[11px] font-mono text-[#5A6A92] dark:text-[#93A3CC]">
                 {formatMsgTime(helpThread.lastMessage.created_at)}
               </span>
             )}
           </div>
           <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] truncate mt-0.5">
             {helpThread?.lastMessage
-              ? helpThread.lastMessage.body
+              ? parseReplyFormat(helpThread.lastMessage.body).cleanBody
               : "Tap to message Help for doubts or support"}
           </p>
         </div>
@@ -663,7 +1127,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search a name to start a chat…"
-          className="w-full h-11 pl-10 pr-4 rounded-2xl amay-card text-sm text-[#0B1B4D] dark:text-white placeholder:text-[#5A6A92]/70 focus:outline-none"
+          className="w-full h-11 pl-10 pr-4 rounded-full amay-card text-sm text-[#0B1B4D] dark:text-white placeholder:text-[#5A6A92]/70 focus:outline-none"
         />
       </div>
 
@@ -679,30 +1143,49 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </p>
           ) : (
             <div className="divide-y divide-[#1846AA]/10 dark:divide-white/10 max-h-[260px] overflow-y-auto">
-              {searchMatches.map((u) => (
-                <button
-                  key={u.guest_uuid}
-                  type="button"
-                  onClick={() => {
-                    setActivePeerFallbackName(u.display_name);
-                    setActivePeerUuid(u.guest_uuid);
-                  }}
-                  className="w-full py-2.5 px-1 flex items-center justify-between gap-3 text-left cursor-pointer hover:opacity-90"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-full bg-[#1457E0]/12 text-[#1457E0] dark:text-[#5AA2FF] font-extrabold text-xs flex items-center justify-center shrink-0">
-                      {u.display_name.charAt(0).toUpperCase()}
+              {searchMatches.map((u) => {
+                const isTeacher = isTeacherAccount(u.display_name);
+                const rank = !isTeacher ? rankMap.get(u.guest_uuid) : undefined;
+                return (
+                  <button
+                    key={u.guest_uuid}
+                    type="button"
+                    onClick={() => {
+                      setActivePeerFallbackName(u.display_name);
+                      setActivePeerUuid(u.guest_uuid);
+                    }}
+                    className="w-full py-2.5 px-1 flex items-center justify-between gap-3 text-left cursor-pointer hover:opacity-90"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-full bg-[#1457E0]/12 text-[#1457E0] dark:text-[#5AA2FF] font-extrabold text-xs flex items-center justify-center shrink-0">
+                        {u.display_name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <strong className="text-sm font-bold text-[#0B1B4D] dark:text-white truncate">
+                          {u.display_name}
+                        </strong>
+                        {isTeacher && (
+                          <>
+                            <BadgeCheck className="w-3.5 h-3.5 text-[#38B0FF] shrink-0" />
+                            <span className="px-1.5 py-0.5 rounded-md bg-[#1457E0]/15 dark:bg-[#38B0FF]/15 text-[#1457E0] dark:text-[#5AA2FF] text-[10px] font-extrabold shrink-0">
+                              Teacher
+                            </span>
+                          </>
+                        )}
+                        {rank && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-[#1457E0]/10 dark:bg-white/10 text-[#1457E0] dark:text-[#93A3CC] text-[10px] font-mono font-bold shrink-0">
+                            #{rank}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <strong className="text-sm font-bold text-[#0B1B4D] dark:text-white truncate">
-                      {u.display_name}
-                    </strong>
-                  </div>
-                  <span className="px-3 py-1.5 rounded-xl bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 text-[#1457E0] dark:text-[#5AA2FF] text-xs font-bold inline-flex items-center gap-1 shrink-0">
-                    <MessageCircle className="w-3.5 h-3.5" />
-                    <span>Message</span>
-                  </span>
-                </button>
-              ))}
+                    <span className="px-3 py-1.5 rounded-full bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 text-[#1457E0] dark:text-[#5AA2FF] text-xs font-bold inline-flex items-center gap-1 shrink-0">
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      <span>Message</span>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -719,41 +1202,85 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </p>
         ) : (
           <div className="divide-y divide-[#1846AA]/10 dark:divide-white/10">
-            {recentThreads.map((t) => (
-              <button
-                key={t.peerUuid}
-                type="button"
-                onClick={() => {
-                  setActivePeerFallbackName(t.peerName);
-                  setActivePeerUuid(t.peerUuid);
-                }}
-                className="w-full py-3 px-1 flex items-center gap-3 text-left cursor-pointer hover:opacity-90"
-              >
-                <div className="w-10 h-10 rounded-full bg-[#1457E0]/15 text-[#1457E0] dark:text-[#5AA2FF] font-extrabold text-sm flex items-center justify-center shrink-0">
-                  {t.peerName.charAt(0).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <strong className="text-sm font-bold text-[#0B1B4D] dark:text-white truncate">
-                      {t.peerName}
-                    </strong>
-                    {t.lastMessage && (
-                      <span className="text-[11px] font-mono-nums text-[#5A6A92] dark:text-[#93A3CC]">
-                        {formatMsgTime(t.lastMessage.created_at)}
-                      </span>
-                    )}
+            {recentThreads.map((t) => {
+              const isTeacher = isTeacherAccount(t.peerName);
+              const rank = !isTeacher ? rankMap.get(t.peerUuid) : undefined;
+              const previewText = t.lastMessage
+                ? parseReplyFormat(t.lastMessage.body).cleanBody
+                : "";
+              const isMineLast = t.lastMessage?.sender_uuid === guestId;
+
+              return (
+                <button
+                  key={t.peerUuid}
+                  type="button"
+                  onClick={() => {
+                    setActivePeerFallbackName(t.peerName);
+                    setActivePeerUuid(t.peerUuid);
+                  }}
+                  className="w-full py-3 px-1 flex items-center gap-3 text-left cursor-pointer hover:opacity-90"
+                >
+                  <div
+                    className={`w-11 h-11 rounded-full p-[2px] shrink-0 ${
+                      t.unread > 0 || isTeacher
+                        ? "bg-gradient-to-tr from-[#1457E0] to-[#38B0FF]"
+                        : "bg-transparent"
+                    }`}
+                  >
+                    <div className="w-full h-full rounded-full bg-[#1457E0]/15 dark:bg-[#131E3A] text-[#1457E0] dark:text-[#5AA2FF] font-extrabold text-sm flex items-center justify-center">
+                      {t.peerName.charAt(0).toUpperCase()}
+                    </div>
                   </div>
-                  <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] truncate">
-                    {t.lastMessage?.body || ""}
-                  </p>
-                </div>
-                {t.unread > 0 && (
-                  <span className="min-w-[20px] h-[20px] px-1.5 rounded-full bg-[#E5091E] text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">
-                    {t.unread}
-                  </span>
-                )}
-              </button>
-            ))}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <strong
+                          className={`text-sm truncate ${
+                            t.unread > 0
+                              ? "font-extrabold text-[#0B1B4D] dark:text-white"
+                              : "font-bold text-[#0B1B4D] dark:text-white"
+                          }`}
+                        >
+                          {t.peerName}
+                        </strong>
+                        {isTeacher && (
+                          <>
+                            <BadgeCheck className="w-3.5 h-3.5 text-[#38B0FF] shrink-0" />
+                            <span className="px-1.5 py-0.5 rounded-md bg-[#1457E0]/15 dark:bg-[#38B0FF]/15 text-[#1457E0] dark:text-[#5AA2FF] text-[10px] font-extrabold shrink-0">
+                              Teacher
+                            </span>
+                          </>
+                        )}
+                        {rank && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-[#1457E0]/10 dark:bg-white/10 text-[#1457E0] dark:text-[#93A3CC] text-[10px] font-mono font-bold shrink-0">
+                            #{rank}
+                          </span>
+                        )}
+                      </div>
+                      {t.lastMessage && (
+                        <span className="text-[11px] font-mono text-[#5A6A92] dark:text-[#93A3CC] shrink-0">
+                          {formatMsgTime(t.lastMessage.created_at)}
+                        </span>
+                      )}
+                    </div>
+                    <p
+                      className={`text-xs truncate mt-0.5 ${
+                        t.unread > 0
+                          ? "font-bold text-[#0B1B4D] dark:text-white"
+                          : "text-[#5A6A92] dark:text-[#93A3CC]"
+                      }`}
+                    >
+                      {isMineLast ? `You: ${previewText}` : previewText}
+                    </p>
+                  </div>
+                  {t.unread > 0 && (
+                    <span className="min-w-[20px] h-[20px] px-1.5 rounded-full bg-[#1457E0] text-white text-[10px] font-extrabold flex items-center justify-center shrink-0">
+                      {t.unread}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
