@@ -35,6 +35,16 @@ interface ChatViewProps {
 const CHAT_READ_KEY = "amaysst_chat_read_at";
 const CHAT_NOTE_KEY = "amaysst_my_study_note";
 const CHAT_LIKES_KEY = "amaysst_chat_likes_v1";
+const AVATAR_GENDER_KEY = "amaysst_avatar_gender";
+
+function loadSavedGender(): "male" | "female" | null {
+  try {
+    const val = localStorage.getItem(AVATAR_GENDER_KEY);
+    return val === "male" || val === "female" ? val : null;
+  } catch {
+    return null;
+  }
+}
 
 function loadReadMap(): Record<string, string> {
   try {
@@ -301,12 +311,13 @@ function inferAvatarGender(name: string): "male" | "female" {
   return "male";
 }
 
-// Stylized Male & Female Vector Bust Silhouettes matching user's reference graphic
 const ProfileSilhouetteAvatar: React.FC<{
   name: string;
   sizeClass?: string;
-}> = ({ name, sizeClass = "w-10 h-10" }) => {
-  const gender = inferAvatarGender(name);
+  isSelf?: boolean;
+}> = ({ name, sizeClass = "w-10 h-10", isSelf = false }) => {
+  const saved = isSelf ? loadSavedGender() : null;
+  const gender = saved ?? inferAvatarGender(name);
 
   return (
     <div
@@ -317,38 +328,30 @@ const ProfileSilhouetteAvatar: React.FC<{
       }`}
     >
       {gender === "female" ? (
-        /* Female Bust Silhouette with Long Swept Hair & V-Tapered Base */
         <svg viewBox="0 0 100 100" className="w-[84%] h-[84%]" aria-hidden="true">
-          {/* Hair & Head Silhouette */}
           <path
             d="M52 13c-13.5 0-22.5 9.2-24 23.5-1.1 10.6 0.4 18.8 3.2 24.2 1.3 2.5 3.1 4.2 5.4 4.8-1.4-2.8-1.8-6.4-0.8-10.3 0.7-2.6 1.9-5.1 3.4-7.1-1.3-4.8-1.3-11.2 1.6-15.8 1.5-2.4 3.8-4.1 6.2-4.8-3.5 3.6-4.6 9.5-3.6 15.2 1 5.6 4.4 10.4 9.2 12.1 2.2 0.8 4.6 0.9 6.8 0.3 4.8-1.4 8.2-5.9 9.5-11.4 1.1-4.8 0.6-10.1-1.6-14.2 2.4 3.2 3.8 7.5 3.7 12.2-0.1 4.4-1.5 8.6-3.8 11.8 1.8 3.1 4.5 5.4 7.8 6.4-1.6-2.5-2.4-5.7-2.2-9.2 0.3-5.2 1.8-11.6 1.1-18.8C72.7 21.8 64.5 13 52 13z"
             fill="#F0F5FF"
           />
-          {/* Inner Face & Neck Fill */}
           <path
             d="M44.5 28.5c-2.6 3.5-2.8 9.2-1.7 14.3 1.1 5 4.2 9.2 8.4 10.6 2 0.7 4.2 0.7 6.1 0.1 4.2-1.3 7.2-5.2 8.3-10.1 1-4.4 0.5-9.2-1.5-12.8-2.4-4.2-6.6-6.3-11.2-6.1-3.4 0.1-6.5 1.6-8.4 4z"
             fill="#F0F5FF"
           />
-          {/* Neck & V-Tapered Shoulders */}
           <path
             d="M44.5 53.5c0.2 3.4-0.6 6.2-2.6 7.7-4.8 3.2-13.5 4.2-17.2 8.6-2.1 2.5-2.9 6.1-2.5 9.6 0.3 2.5 1.8 4.4 4.1 5.5 6.8 3.2 13.8 6.4 18.8 10.6 2.8 2.3 6.9 2.3 9.7 0 5-4.2 12-7.4 18.8-10.6 2.3-1.1 3.8-3 4.1-5.5 0.4-3.5-0.4-7.1-2.5-9.6-3.7-4.4-12.4-5.4-17.2-8.6-2-1.5-2.8-4.3-2.6-7.7-3.6 1.2-7.3 1.2-10.9 0z"
             fill="#F0F5FF"
           />
         </svg>
       ) : (
-        /* Male Bust Silhouette with Spiky Hair, V-Neck Collar & V-Tapered Base */
         <svg viewBox="0 0 100 100" className="w-[84%] h-[84%]" aria-hidden="true">
-          {/* Spiky Hair & Head Silhouette */}
           <path
             d="M50 12c-3.5 0-6.8 1.2-9.4 2.7l1.6-2.2c-4.4 0.6-8.4 2.9-11.2 6.2l0.8-2.3c-3.4 2.1-5.8 5.6-6.7 9.6l1.4-1.2c-0.9 3.2-1 6.7-0.2 10-1.9 0.3-3.1 2.3-2.5 4.9 0.6 2.5 2.4 4.4 4.3 4.6 1.4 4.6 4.4 8.3 8.4 10.2 2.4 1.1 5.1 1.6 7.8 1.4 3.5-0.3 6.8-1.9 9.2-4.6 2.3-2.6 3.9-5.9 4.7-9.4 1.8-0.3 3.4-2.1 4-4.5 0.6-2.5-0.5-4.5-2.4-4.8 0.9-4.1 0.6-8.5-1.2-12.2-2.6-5.3-7.9-8.4-13.6-8.4z"
             fill="#F0F5FF"
           />
-          {/* Neck */}
           <path
             d="M42.2 52.5c0.3 3.3-0.3 6-1.8 7.8 3.2 4.1 6.4 7.4 9.6 9.6 3.2-2.2 6.4-5.5 9.6-9.6-1.5-1.8-2.1-4.5-1.8-7.8-5.1 1.8-10.5 1.8-15.6 0z"
             fill="#F0F5FF"
           />
-          {/* V-Neck Shirt Shoulders & V-Tapered Bust */}
           <path
             d="M38.2 61.8c-5.4 2.3-12.4 3.8-15.6 7.9-2.2 2.8-2.9 6.6-2.4 10.3 0.3 2.5 1.9 4.5 4.2 5.6 7.1 3.3 14.5 6.6 19.8 11 2.9 2.4 7.1 2.4 10 0 5.3-4.4 12.7-7.7 19.8-11 2.3-1.1 3.9-3.1 4.2-5.6 0.5-3.7-0.2-7.5-2.4-10.3-3.2-4.1-10.2-5.6-15.6-7.9-3.4 4.3-6.8 7.8-10.2 10.2-3.4-2.4-6.8-5.9-10.2-10.2z"
             fill="#F0F5FF"
@@ -1179,7 +1182,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             {myNote || "Study note…"}
           </div>
           <div className="w-14 h-14 rounded-full p-[2px] bg-[#1846AA]/20 dark:bg-white/15 relative">
-            <ProfileSilhouetteAvatar name={myName} sizeClass="w-full h-full" />
+            <ProfileSilhouetteAvatar isSelf name={myName} sizeClass="w-full h-full" />
             <span className="w-5 h-5 rounded-full bg-[#1457E0] text-white border-2 border-[#F4F7FC] dark:border-[#080D1B] flex items-center justify-center absolute -bottom-0.5 -right-0.5">
               <Plus className="w-3 h-3 stroke-[3]" />
             </span>
