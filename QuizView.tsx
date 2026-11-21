@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { X, ChevronLeft, Volume2, VolumeX } from "lucide-react";
+import { Check, ChevronLeft, Volume2, VolumeX, X } from "lucide-react";
 import {
   formatTime,
   formatXpValue,
@@ -184,9 +184,9 @@ export const QuizView: React.FC<QuizViewProps> = ({
           </button>
         </div>
 
-        <div className="amay-card rounded-[28px] p-5 sm:p-6 space-y-4">
+        <div className="amay-card rounded-[28px] p-5 sm:p-6 space-y-3.5">
           <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-white">Review</h2>
-          <div className="divide-y divide-[#1846AA]/10 dark:divide-white/10">
+          <div className="space-y-3">
             {quiz.qs.map((q, idx) => {
               const sel = quiz.sel[idx];
               const ok = sel === q[2];
@@ -199,24 +199,43 @@ export const QuizView: React.FC<QuizViewProps> = ({
                     else if (ok) playCorrectSound();
                     else playIncorrectSound();
                   }}
-                  className="py-3.5 first:pt-0 last:pb-0 space-y-1 text-sm cursor-pointer"
+                  className={`rounded-2xl p-3.5 border-l-4 space-y-1.5 text-sm cursor-pointer transition hover:brightness-[0.99] ${
+                    ok
+                      ? "border-l-[#12A150] bg-[#12A150]/[0.05] dark:bg-[#3DD17F]/[0.06]"
+                      : skipped
+                        ? "border-l-[#5A6A92]/40 bg-[#1457E0]/[0.03] dark:bg-white/[0.03]"
+                        : "border-l-[#D92D3A] bg-[#D92D3A]/[0.05] dark:bg-[#FF6B76]/[0.06]"
+                  }`}
                 >
-                  <p className="font-bold text-[#0B1B4D] dark:text-white">
+                  <p className="font-bold text-[#0B1B4D] dark:text-white leading-snug">
                     {idx + 1}. {q[0]}
                   </p>
                   <p
-                    className={
+                    className={`font-semibold text-xs ${
                       ok
                         ? "text-[#12A150] dark:text-[#3DD17F]"
                         : skipped
                           ? "text-[#5A6A92] dark:text-[#93A3CC]"
                           : "text-[#D92D3A] dark:text-[#FF6B76]"
-                    }
+                    }`}
                   >
-                    You: {skipped ? "skipped (0 XP)" : `${q[1][sel]} ${ok ? "✅" : `❌ (−${formatXpValue(getNegativePenalty(quiz.L))} XP)`}`}
+                    You:{" "}
+                    {skipped
+                      ? "Skipped (0 XP)"
+                      : `${q[1][sel]} ${
+                          ok ? "✅" : `❌ (−${formatXpValue(getNegativePenalty(quiz.L))} XP)`
+                        }`}
                   </p>
-                  <p className="text-[#0B1B4D] dark:text-[#EAF0FF]">Correct: {q[1][q[2]]}</p>
-                  {q[3] && <p className="text-[#5A6A92] dark:text-[#93A3CC]">{q[3]}</p>}
+                  {!ok && (
+                    <p className="text-xs font-bold text-[#12A150] dark:text-[#3DD17F]">
+                      Correct: {q[1][q[2]]}
+                    </p>
+                  )}
+                  {q[3] && (
+                    <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] pt-0.5 leading-relaxed">
+                      💡 {q[3]}
+                    </p>
+                  )}
                 </div>
               );
             })}
@@ -234,26 +253,29 @@ export const QuizView: React.FC<QuizViewProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Top Bar */}
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
           onClick={() => setConfirmQuit(true)}
           aria-label="Quit quiz"
-          className="amay-card rounded-[16px] px-3 py-2 text-[#1457E0] dark:text-[#5AA2FF] font-bold cursor-pointer"
+          className="amay-card rounded-[16px] px-3 py-2 text-[#1457E0] dark:text-[#5AA2FF] font-bold cursor-pointer active:scale-95 transition"
         >
           <X className="w-5 h-5" />
         </button>
 
-        <strong
-          className={`font-mono-nums text-xl font-extrabold ${
-            quiz.t <= 30 ? "text-[#D92D3A] dark:text-[#FF6B76]" : "text-[#0B1B4D] dark:text-white"
+        <div
+          className={`px-3.5 py-1 rounded-full amay-card font-mono-nums text-lg font-extrabold tracking-tight ${
+            quiz.t <= 30
+              ? "text-[#D92D3A] dark:text-[#FF6B76] ring-2 ring-[#D92D3A]/35 animate-pulse"
+              : "text-[#0B1B4D] dark:text-white"
           }`}
         >
           {formatTime(quiz.t)}
-        </strong>
+        </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-[14px] sm:text-[15px] font-semibold text-[#5A6A92] dark:text-[#93A3CC] tabular-nums">
+          <span className="text-[13px] sm:text-[14px] font-bold text-[#5A6A92] dark:text-[#93A3CC] tabular-nums">
             {LEVELS[quiz.L]} · {quiz.i + 1}/{total}
           </span>
           <button
@@ -262,39 +284,50 @@ export const QuizView: React.FC<QuizViewProps> = ({
             onClick={toggleSound}
             aria-label={soundOn ? "Mute sound effects" : "Enable sound effects"}
             title={soundOn ? "Sound On" : "Sound Off"}
-            className="amay-card rounded-[14px] p-2 text-[#1457E0] dark:text-[#5AA2FF] cursor-pointer"
+            className="amay-card rounded-[14px] p-2 text-[#1457E0] dark:text-[#5AA2FF] cursor-pointer active:scale-95 transition"
           >
             {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 opacity-60" />}
           </button>
         </div>
       </div>
 
+      {/* Progress Bar */}
       <div className="h-2.5 rounded-full bg-[#1457E0]/10 dark:bg-white/10 overflow-hidden">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-[#38B0FF] to-[#0B57DD] transition-all duration-300"
+          className="h-full rounded-full bg-gradient-to-r from-[#38B0FF] via-[#2B7BFF] to-[#0B57DD] transition-all duration-300"
           style={{ width: `${progressPct}%` }}
         />
       </div>
 
-      <div className="flex items-center justify-between text-xs font-semibold text-[#5A6A92] dark:text-[#93A3CC]">
-        <span>
-          +{XP_PER_LEVEL[quiz.L]} XP right · −{penalty} XP wrong
-        </span>
+      {/* Elevated Question Stage Card */}
+      <div className="amay-card rounded-[28px] p-5 space-y-2.5 border border-[#1846AA]/15 dark:border-white/10 shadow-[0_14px_30px_-18px_rgba(20,87,224,0.35)]">
+        <div className="flex items-center justify-between gap-2 text-xs font-bold">
+          <span className="px-2.5 py-0.5 rounded-full bg-[#1457E0]/12 dark:bg-[#5AA2FF]/15 text-[#1457E0] dark:text-[#5AA2FF]">
+            Question {quiz.i + 1} of {total}
+          </span>
+          <span className="text-[#5A6A92] dark:text-[#93A3CC] font-mono-nums">
+            +{XP_PER_LEVEL[quiz.L]} XP · −{penalty} wrong
+          </span>
+        </div>
+
+        <h2 className="text-[20px] sm:text-[21px] leading-[1.38] font-extrabold text-[#0B1B4D] dark:text-white pt-0.5">
+          {q[0]}
+        </h2>
+
         {selected !== undefined && (
-          <button
-            type="button"
-            onClick={() => onSelectOption(undefined)}
-            className="text-[#1457E0] dark:text-[#5AA2FF] hover:underline cursor-pointer"
-          >
-            Clear choice (skip)
-          </button>
+          <div className="pt-1 flex justify-end">
+            <button
+              type="button"
+              onClick={() => onSelectOption(undefined)}
+              className="text-xs font-bold text-[#1457E0] dark:text-[#5AA2FF] hover:underline cursor-pointer"
+            >
+              Clear choice (skip)
+            </button>
+          </div>
         )}
       </div>
 
-      <h2 className="text-[21px] leading-[1.35] font-extrabold text-[#0B1B4D] dark:text-white">
-        {q[0]}
-      </h2>
-
+      {/* Tactile Option Pills */}
       <div className="space-y-2.5">
         {q[1].map((opt, idx) => {
           const active = selected === idx;
@@ -304,27 +337,43 @@ export const QuizView: React.FC<QuizViewProps> = ({
               type="button"
               data-custom-sound="1"
               onClick={() => onSelectOption(active ? undefined : idx)}
-              className={`w-full min-h-[54px] px-4 py-3.5 rounded-[18px] text-left font-semibold text-base flex items-center gap-3.5 transition-all cursor-pointer active:scale-[0.98] ${
+              className={`group w-full min-h-[58px] px-4 py-3.5 rounded-[20px] text-left font-semibold text-[15px] sm:text-base flex items-center gap-3.5 transition-all duration-150 cursor-pointer active:scale-[0.985] ${
                 active
-                  ? "bg-[#4DB8F5]/20 border-2 border-[#1457E0] dark:border-[#5AA2FF] text-[#0B1B4D] dark:text-white"
-                  : "amay-card text-[#0B1B4D] dark:text-[#EAF0FF]"
+                  ? "bg-gradient-to-r from-[#1457E0]/16 via-[#2B7BFF]/14 to-[#38B0FF]/12 dark:from-[#1457E0]/35 dark:to-[#38B0FF]/20 border-2 border-[#1457E0] dark:border-[#5AA2FF] text-[#0B1B4D] dark:text-white shadow-[0_10px_24px_-12px_rgba(20,87,224,0.65)]"
+                  : "amay-card border border-[#1846AA]/12 dark:border-white/10 text-[#0B1B4D] dark:text-[#EAF0FF] hover:border-[#1457E0]/45 dark:hover:border-[#5AA2FF]/45"
               }`}
             >
-              <span className="w-8 h-8 rounded-xl bg-[#1457E0]/10 dark:bg-[#5AA2FF]/20 text-[#1457E0] dark:text-[#5AA2FF] font-extrabold text-sm flex items-center justify-center shrink-0">
+              <span
+                className={`w-9 h-9 rounded-xl font-extrabold text-sm flex items-center justify-center shrink-0 transition-colors ${
+                  active
+                    ? "bg-gradient-to-br from-[#2B7BFF] to-[#1457E0] text-white shadow-sm"
+                    : "bg-[#1457E0]/10 dark:bg-white/10 text-[#1457E0] dark:text-[#5AA2FF] group-hover:bg-[#1457E0]/18"
+                }`}
+              >
                 {"ABCD"[idx]}
               </span>
-              <span className="flex-1">{opt}</span>
+              <span className="flex-1 leading-snug">{opt}</span>
+              <span
+                className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                  active
+                    ? "bg-[#1457E0] dark:bg-[#5AA2FF] text-white dark:text-[#080D1B] scale-100"
+                    : "border border-[#1846AA]/20 dark:border-white/15 opacity-40 scale-90"
+                }`}
+              >
+                {active && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+              </span>
             </button>
           );
         })}
       </div>
 
+      {/* Navigation Buttons */}
       <div className="flex items-center gap-3 pt-1">
         {quiz.i > 0 && (
           <button
             type="button"
             onClick={() => onGoToQuestion(quiz.i - 1)}
-            className="h-13 px-4 rounded-[22px] amay-card text-[#1457E0] dark:text-[#5AA2FF] font-bold text-base inline-flex items-center gap-1 cursor-pointer"
+            className="h-13 px-4 rounded-[22px] amay-card text-[#1457E0] dark:text-[#5AA2FF] font-bold text-base inline-flex items-center gap-1 cursor-pointer active:scale-95 transition"
           >
             <ChevronLeft className="w-4 h-4" />
             <span>Back</span>
@@ -335,7 +384,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
           type="button"
           data-custom-sound={quiz.i === total - 1 ? "1" : undefined}
           onClick={() => (quiz.i < total - 1 ? onGoToQuestion(quiz.i + 1) : onFinish())}
-          className="flex-1 h-13 rounded-[22px] amay-play-btn text-white font-bold text-base cursor-pointer"
+          className="flex-1 h-13 rounded-[22px] amay-play-btn text-white font-bold text-base cursor-pointer shadow-[0_12px_24px_-10px_rgba(20,87,224,0.85)] active:scale-[0.99] transition"
         >
           {quiz.i < total - 1 ? "Next" : "Finish"}
         </button>
@@ -343,7 +392,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
 
       {confirmQuit && (
         <div
-          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
           role="dialog"
           aria-modal="true"
         >
