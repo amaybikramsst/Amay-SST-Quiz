@@ -287,6 +287,53 @@ const ProfileSilhouetteAvatar: React.FC<{
   );
 };
 
+function getHolographicMilestoneStyle(milestone?: number): {
+  cardClass: string;
+  pillClass: string;
+  tierName: string;
+} {
+  if (milestone === 100000) {
+    return {
+      cardClass:
+        "border-sky-300/60 dark:border-sky-300/45 bg-gradient-to-br from-indigo-500/20 via-sky-400/25 to-fuchsia-500/20 shadow-[0_10px_24px_-12px_rgba(56,176,255,0.65)]",
+      pillClass: "bg-sky-400/25 text-sky-900 dark:text-sky-200",
+      tierName: "Diamond",
+    };
+  }
+  if (milestone === 10000) {
+    return {
+      cardClass:
+        "border-amber-400/55 dark:border-amber-300/40 bg-gradient-to-br from-amber-400/22 via-yellow-300/18 to-orange-500/18 shadow-[0_10px_22px_-12px_rgba(245,158,11,0.55)]",
+      pillClass: "bg-amber-400/25 text-amber-900 dark:text-amber-200",
+      tierName: "Gold",
+    };
+  }
+  if (milestone === 1000) {
+    return {
+      cardClass:
+        "border-slate-300/65 dark:border-slate-300/35 bg-gradient-to-br from-slate-300/25 via-sky-200/20 to-indigo-400/15 shadow-[0_10px_20px_-12px_rgba(148,163,184,0.5)]",
+      pillClass: "bg-slate-400/20 text-slate-800 dark:text-slate-200",
+      tierName: "Silver",
+    };
+  }
+  return {
+    cardClass:
+      "border-orange-400/45 dark:border-orange-300/30 bg-gradient-to-br from-orange-400/20 via-amber-300/15 to-rose-400/15 shadow-[0_10px_20px_-12px_rgba(234,88,12,0.45)]",
+    pillClass: "bg-orange-400/20 text-orange-900 dark:text-orange-200",
+    tierName: "Bronze",
+  };
+}
+
+function getHolographicRankStyle(rank: 1 | 2 | 3): string {
+  if (rank === 1) {
+    return "border-amber-400/60 dark:border-amber-300/45 bg-gradient-to-b from-amber-400/25 via-yellow-300/15 to-amber-500/10 shadow-[0_10px_22px_-12px_rgba(245,158,11,0.6)]";
+  }
+  if (rank === 2) {
+    return "border-slate-300/70 dark:border-slate-300/40 bg-gradient-to-b from-slate-300/25 via-sky-200/15 to-slate-400/10 shadow-[0_10px_22px_-12px_rgba(148,163,184,0.55)]";
+  }
+  return "border-orange-400/50 dark:border-orange-300/35 bg-gradient-to-b from-orange-400/22 via-amber-300/12 to-orange-500/10 shadow-[0_10px_22px_-12px_rgba(234,88,12,0.5)]";
+}
+
 export const ProfileView: React.FC<ProfileViewProps> = ({
   profile,
   isDark,
@@ -673,9 +720,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </button>
       </div>
 
-      {/* Badges */}
+      {/* Holographic Rank & Daily Badges */}
       <div className="amay-card rounded-[30px] p-5 space-y-4">
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           <div>
             <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-white">
               Overall Rank Badges
@@ -689,36 +736,54 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
           <div className="h-2.5 rounded-full bg-[#1457E0]/10 dark:bg-white/10 overflow-hidden">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-[#38B0FF] to-[#0B57DD]"
+              className="h-full rounded-full bg-gradient-to-r from-[#38B0FF] via-[#2B7BFF] to-[#0B57DD] transition-all duration-500"
               style={{ width: `${progressPct}%` }}
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            {badges.map((b) =>
-              b.unlocked && b.milestone ? (
-                <button
+          <div className="grid grid-cols-2 gap-2.5 pt-1">
+            {badges.map((b) => {
+              if (b.unlocked && b.milestone) {
+                const holo = getHolographicMilestoneStyle(b.milestone);
+                return (
+                  <button
+                    key={b.label}
+                    type="button"
+                    onClick={() => onOpenBadge({ kind: "overall", milestone: b.milestone! })}
+                    className={`relative overflow-hidden px-3.5 py-3 rounded-2xl text-left border transition-all duration-200 hover:scale-[1.015] active:scale-[0.99] cursor-pointer flex items-center justify-between gap-2 ${holo.cardClass}`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute -top-6 -right-6 w-16 h-16 rounded-full bg-white/25 dark:bg-white/10 blur-md"
+                    />
+                    <div className="min-w-0">
+                      <span className="block text-sm font-extrabold text-[#0B1B4D] dark:text-white truncate">
+                        {b.icon} {b.label}
+                      </span>
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-[#5A6A92] dark:text-white/70 mt-0.5">
+                        {holo.tierName} Tier
+                      </span>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 ${holo.pillClass}`}
+                    >
+                      View
+                    </span>
+                  </button>
+                );
+              }
+              return (
+                <div
                   key={b.label}
-                  type="button"
-                  onClick={() => onOpenBadge({ kind: "overall", milestone: b.milestone! })}
-                  className="px-3 py-2.5 rounded-2xl text-left text-sm font-bold border border-[#1457E0]/25 dark:border-[#5AA2FF]/30 bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 text-[#0B1B4D] dark:text-white hover:bg-[#1457E0]/15 transition-colors cursor-pointer flex items-center justify-between gap-2"
+                  className="px-3.5 py-3 rounded-2xl text-sm font-semibold border border-[#1846AA]/10 dark:border-white/10 bg-[#1457E0]/[0.02] dark:bg-white/[0.02] opacity-50 text-[#5A6A92] dark:text-[#93A3CC] flex items-center justify-between gap-2"
                 >
                   <span>
                     {b.icon} {b.label}
                   </span>
-                  <span className="text-[11px] font-bold text-[#1457E0] dark:text-[#5AA2FF]">
-                    View
-                  </span>
-                </button>
-              ) : (
-                <div
-                  key={b.label}
-                  className="px-3 py-2.5 rounded-2xl text-sm font-semibold border border-[#1846AA]/10 dark:border-white/10 opacity-50 text-[#5A6A92] dark:text-[#93A3CC]"
-                >
-                  {b.icon} {b.label}
+                  <span className="text-[10px] font-bold uppercase">Locked</span>
                 </div>
-              )
-            )}
+              );
+            })}
           </div>
         </div>
 
@@ -743,7 +808,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-2.5">
             {([1, 2, 3] as const).map((rank) => {
               const wins = dailyBadges
                 .filter((d) => d.rank === rank)
@@ -763,13 +828,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         xpToday: latest.xp,
                       })
                     }
-                    className="p-2.5 rounded-2xl text-center border border-[#1457E0]/25 dark:border-[#5AA2FF]/30 bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 cursor-pointer hover:bg-[#1457E0]/15 transition-colors"
+                    className={`relative overflow-hidden p-3 rounded-2xl text-center border transition-all duration-200 hover:scale-[1.02] active:scale-[0.99] cursor-pointer ${getHolographicRankStyle(
+                      rank
+                    )}`}
                   >
-                    <span className="block text-lg leading-none">{medal}</span>
-                    <strong className="block text-xs font-extrabold text-[#0B1B4D] dark:text-white mt-1">
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute -top-5 -right-5 w-14 h-14 rounded-full bg-white/30 dark:bg-white/10 blur-md"
+                    />
+                    <span className="block text-xl leading-none drop-shadow-xs">{medal}</span>
+                    <strong className="block text-xs font-extrabold text-[#0B1B4D] dark:text-white mt-1.5">
                       Today #{rank}
                     </strong>
-                    <span className="block text-[11px] font-bold text-[#1457E0] dark:text-[#5AA2FF] mt-0.5">
+                    <span className="inline-block mt-1 px-2 py-0.5 rounded-full bg-white/60 dark:bg-white/10 text-[10px] font-extrabold text-[#1457E0] dark:text-[#5AA2FF]">
                       {wins.length}× earned
                     </span>
                   </button>
@@ -778,13 +849,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               return (
                 <div
                   key={`daily-slot-${rank}`}
-                  className="p-2.5 rounded-2xl text-center border border-[#1846AA]/10 dark:border-white/10 opacity-55"
+                  className="p-3 rounded-2xl text-center border border-[#1846AA]/10 dark:border-white/10 bg-[#1457E0]/[0.02] dark:bg-white/[0.02] opacity-50"
                 >
-                  <span className="block text-lg leading-none">{medal}</span>
-                  <strong className="block text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC] mt-1">
+                  <span className="block text-xl leading-none grayscale">{medal}</span>
+                  <strong className="block text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC] mt-1.5">
                     Today #{rank}
                   </strong>
-                  <span className="block text-[11px] text-[#5A6A92] dark:text-[#93A3CC] mt-0.5">
+                  <span className="block text-[10px] font-bold uppercase text-[#5A6A92] dark:text-[#93A3CC] mt-1">
                     Locked
                   </span>
                 </div>
@@ -797,7 +868,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           <button
             type="button"
             onClick={() => onOpenBadge()}
-            className="w-full h-12 rounded-[20px] amay-play-btn text-white font-bold text-sm cursor-pointer"
+            className="w-full h-12 rounded-[20px] amay-play-btn text-white font-bold text-sm cursor-pointer shadow-[0_12px_24px_-10px_rgba(20,87,224,0.85)]"
           >
             🏅 Share my badge
           </button>
