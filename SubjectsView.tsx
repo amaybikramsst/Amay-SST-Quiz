@@ -634,16 +634,14 @@ export const SubjectConfigView: React.FC<SubjectConfigViewProps> = ({
       <p className="text-xs font-semibold text-[#5A6A92] dark:text-[#93A3CC] px-1">
         1/4 negative marking applies to wrong answers. Unanswered (skipped) questions carry 0 penalty.
       </p>
-
-      <button
-        type="button"
-        onClick={onStart}
-        className="w-full h-14 rounded-[22px] amay-play-btn text-white font-bold text-lg flex items-center justify-center gap-2 relative cursor-pointer mt-2 active:scale-[0.98] transition-transform"
-      >
-        <Play className="w-5 h-5 fill-current" />
-        <span>Start quiz</span>
-        <ChevronRight className="w-5 h-5 absolute right-5" />
-      </button>
-    </div>
-  );
-};
+<div className="sticky bottom-22 z-20 pt-2">
+        <button
+          type="button"
+          onClick={onStart}
+          className="w-full h-14 rounded-[22px] amay-play-btn text-white font-bold text-lg flex items-center justify-center gap-2 relative cursor-pointer shadow-[0_14px_28px_-10px_rgba(20,87,224,0.9)] active:scale-[0.98] transition-transform"
+        >
+          <Play className="w-5 h-5 fill-current" />
+          <span>Start quiz</span>
+          <ChevronRight className="w-5 h-5 absolute right-5" />
+        </button>
+      </div>
