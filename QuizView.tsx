@@ -6,6 +6,7 @@ import {
   getNegativePenalty,
   getSubjectMeta,
   LEVELS,
+  QUIZ_LENGTHS,
   XP_PER_LEVEL,
   type ActiveQuizState,
   type StudentProfile,
@@ -213,7 +214,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const [animXp, setAnimXp] = useState(0);
   const [animAccuracy, setAnimAccuracy] = useState(0);
 
-  // #3: Smooth Score Count-Up Animation on Quiz Finish
   useEffect(() => {
     if (!quiz.done || !quiz.res) {
       setAnimXp(0);
@@ -326,7 +326,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
             {profile.streak}🔥 day streak
           </p>
 
-          {/* #3: Live Rank Climb Banner */}
           {rankChange && rankChange.climbed > 0 && (
             <button
               type="button"
@@ -391,7 +390,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
             </p>
           )}
 
-          {/* 9:16 Shareable Story Card Button */}
           <button
             type="button"
             disabled={sharingStory}
@@ -534,9 +532,18 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const progressPct = ((quiz.i + 1) / total) * 100;
   const penalty = formatXpValue(getNegativePenalty(quiz.L));
 
+  // #6: Circular Countdown Timer Ring math
+  const totalSeconds = Math.max(1, (QUIZ_LENGTHS[quiz.N] ?? 2) * 60);
+  const timerRatio = Math.max(0, Math.min(1, quiz.t / totalSeconds));
+  const ringRadius = 22;
+  const ringCircumference = 2 * Math.PI * ringRadius;
+  const ringDashOffset = ringCircumference * (1 - timerRatio);
+  const isCriticalTime = quiz.t <= 20;
+  const isWarningTime = !isCriticalTime && quiz.t <= 45;
+
   return (
     <div className="space-y-3.5">
-      {/* Top Bar */}
+      {/* Top Bar with Circular Timer Ring */}
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
@@ -547,14 +554,53 @@ export const QuizView: React.FC<QuizViewProps> = ({
           <X className="w-5 h-5" />
         </button>
 
+        {/* #6: Circular Countdown Timer Ring */}
         <div
-          className={`px-3.5 py-1 rounded-full amay-card font-mono-nums text-lg font-extrabold tracking-tight ${
-            quiz.t <= 30
-              ? "text-[#D92D3A] dark:text-[#FF6B76] ring-2 ring-[#D92D3A]/35 animate-pulse"
-              : "text-[#0B1B4D] dark:text-white"
+          className={`relative w-[56px] h-[56px] flex items-center justify-center shrink-0 ${
+            isCriticalTime ? "animate-pulse" : ""
           }`}
+          aria-label={`Time remaining: ${formatTime(quiz.t)}`}
         >
-          {formatTime(quiz.t)}
+          <svg className="w-full h-full -rotate-90" viewBox="0 0 56 56">
+            <circle
+              cx="28"
+              cy="28"
+              r={ringRadius}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="4"
+              className="text-[#1457E0]/15 dark:text-white/10"
+            />
+            <circle
+              cx="28"
+              cy="28"
+              r={ringRadius}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="4"
+              strokeLinecap="round"
+              strokeDasharray={ringCircumference}
+              strokeDashoffset={ringDashOffset}
+              className={`transition-all duration-500 ${
+                isCriticalTime
+                  ? "text-[#D92D3A] dark:text-[#FF6B76]"
+                  : isWarningTime
+                    ? "text-amber-500 dark:text-amber-400"
+                    : "text-[#1457E0] dark:text-[#38B0FF]"
+              }`}
+            />
+          </svg>
+          <span
+            className={`absolute font-mono-nums text-[12px] font-extrabold tracking-tight ${
+              isCriticalTime
+                ? "text-[#D92D3A] dark:text-[#FF6B76]"
+                : isWarningTime
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-[#0B1B4D] dark:text-white"
+            }`}
+          >
+            {formatTime(quiz.t)}
+          </span>
         </div>
 
         <div className="flex items-center gap-2">
