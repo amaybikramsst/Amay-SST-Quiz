@@ -634,7 +634,8 @@ export const SubjectConfigView: React.FC<SubjectConfigViewProps> = ({
       <p className="text-xs font-semibold text-[#5A6A92] dark:text-[#93A3CC] px-1">
         1/4 negative marking applies to wrong answers. Unanswered (skipped) questions carry 0 penalty.
       </p>
-<div className="sticky bottom-22 z-20 pt-2">
+
+      <div className="sticky bottom-[92px] z-20 pt-2">
         <button
           type="button"
           onClick={onStart}
@@ -645,3 +646,6 @@ export const SubjectConfigView: React.FC<SubjectConfigViewProps> = ({
           <ChevronRight className="w-5 h-5 absolute right-5" />
         </button>
       </div>
+    </div>
+  );
+};
