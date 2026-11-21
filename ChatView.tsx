@@ -779,7 +779,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
     return (
       <div className="space-y-3">
-        {/* Active Thread Header with Live Online Pulse */}
+        {/* Active Thread Header (single green status pulse beside status text) */}
         <div className="amay-card rounded-[26px] p-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
             <button
@@ -799,7 +799,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <ArrowLeft className="w-4 h-4" />
             </button>
 
-            <div className="relative shrink-0">
+            <div className="shrink-0">
               {isHelp ? (
                 <div className="w-10 h-10 rounded-full flex items-center justify-center font-extrabold text-sm text-white bg-gradient-to-br from-[#38B0FF] to-[#0B57DD] ring-2 ring-[#38B0FF]/35">
                   <LifeBuoy className="w-5 h-5" />
@@ -810,7 +810,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   sizeClass="w-10 h-10 ring-2 ring-[#1457E0]/30"
                 />
               )}
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#080D1B] absolute bottom-0 right-0" />
             </div>
 
             <div className="min-w-0">
@@ -885,11 +884,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         )}
 
-        {/* Messages Transcript + Quick-Reply Chips + Composer */}
-        <div className="amay-card rounded-[28px] p-3.5 flex flex-col min-h-[420px] max-h-[65vh]">
+        {/* Messages Transcript + Stacked Quick-Reply Chips + Composer */}
+        <div className="amay-card rounded-[28px] p-3.5 flex flex-col min-h-[420px] max-h-[72vh]">
           <div className="flex-1 overflow-y-auto px-1 space-y-1">
             {activeMessages.length === 0 ? (
-              <div className="py-10 text-center flex flex-col items-center space-y-2">
+              <div className="py-8 text-center flex flex-col items-center space-y-2">
                 {isHelp ? (
                   <div className="w-16 h-16 rounded-full flex items-center justify-center font-extrabold text-xl text-white mb-1 bg-gradient-to-br from-[#38B0FF] to-[#0B57DD] ring-4 ring-[#1457E0]/20">
                     <LifeBuoy className="w-7 h-7" />
@@ -1142,26 +1141,28 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </div>
           )}
 
-          {/* #5: One-Tap Quick-Reply Challenge Chips */}
-          <div className="pt-2.5 mt-1.5 border-t border-[#1846AA]/10 dark:border-white/10 flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider text-[#1457E0] dark:text-[#5AA2FF] shrink-0 px-1">
+          {/* Stacked Top-to-Bottom Quick-Reply Chips (no scrollbar) */}
+          <div className="pt-2.5 mt-1.5 border-t border-[#1846AA]/10 dark:border-white/10 space-y-1.5">
+            <div className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider text-[#1457E0] dark:text-[#5AA2FF] px-1">
               <Sparkles className="w-3 h-3" />
-              <span>Quick</span>
-            </span>
-            {quickChips.map((chip) => (
-              <button
-                key={chip}
-                type="button"
-                disabled={sending}
-                onClick={() => sendDirectText(chip)}
-                className="px-3 py-1.5 rounded-full bg-[#1457E0]/[0.08] hover:bg-[#1457E0]/16 dark:bg-white/[0.07] dark:hover:bg-white/[0.14] border border-[#1846AA]/15 dark:border-white/10 text-[11.5px] font-bold text-[#0B1B4D] dark:text-[#EAF0FF] whitespace-nowrap shrink-0 cursor-pointer active:scale-95 transition disabled:opacity-50"
-              >
-                {chip}
-              </button>
-            ))}
+              <span>Quick Messages</span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {quickChips.map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  disabled={sending}
+                  onClick={() => sendDirectText(chip)}
+                  className="w-full px-3.5 py-2 rounded-2xl bg-[#1457E0]/[0.07] hover:bg-[#1457E0]/15 dark:bg-white/[0.06] dark:hover:bg-white/[0.12] border border-[#1846AA]/14 dark:border-white/10 text-left text-xs font-bold text-[#0B1B4D] dark:text-[#EAF0FF] cursor-pointer active:scale-[0.99] transition disabled:opacity-50"
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <form onSubmit={handleSend} className="pt-2 flex items-center gap-2">
+          <form onSubmit={handleSend} className="pt-2.5 flex items-center gap-2">
             <div className="flex-1 h-11 pl-4 pr-1.5 rounded-full bg-white/90 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 flex items-center gap-2 focus-within:border-[#1457E0]">
               <input
                 ref={inputRef}
