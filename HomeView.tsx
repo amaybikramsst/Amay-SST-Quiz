@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, ChevronRight, Crown, Play } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Crown, Flame, Play, ShieldCheck } from "lucide-react";
 import { SOCIAL_LINKS } from "../data/benchmarks";
 import {
   computeRankSnapshot,
@@ -150,6 +150,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   }, [raceMode, raceData.myRank, raceData.myXp, raceData.totalPlayers, targetBarPct]);
 
   const barScale = fillReady ? animBarPct / 100 : 0;
+  const immediateRival = raceData.nextAhead[0];
 
   return (
     <div className="space-y-3.5">
@@ -239,6 +240,64 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
         </div>
 
+        {/* #6: Live Rival Alert Pill */}
+        {immediateRival ? (
+          <div className="rounded-2xl p-3 bg-gradient-to-r from-[#1457E0]/12 via-[#2B7BFF]/10 to-[#38B0FF]/12 dark:from-[#1457E0]/25 dark:to-[#38B0FF]/15 border border-[#1457E0]/25 dark:border-[#5AA2FF]/30 flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="w-8 h-8 rounded-xl bg-[#1457E0] text-white flex items-center justify-center shrink-0 shadow-xs">
+                <Flame className="w-4 h-4 fill-current" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-extrabold text-[#0B1B4D] dark:text-white truncate">
+                  Only{" "}
+                  <span className="text-[#1457E0] dark:text-[#5AA2FF] font-mono-nums">
+                    {raceMode === "all"
+                      ? formatCompactXp(immediateRival.xpToPass)
+                      : immediateRival.xpToPass.toLocaleString()}{" "}
+                    XP
+                  </span>{" "}
+                  behind {immediateRival.name}
+                </p>
+                <span className="block text-[11px] font-semibold text-[#5A6A92] dark:text-[#93A3CC] truncate">
+                  {immediateRival.questionsNeeded} right answer
+                  {immediateRival.questionsNeeded === 1 ? "" : "s"} to overtake #{immediateRival.rank}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onStartNormalQuiz}
+              className="shrink-0 px-3 py-1.5 rounded-xl bg-[#1457E0] hover:brightness-110 text-white text-xs font-extrabold cursor-pointer active:scale-95 transition shadow-xs"
+            >
+              Overtake
+            </button>
+          </div>
+        ) : (
+          raceData.isSoleFirst &&
+          raceData.leadMargin > 0 && (
+            <div className="rounded-2xl p-3 bg-gradient-to-r from-amber-400/18 via-yellow-300/12 to-amber-500/12 border border-amber-400/35 flex items-center gap-2.5">
+              <span className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shrink-0 shadow-xs">
+                <ShieldCheck className="w-4 h-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-extrabold text-[#0B1B4D] dark:text-white truncate">
+                  Holding #1 with a +
+                  <span className="font-mono-nums">
+                    {raceMode === "all"
+                      ? formatCompactXp(raceData.leadMargin)
+                      : raceData.leadMargin.toLocaleString()}{" "}
+                    XP
+                  </span>{" "}
+                  lead!
+                </p>
+                <span className="block text-[11px] font-semibold text-[#5A6A92] dark:text-[#93A3CC] truncate">
+                  Play a quick quiz to extend your cushion
+                </span>
+              </div>
+            </div>
+          )
+        )}
+
         {/* Milestone XP Progress Bar (1,000 -> 10,000 -> 100,000 XP) */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between gap-2 text-xs">
@@ -254,7 +313,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
 
           <div className="relative h-3.5 rounded-full bg-[#1457E0]/12 dark:bg-white/10 overflow-hidden shadow-inner">
-            {/* Subtle quarter guide ticks */}
             <span
               className="absolute inset-y-0 left-1/4 w-px bg-[#1457E0]/12 dark:bg-white/10 pointer-events-none z-10"
               aria-hidden="true"
@@ -268,7 +326,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
               aria-hidden="true"
             />
 
-            {/* Animated flowing fill */}
             <div
               className="amay-xp-flow relative h-full w-full rounded-full overflow-hidden origin-left"
               style={{ transform: `scaleX(${barScale})` }}
@@ -280,7 +337,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <span className="amay-shimmer-beam" aria-hidden="true" />
             </div>
 
-            {/* Glowing tip orb riding the leading edge */}
             {animBarPct > 1.5 && (
               <span
                 className="amay-tip-orb absolute top-1/2 w-2.5 h-2.5 rounded-full bg-white pointer-events-none z-20"
