@@ -132,6 +132,7 @@ export default function App() {
   const [configLength, setConfigLength] = useState<number>(10);
 
   const [quiz, setQuiz] = useState<ActiveQuizState | null>(null);
+  const [preQuizRank, setPreQuizRank] = useState<number | null>(null);
   const [showBadgeModal, setShowBadgeModal] = useState(false);
   const [selectedBadgeSpec, setSelectedBadgeSpec] = useState<BadgeDesignSpec | null>(null);
   const [showInstallModal, setShowInstallModal] = useState(false);
@@ -1089,6 +1090,7 @@ export default function App() {
     markQuestionsSeen(effectiveGuestId, qs);
     recordTap("Start Quiz", `${k.toUpperCase()} · ${LEVELS[resolvedLevel]} · ${N} Qs`, "quiz");
     const minutes = QUIZ_LENGTHS[N] ?? 2;
+    setPreQuizRank(myEffectiveRank);
     setQuiz({
       k,
       L: resolvedLevel,
@@ -1285,6 +1287,15 @@ export default function App() {
             <QuizView
               quiz={quiz}
               profile={effectiveProfile}
+              rankChange={
+                quiz.done && preQuizRank !== null && myEffectiveRank < preQuizRank
+                  ? {
+                      prevRank: preQuizRank,
+                      newRank: myEffectiveRank,
+                      climbed: preQuizRank - myEffectiveRank,
+                    }
+                  : null
+              }
               onSelectOption={(optIdx) => {
                 playSelectTapSound();
                 recordTap(
