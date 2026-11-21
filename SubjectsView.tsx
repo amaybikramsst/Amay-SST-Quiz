@@ -16,38 +16,78 @@ import {
 interface SubjectVisualMeta {
   tagline: string;
   accentGradient: string;
+  iconBoxClass: string;
+  countPillClass: string;
+  watermarkClass: string;
+  cardBorderClass: string;
 }
 
 const SUBJECT_VISUALS: Record<SubjectKey, SubjectVisualMeta> = {
   math: {
     tagline: "Algebra · Geometry · Logic",
     accentGradient:
-      "from-[#2B9BF6]/18 via-[#1457E0]/10 to-transparent dark:from-[#5AA2FF]/24 dark:via-[#1457E0]/14",
+      "from-indigo-500/20 via-blue-500/10 to-transparent dark:from-indigo-400/25 dark:via-blue-500/12",
+    iconBoxClass:
+      "bg-gradient-to-br from-indigo-500/15 to-blue-600/20 text-indigo-600 dark:text-indigo-300 group-hover:from-indigo-600 group-hover:to-blue-600 group-hover:text-white",
+    countPillClass:
+      "bg-indigo-500/12 text-indigo-700 dark:bg-indigo-400/18 dark:text-indigo-300",
+    watermarkClass: "text-indigo-600 dark:text-indigo-400",
+    cardBorderClass: "hover:border-indigo-500/40 dark:hover:border-indigo-400/40",
   },
   sci: {
     tagline: "Physics · Chem · Biology",
     accentGradient:
-      "from-[#38BDF8]/18 via-[#0B57DD]/10 to-transparent dark:from-[#38BDF8]/22 dark:via-[#1457E0]/14",
+      "from-emerald-500/20 via-teal-500/10 to-transparent dark:from-emerald-400/24 dark:via-teal-500/12",
+    iconBoxClass:
+      "bg-gradient-to-br from-emerald-500/15 to-teal-600/20 text-emerald-600 dark:text-emerald-300 group-hover:from-emerald-600 group-hover:to-teal-600 group-hover:text-white",
+    countPillClass:
+      "bg-emerald-500/12 text-emerald-700 dark:bg-emerald-400/18 dark:text-emerald-300",
+    watermarkClass: "text-emerald-600 dark:text-emerald-400",
+    cardBorderClass: "hover:border-emerald-500/40 dark:hover:border-emerald-400/40",
   },
   sst: {
     tagline: "History · Civics · Geo",
     accentGradient:
-      "from-[#1457E0]/16 via-[#2B9BF6]/10 to-transparent dark:from-[#5AA2FF]/22 dark:via-[#2B9BF6]/12",
+      "from-amber-500/22 via-orange-500/10 to-transparent dark:from-amber-400/24 dark:via-orange-500/12",
+    iconBoxClass:
+      "bg-gradient-to-br from-amber-500/18 to-orange-600/20 text-amber-700 dark:text-amber-300 group-hover:from-amber-500 group-hover:to-orange-600 group-hover:text-white",
+    countPillClass:
+      "bg-amber-500/14 text-amber-800 dark:bg-amber-400/18 dark:text-amber-300",
+    watermarkClass: "text-amber-600 dark:text-amber-400",
+    cardBorderClass: "hover:border-amber-500/45 dark:hover:border-amber-400/40",
   },
   eng: {
     tagline: "Grammar · Vocab · Usage",
     accentGradient:
-      "from-[#60A5FA]/20 via-[#1457E0]/10 to-transparent dark:from-[#60A5FA]/24 dark:via-[#1457E0]/14",
+      "from-sky-500/20 via-blue-500/10 to-transparent dark:from-sky-400/25 dark:via-blue-500/12",
+    iconBoxClass:
+      "bg-gradient-to-br from-sky-500/15 to-blue-600/20 text-sky-600 dark:text-sky-300 group-hover:from-sky-500 group-hover:to-blue-600 group-hover:text-white",
+    countPillClass:
+      "bg-sky-500/12 text-sky-700 dark:bg-sky-400/18 dark:text-sky-300",
+    watermarkClass: "text-sky-600 dark:text-sky-400",
+    cardBorderClass: "hover:border-sky-500/40 dark:hover:border-sky-400/40",
   },
   hin: {
     tagline: "व्याकरण · शब्द · साहित्य",
     accentGradient:
-      "from-[#2B9BF6]/18 via-[#0B57DD]/10 to-transparent dark:from-[#5AA2FF]/22 dark:via-[#0B57DD]/14",
+      "from-rose-500/20 via-pink-500/10 to-transparent dark:from-rose-400/24 dark:via-pink-500/12",
+    iconBoxClass:
+      "bg-gradient-to-br from-rose-500/15 to-pink-600/20 text-rose-600 dark:text-rose-300 group-hover:from-rose-600 group-hover:to-pink-600 group-hover:text-white",
+    countPillClass:
+      "bg-rose-500/12 text-rose-700 dark:bg-rose-400/18 dark:text-rose-300",
+    watermarkClass: "text-rose-600 dark:text-rose-400",
+    cardBorderClass: "hover:border-rose-500/40 dark:hover:border-rose-400/40",
   },
   ca: {
     tagline: "India · World · Events",
     accentGradient:
-      "from-[#38BDF8]/18 via-[#1457E0]/10 to-transparent dark:from-[#5AA2FF]/24 dark:via-[#1457E0]/14",
+      "from-cyan-500/20 via-[#1457E0]/12 to-transparent dark:from-cyan-400/24 dark:via-[#1457E0]/14",
+    iconBoxClass:
+      "bg-gradient-to-br from-cyan-500/15 to-[#1457E0]/20 text-cyan-700 dark:text-cyan-300 group-hover:from-cyan-500 group-hover:to-[#1457E0] group-hover:text-white",
+    countPillClass:
+      "bg-cyan-500/12 text-cyan-800 dark:bg-cyan-400/18 dark:text-cyan-300",
+    watermarkClass: "text-cyan-600 dark:text-cyan-400",
+    cardBorderClass: "hover:border-cyan-500/40 dark:hover:border-cyan-400/40",
   },
 };
 
@@ -237,14 +277,14 @@ const SubjectBackdropPattern: React.FC<{ subjectKey: SubjectKey }> = ({ subjectK
   switch (subjectKey) {
     case "math":
       return (
-        <svg viewBox="0 0 80 80" className="w-20 h-20" fill="none" aria-hidden="true">
+        <svg viewBox="0 0 80 80" className="w-24 h-24" fill="none" aria-hidden="true">
           <circle cx="48" cy="48" r="24" stroke="currentColor" strokeWidth="1.5" />
           <path d="M22 60L62 20M34 20L66 52" stroke="currentColor" strokeWidth="1.5" />
         </svg>
       );
     case "sci":
       return (
-        <svg viewBox="0 0 80 80" className="w-20 h-20" fill="none" aria-hidden="true">
+        <svg viewBox="0 0 80 80" className="w-24 h-24" fill="none" aria-hidden="true">
           <ellipse
             cx="44"
             cy="44"
@@ -267,7 +307,7 @@ const SubjectBackdropPattern: React.FC<{ subjectKey: SubjectKey }> = ({ subjectK
       );
     case "sst":
       return (
-        <svg viewBox="0 0 80 80" className="w-20 h-20" fill="none" aria-hidden="true">
+        <svg viewBox="0 0 80 80" className="w-24 h-24" fill="none" aria-hidden="true">
           <circle cx="46" cy="46" r="26" stroke="currentColor" strokeWidth="1.5" />
           <ellipse cx="46" cy="46" rx="12" ry="26" stroke="currentColor" strokeWidth="1.4" />
           <path d="M20 46H72" stroke="currentColor" strokeWidth="1.4" />
@@ -275,7 +315,7 @@ const SubjectBackdropPattern: React.FC<{ subjectKey: SubjectKey }> = ({ subjectK
       );
     case "eng":
       return (
-        <svg viewBox="0 0 80 80" className="w-20 h-20" fill="none" aria-hidden="true">
+        <svg viewBox="0 0 80 80" className="w-24 h-24" fill="none" aria-hidden="true">
           <path
             d="M44 26C36 20 26 20 18 23V60C26 57 36 57 44 63C52 57 62 57 70 60V23C62 20 52 20 44 26Z"
             stroke="currentColor"
@@ -286,7 +326,7 @@ const SubjectBackdropPattern: React.FC<{ subjectKey: SubjectKey }> = ({ subjectK
       );
     case "hin":
       return (
-        <svg viewBox="0 0 80 80" className="w-20 h-20" fill="none" aria-hidden="true">
+        <svg viewBox="0 0 80 80" className="w-24 h-24" fill="none" aria-hidden="true">
           <circle
             cx="46"
             cy="46"
@@ -300,7 +340,7 @@ const SubjectBackdropPattern: React.FC<{ subjectKey: SubjectKey }> = ({ subjectK
       );
     case "ca":
       return (
-        <svg viewBox="0 0 80 80" className="w-20 h-20" fill="none" aria-hidden="true">
+        <svg viewBox="0 0 80 80" className="w-24 h-24" fill="none" aria-hidden="true">
           <circle cx="52" cy="52" r="12" stroke="currentColor" strokeWidth="1.5" />
           <circle cx="52" cy="52" r="21" stroke="currentColor" strokeWidth="1.4" />
           <circle cx="52" cy="52" r="30" stroke="currentColor" strokeWidth="1.2" />
@@ -327,7 +367,7 @@ export const SubjectsGridView: React.FC<SubjectsGridViewProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Clean Editorial Header */}
+      {/* Editorial Header */}
       <div className="amay-subject-enter px-1 pt-0.5 flex items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-[28px] sm:text-[32px] font-extrabold tracking-tight leading-none text-[#0B1B4D] dark:text-[#EAF0FF]">
@@ -343,7 +383,7 @@ export const SubjectsGridView: React.FC<SubjectsGridViewProps> = ({
         </div>
       </div>
 
-      {/* 2x3 Staggered Animated Subject Cards */}
+      {/* 2x3 Dual-Tone Staggered Subject Cards */}
       <div className="grid grid-cols-2 gap-3.5">
         {SUBJECT_ORDER.map((k, idx) => {
           const bank = STATIC_QUESTIONS[k];
@@ -356,20 +396,20 @@ export const SubjectsGridView: React.FC<SubjectsGridViewProps> = ({
               type="button"
               onClick={() => onSelectSubject(k)}
               style={{ animationDelay: `${(idx + 1) * 50}ms` }}
-              className="amay-subject-enter group relative amay-card rounded-[24px] p-4 sm:p-5 text-left cursor-pointer overflow-hidden transition-transform duration-200 ease-out hover:-translate-y-1 hover:scale-[1.015] active:scale-[0.965] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1457E0] dark:focus-visible:ring-[#5AA2FF]"
+              className={`amay-subject-enter group relative amay-card border border-[#1846AA]/12 dark:border-white/10 ${visual.cardBorderClass} rounded-[24px] p-4 sm:p-5 text-left cursor-pointer overflow-hidden transition-all duration-200 ease-out hover:-translate-y-1 hover:scale-[1.015] active:scale-[0.965] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1457E0] dark:focus-visible:ring-[#5AA2FF]`}
             >
-              {/* Soft subject-calibrated azure tint wash */}
+              {/* Dual-tone signature gradient wash */}
               <div
-                className={`absolute inset-0 bg-gradient-to-br ${visual.accentGradient} opacity-70 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none`}
+                className={`absolute inset-0 bg-gradient-to-br ${visual.accentGradient} opacity-75 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none`}
                 aria-hidden="true"
               />
 
               {/* Angled glass sheen sweep on hover/focus */}
               <span className="amay-subject-sheen" aria-hidden="true" />
 
-              {/* Subtle geometric watermark illustration in corner */}
+              {/* Signature geometric watermark illustration in corner */}
               <div
-                className="absolute -bottom-3 -right-3 text-[#1457E0] dark:text-[#5AA2FF] opacity-[0.06] dark:opacity-[0.09] group-hover:opacity-[0.12] group-hover:scale-110 transition-all duration-300 pointer-events-none"
+                className={`absolute -bottom-3 -right-3 ${visual.watermarkClass} opacity-[0.08] dark:opacity-[0.12] group-hover:opacity-[0.16] group-hover:scale-110 transition-all duration-300 pointer-events-none`}
                 aria-hidden="true"
               >
                 <SubjectBackdropPattern subjectKey={k} />
@@ -378,11 +418,13 @@ export const SubjectsGridView: React.FC<SubjectsGridViewProps> = ({
               {/* Card Content */}
               <div className="relative z-10 flex flex-col justify-between h-full">
                 <div className="flex items-start justify-between gap-2 mb-3.5">
-                  <div className="w-12 h-12 rounded-[16px] bg-[#1457E0]/[0.08] dark:bg-[#5AA2FF]/[0.14] text-[#1457E0] dark:text-[#5AA2FF] flex items-center justify-center shrink-0 group-hover:bg-[#1457E0] group-hover:text-white dark:group-hover:bg-[#5AA2FF] dark:group-hover:text-[#071230] transition-colors duration-200 shadow-sm">
+                  <div
+                    className={`w-12 h-12 rounded-[16px] flex items-center justify-center shrink-0 transition-all duration-200 shadow-xs ${visual.iconBoxClass}`}
+                  >
                     <SubjectEmblem subjectKey={k} />
                   </div>
                   <ArrowUpRight
-                    className="w-4 h-4 text-[#5A6A92]/70 dark:text-[#93A3CC]/70 group-hover:text-[#1457E0] dark:group-hover:text-[#5AA2FF] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all duration-200 shrink-0 mt-1"
+                    className="w-4 h-4 text-[#5A6A92]/70 dark:text-[#93A3CC]/70 group-hover:text-[#0B1B4D] dark:group-hover:text-white group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all duration-200 shrink-0 mt-1"
                     aria-hidden="true"
                   />
                 </div>
@@ -396,12 +438,15 @@ export const SubjectsGridView: React.FC<SubjectsGridViewProps> = ({
                   </p>
                 </div>
 
-                <div className="mt-3 pt-2.5 border-t border-[#1846AA]/10 dark:border-white/10 flex items-center justify-between gap-2 text-[11px] font-bold tabular-nums">
-                  <span className="text-[#1457E0] dark:text-[#5AA2FF]">
-                    {qCount} questions
+                <div className="mt-3 pt-2.5 border-t border-[#1846AA]/10 dark:border-white/10 flex items-center justify-between gap-1.5 text-[11px] font-bold tabular-nums">
+                  <span className={`px-2 py-0.5 rounded-full font-mono-nums ${visual.countPillClass}`}>
+                    {qCount.toLocaleString()} Qs
                   </span>
-                  <span className="text-[#5A6A92] dark:text-[#93A3CC] group-hover:text-[#0B1B4D] dark:group-hover:text-white transition-colors">
-                    4 levels
+                  <span className="inline-flex items-center gap-0.5" title="4 difficulty levels">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                   </span>
                 </div>
               </div>
@@ -418,7 +463,7 @@ export const SubjectsGridView: React.FC<SubjectsGridViewProps> = ({
         className="amay-subject-enter group relative w-full amay-card rounded-[24px] p-4 sm:p-5 flex items-center gap-3.5 text-left cursor-pointer overflow-hidden transition-transform duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.008] active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1457E0] dark:focus-visible:ring-[#5AA2FF]"
       >
         <div
-          className="absolute inset-0 bg-gradient-to-r from-[#2B9BF6]/14 via-[#1457E0]/8 to-transparent dark:from-[#5AA2FF]/18 dark:via-[#1457E0]/10 pointer-events-none"
+          className="absolute inset-0 bg-gradient-to-r from-[#2B9BF6]/16 via-[#1457E0]/10 to-amber-400/10 dark:from-[#5AA2FF]/20 dark:via-[#1457E0]/12 dark:to-amber-400/10 pointer-events-none"
           aria-hidden="true"
         />
         <span className="amay-subject-sheen" aria-hidden="true" />
@@ -432,7 +477,7 @@ export const SubjectsGridView: React.FC<SubjectsGridViewProps> = ({
             All-Subjects Mixed Quiz
           </h2>
           <p className="text-[12px] font-medium text-[#5A6A92] dark:text-[#93A3CC] truncate mt-0.5">
-            Random mix across all 6 subjects · {totalQuestions} questions
+            Random mix across all 6 subjects · {totalQuestions.toLocaleString()} questions
           </p>
         </div>
 
@@ -494,7 +539,7 @@ export const SubjectConfigView: React.FC<SubjectConfigViewProps> = ({
             {meta.name}
           </h1>
           <p className="text-xs font-semibold text-[#5A6A92] dark:text-[#93A3CC] tabular-nums">
-            {maxAvail} questions available
+            {maxAvail.toLocaleString()} questions available
           </p>
         </div>
       </div>
