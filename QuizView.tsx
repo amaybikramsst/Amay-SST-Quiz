@@ -1,9 +1,10 @@
 import React, { useState } from "react";
-import { Check, ChevronLeft, Volume2, VolumeX, X } from "lucide-react";
+import { Check, ChevronLeft, Share2, Volume2, VolumeX, X } from "lucide-react";
 import {
   formatTime,
   formatXpValue,
   getNegativePenalty,
+  getSubjectMeta,
   LEVELS,
   XP_PER_LEVEL,
   type ActiveQuizState,
@@ -31,6 +32,169 @@ interface QuizViewProps {
   onOpenBadge: () => void;
 }
 
+function roundRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+) {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
+  ctx.closePath();
+}
+
+async function generateStoryCardBlob(params: {
+  studentName: string;
+  subjectLabel: string;
+  levelLabel: string;
+  correct: number;
+  total: number;
+  accuracy: number;
+  xpEarned: number;
+  streak: number;
+}): Promise<Blob | null> {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1080;
+  canvas.height = 1920;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  // Deep Navy to Royal Blue 9:16 Backdrop
+  const bg = ctx.createLinearGradient(0, 0, 1080, 1920);
+  bg.addColorStop(0, "#060B19");
+  bg.addColorStop(0.5, "#0B1B4D");
+  bg.addColorStop(1, "#1457E0");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 1080, 1920);
+
+  // Subtle Ambient Glows
+  const glowTop = ctx.createRadialGradient(860, 260, 30, 860, 260, 520);
+  glowTop.addColorStop(0, "rgba(56, 176, 255, 0.35)");
+  glowTop.addColorStop(1, "rgba(56, 176, 255, 0)");
+  ctx.fillStyle = glowTop;
+  ctx.fillRect(0, 0, 1080, 1920);
+
+  const glowBottom = ctx.createRadialGradient(220, 1620, 30, 220, 1620, 520);
+  glowBottom.addColorStop(0, "rgba(245, 184, 46, 0.24)");
+  glowBottom.addColorStop(1, "rgba(245, 184, 46, 0)");
+  ctx.fillStyle = glowBottom;
+  ctx.fillRect(0, 0, 1080, 1920);
+
+  // Brand Header Pill
+  roundRectPath(ctx, 310, 150, 460, 74, 37);
+  ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.22)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.fillStyle = "#EAF0FF";
+  ctx.font = "800 32px system-ui, -apple-system, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("AMAYSST QUIZ", 540, 198);
+
+  // Main Glass Scorecard
+  roundRectPath(ctx, 90, 310, 900, 1220, 56);
+  ctx.fillStyle = "rgba(11, 20, 44, 0.78)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(90, 162, 255, 0.35)";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  // Student Name & Subject Tag
+  ctx.fillStyle = "#93A3CC";
+  ctx.font = "700 34px system-ui, -apple-system, sans-serif";
+  ctx.fillText("QUIZ SCORECARD", 540, 420);
+
+  ctx.fillStyle = "#FFFFFF";
+  ctx.font = "800 58px system-ui, -apple-system, sans-serif";
+  const displayName = (params.studentName || "Champion").slice(0, 22);
+  ctx.fillText(displayName, 540, 505);
+
+  roundRectPath(ctx, 270, 545, 540, 64, 32);
+  ctx.fillStyle = "rgba(56, 176, 255, 0.18)";
+  ctx.fill();
+  ctx.fillStyle = "#5AA2FF";
+  ctx.font = "800 30px system-ui, -apple-system, sans-serif";
+  ctx.fillText(`${params.subjectLabel} · ${params.levelLabel}`, 540, 588);
+
+  // Big Score Circle
+  ctx.beginPath();
+  ctx.arc(540, 860, 195, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(20, 87, 224, 0.28)";
+  ctx.fill();
+  ctx.lineWidth = 10;
+  ctx.strokeStyle = "#38B0FF";
+  ctx.stroke();
+
+  ctx.fillStyle = "#FFFFFF";
+  ctx.font = "900 124px system-ui, -apple-system, sans-serif";
+  ctx.fillText(`${params.correct}/${params.total}`, 540, 885);
+
+  ctx.fillStyle = "#93A3CC";
+  ctx.font = "700 32px system-ui, -apple-system, sans-serif";
+  ctx.fillText(`${params.accuracy}% ACCURACY`, 540, 955);
+
+  // 3 Stat Boxes Inside Card
+  const statBoxes = [
+    {
+      label: "XP EARNED",
+      value: `${params.xpEarned >= 0 ? "+" : ""}${params.xpEarned}`,
+      color: "#5AA2FF",
+    },
+    {
+      label: "ACCURACY",
+      value: `${params.accuracy}%`,
+      color: "#3DD17F",
+    },
+    {
+      label: "STREAK",
+      value: `${params.streak}🔥`,
+      color: "#F5B82E",
+    },
+  ];
+
+  statBoxes.forEach((box, idx) => {
+    const bx = 145 + idx * 270;
+    const by = 1150;
+    roundRectPath(ctx, bx, by, 250, 190, 32);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = box.color;
+    ctx.font = "900 54px system-ui, -apple-system, sans-serif";
+    ctx.fillText(box.value, bx + 125, by + 102);
+
+    ctx.fillStyle = "#93A3CC";
+    ctx.font = "700 22px system-ui, -apple-system, sans-serif";
+    ctx.fillText(box.label, bx + 125, by + 148);
+  });
+
+  // Challenge Footer Inside Card
+  ctx.fillStyle = "#DCE6FF";
+  ctx.font = "700 30px system-ui, -apple-system, sans-serif";
+  ctx.fillText("Can you beat my score? 🚀", 540, 1445);
+
+  // Bottom App Footer
+  ctx.fillStyle = "rgba(255, 255, 255, 0.78)";
+  ctx.font = "700 30px system-ui, -apple-system, sans-serif";
+  ctx.fillText("Practice Daily · Climb Live Ranks", 540, 1680);
+
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), "image/png", 0.95);
+  });
+}
+
 export const QuizView: React.FC<QuizViewProps> = ({
   quiz,
   profile,
@@ -45,6 +209,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
 }) => {
   const [confirmQuit, setConfirmQuit] = useState(false);
   const [soundOn, setSoundOn] = useState<boolean>(() => isSoundEnabled());
+  const [sharingStory, setSharingStory] = useState(false);
 
   const toggleSound = () => {
     const next = !soundOn;
@@ -56,6 +221,56 @@ export const QuizView: React.FC<QuizViewProps> = ({
   if (quiz.done && quiz.res) {
     const { c, w, sk, n, posXp, negXp, bonusXp, xp, up, milestoneXp } = quiz.res;
     const accuracy = n > 0 ? Math.round((c / n) * 100) : 0;
+    const subjectMeta = getSubjectMeta(quiz.k);
+
+    const handleShareStoryCard = async () => {
+      if (sharingStory) return;
+      setSharingStory(true);
+      try {
+        const blob = await generateStoryCardBlob({
+          studentName: profile.name || "Champion",
+          subjectLabel: subjectMeta.name,
+          levelLabel: LEVELS[quiz.L],
+          correct: c,
+          total: n,
+          accuracy,
+          xpEarned: xp,
+          streak: profile.streak,
+        });
+        if (!blob) return;
+
+        const file = new File([blob], "amaysst-quiz-scorecard.png", { type: "image/png" });
+        const shareUrl = `${window.location.origin}${window.location.pathname}`;
+
+        if (
+          typeof navigator !== "undefined" &&
+          typeof navigator.canShare === "function" &&
+          navigator.canShare({ files: [file] })
+        ) {
+          await navigator.share({
+            files: [file],
+            title: "My AmaySST Quiz Score",
+            text: `I scored ${c}/${n} (${accuracy}%) on AmaySST Quiz! Try beating my score: ${shareUrl}`,
+          });
+          return;
+        }
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "amaysst-quiz-story-card.png";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        if ((err as Error)?.name !== "AbortError") {
+          // ignore user cancel
+        }
+      } finally {
+        setSharingStory(false);
+      }
+    };
 
     return (
       <div className="space-y-4">
@@ -63,7 +278,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
           Result
         </h1>
 
-        <div className="amay-card rounded-[28px] p-5 sm:p-6 space-y-3">
+        <div className="amay-card rounded-[28px] p-5 sm:p-6 space-y-3.5">
           <div className="flex items-baseline justify-between gap-3">
             <div className="text-[48px] leading-none font-extrabold text-[#0B1B4D] dark:text-white font-mono-nums">
               {c}/{n}
@@ -118,6 +333,17 @@ export const QuizView: React.FC<QuizViewProps> = ({
               Perfect score bonus: +{bonusXp} XP
             </p>
           )}
+
+          {/* #10: 9:16 Shareable Story Card Button */}
+          <button
+            type="button"
+            disabled={sharingStory}
+            onClick={handleShareStoryCard}
+            className="w-full h-11 rounded-[18px] bg-gradient-to-r from-[#0B1B4D] to-[#1457E0] text-white font-extrabold text-xs sm:text-sm inline-flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-[0.99] transition disabled:opacity-60"
+          >
+            <Share2 className="w-4 h-4" />
+            <span>{sharingStory ? "Generating 9:16 Story Card…" : "Share 9:16 Story Score Card"}</span>
+          </button>
         </div>
 
         {milestoneXp && milestoneXp >= 100 && (
@@ -252,7 +478,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const penalty = formatXpValue(getNegativePenalty(quiz.L));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3.5">
       {/* Top Bar */}
       <div className="flex items-center justify-between gap-2">
         <button
@@ -292,11 +518,41 @@ export const QuizView: React.FC<QuizViewProps> = ({
       </div>
 
       {/* Progress Bar */}
-      <div className="h-2.5 rounded-full bg-[#1457E0]/10 dark:bg-white/10 overflow-hidden">
+      <div className="h-2 rounded-full bg-[#1457E0]/10 dark:bg-white/10 overflow-hidden">
         <div
           className="h-full rounded-full bg-gradient-to-r from-[#38B0FF] via-[#2B7BFF] to-[#0B57DD] transition-all duration-300"
           style={{ width: `${progressPct}%` }}
         />
+      </div>
+
+      {/* #4: Question Navigator Dots Bar */}
+      <div
+        className="flex items-center gap-1.5 overflow-x-auto py-1 px-0.5 no-scrollbar"
+        aria-label="Question navigator"
+      >
+        {quiz.qs.map((_, idx) => {
+          const isCurrent = idx === quiz.i;
+          const isAnswered = quiz.sel[idx] !== undefined;
+
+          return (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => onGoToQuestion(idx)}
+              aria-label={`Go to question ${idx + 1}${isAnswered ? " (answered)" : " (unanswered)"}`}
+              aria-current={isCurrent ? "step" : undefined}
+              className={`min-w-[30px] h-[30px] px-1.5 rounded-full font-mono-nums text-xs font-extrabold transition-all shrink-0 cursor-pointer active:scale-90 ${
+                isCurrent
+                  ? "bg-gradient-to-b from-[#2B7BFF] to-[#1457E0] text-white ring-2 ring-[#38B0FF] ring-offset-2 ring-offset-[#F4F7FC] dark:ring-offset-[#080D1B] shadow-sm"
+                  : isAnswered
+                    ? "bg-[#1457E0]/18 dark:bg-[#5AA2FF]/22 text-[#1457E0] dark:text-[#5AA2FF] border border-[#1457E0]/35"
+                    : "amay-card text-[#5A6A92] dark:text-[#93A3CC] border border-[#1846AA]/12 dark:border-white/10 opacity-75 hover:opacity-100"
+              }`}
+            >
+              {idx + 1}
+            </button>
+          );
+        })}
       </div>
 
       {/* Elevated Question Stage Card */}
