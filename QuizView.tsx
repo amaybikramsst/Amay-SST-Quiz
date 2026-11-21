@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Check, ChevronLeft, Share2, Volume2, VolumeX, X } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Check, ChevronLeft, Share2, TrendingUp, Volume2, VolumeX, X } from "lucide-react";
 import {
   formatTime,
   formatXpValue,
@@ -22,6 +22,7 @@ import {
 interface QuizViewProps {
   quiz: ActiveQuizState;
   profile: StudentProfile;
+  rankChange?: { prevRank: number; newRank: number; climbed: number } | null;
   onSelectOption: (optionIndex: number | undefined) => void;
   onGoToQuestion: (index: number) => void;
   onFinish: () => void;
@@ -66,7 +67,6 @@ async function generateStoryCardBlob(params: {
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
-  // Deep Navy to Royal Blue 9:16 Backdrop
   const bg = ctx.createLinearGradient(0, 0, 1080, 1920);
   bg.addColorStop(0, "#060B19");
   bg.addColorStop(0.5, "#0B1B4D");
@@ -74,7 +74,6 @@ async function generateStoryCardBlob(params: {
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, 1080, 1920);
 
-  // Subtle Ambient Glows
   const glowTop = ctx.createRadialGradient(860, 260, 30, 860, 260, 520);
   glowTop.addColorStop(0, "rgba(56, 176, 255, 0.35)");
   glowTop.addColorStop(1, "rgba(56, 176, 255, 0)");
@@ -87,7 +86,6 @@ async function generateStoryCardBlob(params: {
   ctx.fillStyle = glowBottom;
   ctx.fillRect(0, 0, 1080, 1920);
 
-  // Brand Header Pill
   roundRectPath(ctx, 310, 150, 460, 74, 37);
   ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
   ctx.fill();
@@ -100,7 +98,6 @@ async function generateStoryCardBlob(params: {
   ctx.textAlign = "center";
   ctx.fillText("AMAYSST QUIZ", 540, 198);
 
-  // Main Glass Scorecard
   roundRectPath(ctx, 90, 310, 900, 1220, 56);
   ctx.fillStyle = "rgba(11, 20, 44, 0.78)";
   ctx.fill();
@@ -108,7 +105,6 @@ async function generateStoryCardBlob(params: {
   ctx.lineWidth = 3;
   ctx.stroke();
 
-  // Student Name & Subject Tag
   ctx.fillStyle = "#93A3CC";
   ctx.font = "700 34px system-ui, -apple-system, sans-serif";
   ctx.fillText("QUIZ SCORECARD", 540, 420);
@@ -125,7 +121,6 @@ async function generateStoryCardBlob(params: {
   ctx.font = "800 30px system-ui, -apple-system, sans-serif";
   ctx.fillText(`${params.subjectLabel} · ${params.levelLabel}`, 540, 588);
 
-  // Big Score Circle
   ctx.beginPath();
   ctx.arc(540, 860, 195, 0, Math.PI * 2);
   ctx.fillStyle = "rgba(20, 87, 224, 0.28)";
@@ -142,7 +137,6 @@ async function generateStoryCardBlob(params: {
   ctx.font = "700 32px system-ui, -apple-system, sans-serif";
   ctx.fillText(`${params.accuracy}% ACCURACY`, 540, 955);
 
-  // 3 Stat Boxes Inside Card
   const statBoxes = [
     {
       label: "XP EARNED",
@@ -180,12 +174,10 @@ async function generateStoryCardBlob(params: {
     ctx.fillText(box.label, bx + 125, by + 148);
   });
 
-  // Challenge Footer Inside Card
   ctx.fillStyle = "#DCE6FF";
   ctx.font = "700 30px system-ui, -apple-system, sans-serif";
   ctx.fillText("Can you beat my score? 🚀", 540, 1445);
 
-  // Bottom App Footer
   ctx.fillStyle = "rgba(255, 255, 255, 0.78)";
   ctx.font = "700 30px system-ui, -apple-system, sans-serif";
   ctx.fillText("Practice Daily · Climb Live Ranks", 540, 1680);
@@ -198,6 +190,7 @@ async function generateStoryCardBlob(params: {
 export const QuizView: React.FC<QuizViewProps> = ({
   quiz,
   profile,
+  rankChange,
   onSelectOption,
   onGoToQuestion,
   onFinish,
@@ -210,6 +203,42 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const [confirmQuit, setConfirmQuit] = useState(false);
   const [soundOn, setSoundOn] = useState<boolean>(() => isSoundEnabled());
   const [sharingStory, setSharingStory] = useState(false);
+
+  const targetXp = quiz.done && quiz.res ? quiz.res.xp : 0;
+  const targetAccuracy =
+    quiz.done && quiz.res && quiz.res.n > 0
+      ? Math.round((quiz.res.c / quiz.res.n) * 100)
+      : 0;
+
+  const [animXp, setAnimXp] = useState(0);
+  const [animAccuracy, setAnimAccuracy] = useState(0);
+
+  // #3: Smooth Score Count-Up Animation on Quiz Finish
+  useEffect(() => {
+    if (!quiz.done || !quiz.res) {
+      setAnimXp(0);
+      setAnimAccuracy(0);
+      return;
+    }
+
+    const duration = 650;
+    let rafId = 0;
+    let startTime = 0;
+
+    const step = (ts: number) => {
+      if (!startTime) startTime = ts;
+      const t = Math.min(1, (ts - startTime) / duration);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setAnimXp(Math.round(targetXp * eased));
+      setAnimAccuracy(Math.round(targetAccuracy * eased));
+      if (t < 1) {
+        rafId = window.requestAnimationFrame(step);
+      }
+    };
+
+    rafId = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [quiz.done, quiz.res, targetXp, targetAccuracy]);
 
   const toggleSound = () => {
     const next = !soundOn;
@@ -284,17 +313,45 @@ export const QuizView: React.FC<QuizViewProps> = ({
               {c}/{n}
             </div>
             <div
-              className={`text-2xl font-extrabold font-mono-nums ${
+              className={`text-2xl sm:text-3xl font-extrabold font-mono-nums ${
                 xp >= 0 ? "text-[#1457E0] dark:text-[#5AA2FF]" : "text-[#D92D3A] dark:text-[#FF6B76]"
               }`}
             >
-              {xp >= 0 ? `+${xp}` : xp} XP
+              {animXp >= 0 ? `+${animXp}` : animXp} XP
             </div>
           </div>
 
           <p className="text-sm font-semibold text-[#5A6A92] dark:text-[#93A3CC]">
-            Accuracy {accuracy}% · {LEVELS[quiz.L]} · {profile.streak}🔥 day streak
+            Accuracy <span className="font-mono-nums">{animAccuracy}%</span> · {LEVELS[quiz.L]} ·{" "}
+            {profile.streak}🔥 day streak
           </p>
+
+          {/* #3: Live Rank Climb Banner */}
+          {rankChange && rankChange.climbed > 0 && (
+            <button
+              type="button"
+              onClick={onOpenRank}
+              className="w-full rounded-2xl p-3 bg-gradient-to-r from-[#12A150]/15 via-[#1457E0]/12 to-[#38B0FF]/15 border border-[#12A150]/30 flex items-center justify-between gap-2 text-left cursor-pointer active:scale-[0.99] transition"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-8 h-8 rounded-xl bg-[#12A150] text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <TrendingUp className="w-4 h-4" />
+                </span>
+                <div className="min-w-0">
+                  <strong className="block text-xs sm:text-sm font-extrabold text-[#0B1B4D] dark:text-white truncate">
+                    ↑ Climbed {rankChange.climbed} spot{rankChange.climbed === 1 ? "" : "s"} to #
+                    {rankChange.newRank}!
+                  </strong>
+                  <span className="block text-[11px] font-semibold text-[#5A6A92] dark:text-[#93A3CC]">
+                    Up from #{rankChange.prevRank} · Tap to view leaderboard
+                  </span>
+                </div>
+              </div>
+              <span className="text-xs font-extrabold text-[#12A150] dark:text-[#3DD17F] shrink-0">
+                View →
+              </span>
+            </button>
+          )}
 
           {/* 1/4 Negative Marking Breakdown */}
           <div className="grid grid-cols-3 gap-2 pt-1 text-center text-xs">
@@ -334,7 +391,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
             </p>
           )}
 
-          {/* #10: 9:16 Shareable Story Card Button */}
+          {/* 9:16 Shareable Story Card Button */}
           <button
             type="button"
             disabled={sharingStory}
@@ -525,7 +582,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
         />
       </div>
 
-      {/* #4: Question Navigator Dots Bar */}
+      {/* Question Navigator Dots Bar */}
       <div
         className="flex items-center gap-1.5 overflow-x-auto py-1 px-0.5 no-scrollbar"
         aria-label="Question navigator"
