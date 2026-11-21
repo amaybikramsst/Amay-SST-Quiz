@@ -1,5 +1,15 @@
 import React, { useEffect, useState } from "react";
-import { Download, ExternalLink, Eye, EyeOff, Lock, ShieldCheck, UserCheck, UserPlus } from "lucide-react";
+import {
+  Download,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Lock,
+  ShieldCheck,
+  Sparkles,
+  UserCheck,
+  UserPlus,
+} from "lucide-react";
 
 interface GateViewProps {
   existingAccount?: { name: string; xp: number; nameAt?: number } | null;
@@ -142,33 +152,55 @@ export const GateView: React.FC<GateViewProps> = ({
         </div>
       )}
 
-      <div className="amay-card rounded-[28px] p-6 space-y-4 overflow-hidden">
-        <div>
-          <h1 className="text-[26px] sm:text-[30px] font-extrabold tracking-tight text-[#0B1B4D] dark:text-[#EAF0FF]">
+      {/* #10: Elevated Hero Auth Card with Spotlight Halo & Live Community Pulse */}
+      <div className="relative amay-card rounded-[30px] p-6 space-y-4 overflow-hidden border border-[#1846AA]/15 dark:border-white/12 shadow-[0_18px_40px_-18px_rgba(20,87,224,0.4)]">
+        {/* Ambient Spotlight Halo */}
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-16 -right-14 w-48 h-48 rounded-full bg-gradient-to-br from-[#38B0FF]/30 via-[#1457E0]/20 to-transparent blur-2xl"
+        />
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-16 -left-14 w-44 h-44 rounded-full bg-gradient-to-tr from-[#1457E0]/20 to-transparent blur-2xl"
+        />
+
+        {/* Live Community Pulse Pill */}
+        <div className="relative z-10 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#1457E0]/10 dark:bg-[#5AA2FF]/15 border border-[#1457E0]/20 dark:border-[#5AA2FF]/25">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+          </span>
+          <span className="text-[11px] font-extrabold text-[#1457E0] dark:text-[#5AA2FF] tracking-tight">
+            Live Ranks · Daily Badges · 6 Subjects
+          </span>
+        </div>
+
+        <div className="relative z-10">
+          <h1 className="text-[26px] sm:text-[30px] leading-[1.15] font-extrabold tracking-tight text-[#0B1B4D] dark:text-[#EAF0FF]">
             {isClaimFlow
               ? `Secure Your Account, ${existingAccount!.name}`
               : "Welcome to AmaySST Quiz"}
           </h1>
-          <p className="text-sm sm:text-base text-[#5A6A92] dark:text-[#93A3CC] mt-1.5">
+          <p className="text-sm sm:text-[15px] text-[#5A6A92] dark:text-[#93A3CC] mt-1.5 leading-relaxed">
             {isClaimFlow
-              ? `Your ${existingAccount!.xp.toLocaleString()} XP is safe! Confirm your name and set a compulsory unique username & password to unlock quizzes, ranks, and chat.`
+              ? `Your ${existingAccount!.xp.toLocaleString()} XP is safe! Confirm your name and set a unique username & password to unlock quizzes, ranks, and chat.`
               : mode === "signup"
-                ? "Create your compulsory username & password to start playing quizzes and chatting."
-                : "Sign in with your username & password to restore your XP and rank."}
+                ? "Create your username & password to start practicing quizzes, earning daily badges, and climbing the live leaderboard."
+                : "Sign in with your username & password to restore your XP, streak, and rank."}
           </p>
         </div>
 
-        <div className="grid grid-cols-2 p-1 rounded-2xl bg-[#1457E0]/[0.07] dark:bg-white/[0.06] gap-1">
+        <div className="relative z-10 grid grid-cols-2 p-1 rounded-2xl bg-[#1457E0]/[0.08] dark:bg-[#0B1224]/80 border border-[#1846AA]/10 dark:border-white/10 gap-1">
           <button
             type="button"
             onClick={() => {
               setMode("signup");
               setError("");
             }}
-            className={`h-10 rounded-xl text-xs sm:text-sm font-bold inline-flex items-center justify-center gap-1.5 transition cursor-pointer ${
+            className={`h-10 rounded-xl text-xs sm:text-sm font-extrabold inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               mode === "signup"
-                ? "bg-[#1457E0] text-white shadow-sm"
-                : "text-[#5A6A92] dark:text-[#93A3CC]"
+                ? "bg-gradient-to-b from-[#2B7BFF] to-[#1457E0] text-white shadow-[0_8px_18px_-6px_rgba(20,87,224,0.85)]"
+                : "text-[#5A6A92] dark:text-[#93A3CC] hover:text-[#0B1B4D] dark:hover:text-white"
             }`}
           >
             <UserPlus className="w-4 h-4" />
@@ -180,10 +212,10 @@ export const GateView: React.FC<GateViewProps> = ({
               setMode("login");
               setError("");
             }}
-            className={`h-10 rounded-xl text-xs sm:text-sm font-bold inline-flex items-center justify-center gap-1.5 transition cursor-pointer ${
+            className={`h-10 rounded-xl text-xs sm:text-sm font-extrabold inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               mode === "login"
-                ? "bg-[#1457E0] text-white shadow-sm"
-                : "text-[#5A6A92] dark:text-[#93A3CC]"
+                ? "bg-gradient-to-b from-[#2B7BFF] to-[#1457E0] text-white shadow-[0_8px_18px_-6px_rgba(20,87,224,0.85)]"
+                : "text-[#5A6A92] dark:text-[#93A3CC] hover:text-[#0B1B4D] dark:hover:text-white"
             }`}
           >
             <UserCheck className="w-4 h-4" />
@@ -192,7 +224,11 @@ export const GateView: React.FC<GateViewProps> = ({
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="amay-card rounded-[28px] p-6 space-y-4">
+      {/* Form Card with Crisp Focus Rings */}
+      <form
+        onSubmit={handleSubmit}
+        className="amay-card rounded-[30px] p-6 space-y-4 border border-[#1846AA]/12 dark:border-white/10"
+      >
         {mode === "signup" && (
           <div>
             <label
@@ -215,10 +251,10 @@ export const GateView: React.FC<GateViewProps> = ({
                 if (error) setError("");
               }}
               placeholder="Your full name (shown on leaderboard)"
-              className={`w-full h-12 px-4 rounded-2xl border border-[#1846AA]/15 dark:border-white/10 text-[#0B1B4D] dark:text-white placeholder:text-[#5A6A92]/60 focus:outline-none focus:border-[#1457E0] text-base font-medium ${
+              className={`w-full h-12 px-4 rounded-2xl border border-[#1846AA]/15 dark:border-white/10 text-[#0B1B4D] dark:text-white placeholder:text-[#5A6A92]/60 focus:outline-none focus:border-[#1457E0] focus:ring-4 focus:ring-[#1457E0]/15 dark:focus:ring-[#5AA2FF]/15 transition text-base font-medium ${
                 nameLockedByCooldown
                   ? "bg-slate-100/80 dark:bg-white/[0.04] opacity-80 cursor-not-allowed"
-                  : "bg-white/75 dark:bg-[#0B1224]/80"
+                  : "bg-white/85 dark:bg-[#0B1224]/85"
               }`}
             />
             <p className="text-[11px] text-[#5A6A92] dark:text-[#93A3CC] mt-1.5">
@@ -254,7 +290,7 @@ export const GateView: React.FC<GateViewProps> = ({
               value={username}
               onChange={(e) => handleUsernameChange(e.target.value)}
               placeholder="e.g. suman_07"
-              className="w-full h-12 pl-9 pr-4 rounded-2xl bg-white/75 dark:bg-[#0B1224]/80 border border-[#1846AA]/15 dark:border-white/10 text-[#0B1B4D] dark:text-white placeholder:text-[#5A6A92]/60 focus:outline-none focus:border-[#1457E0] text-base font-mono-nums font-semibold"
+              className="w-full h-12 pl-9 pr-4 rounded-2xl bg-white/85 dark:bg-[#0B1224]/85 border border-[#1846AA]/15 dark:border-white/10 text-[#0B1B4D] dark:text-white placeholder:text-[#5A6A92]/60 focus:outline-none focus:border-[#1457E0] focus:ring-4 focus:ring-[#1457E0]/15 dark:focus:ring-[#5AA2FF]/15 transition text-base font-mono-nums font-semibold"
             />
           </div>
           {mode === "signup" && (
@@ -284,7 +320,7 @@ export const GateView: React.FC<GateViewProps> = ({
                 if (error) setError("");
               }}
               placeholder={mode === "signup" ? "Create a password (min 4 chars)" : "Enter your password"}
-              className="w-full h-12 pl-4 pr-12 rounded-2xl bg-white/75 dark:bg-[#0B1224]/80 border border-[#1846AA]/15 dark:border-white/10 text-[#0B1B4D] dark:text-white placeholder:text-[#5A6A92]/60 focus:outline-none focus:border-[#1457E0] text-base font-medium"
+              className="w-full h-12 pl-4 pr-12 rounded-2xl bg-white/85 dark:bg-[#0B1224]/85 border border-[#1846AA]/15 dark:border-white/10 text-[#0B1B4D] dark:text-white placeholder:text-[#5A6A92]/60 focus:outline-none focus:border-[#1457E0] focus:ring-4 focus:ring-[#1457E0]/15 dark:focus:ring-[#5AA2FF]/15 transition text-base font-medium"
             />
             <button
               type="button"
@@ -315,19 +351,22 @@ export const GateView: React.FC<GateViewProps> = ({
         <button
           type="submit"
           disabled={submitting}
-          className="w-full h-13 rounded-[22px] amay-play-btn text-white font-bold text-base cursor-pointer disabled:opacity-60"
+          className="w-full h-13 rounded-[22px] amay-play-btn text-white font-bold text-base inline-flex items-center justify-center gap-2 cursor-pointer shadow-[0_14px_28px_-10px_rgba(20,87,224,0.85)] active:scale-[0.98] transition disabled:opacity-60"
         >
-          {submitting
-            ? isClaimFlow
-              ? "Saving account…"
-              : mode === "signup"
-                ? "Creating account…"
-                : "Signing in…"
-            : isClaimFlow
-              ? "Save Username & Password"
-              : mode === "signup"
-                ? "Create Account & Start"
-                : "Sign In"}
+          <Sparkles className="w-4 h-4" />
+          <span>
+            {submitting
+              ? isClaimFlow
+                ? "Saving account…"
+                : mode === "signup"
+                  ? "Creating account…"
+                  : "Signing in…"
+              : isClaimFlow
+                ? "Save Username & Password"
+                : mode === "signup"
+                  ? "Create Account & Start"
+                  : "Sign In"}
+          </span>
         </button>
       </form>
 
