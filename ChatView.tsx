@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowLeft,
   ArrowUp,
+  CheckCheck,
   Heart,
   LifeBuoy,
   MessageCircle,
   Plus,
   Reply,
   Search,
+  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
@@ -36,6 +38,19 @@ const CHAT_READ_KEY = "amaysst_chat_read_at";
 const CHAT_NOTE_KEY = "amaysst_my_study_note";
 const CHAT_LIKES_KEY = "amaysst_chat_likes_v1";
 const AVATAR_GENDER_KEY = "amaysst_avatar_gender";
+
+const PEER_QUICK_CHIPS = [
+  "Ready for a quiz rematch? 🎯",
+  "Nice climb on the leaderboard! 🔥",
+  "Which subject are you practicing?",
+  "Good luck for exams! 📚",
+] as const;
+
+const HELP_QUICK_CHIPS = [
+  "How is XP & negative marking calculated? ⚡",
+  "How do I earn Today Top 3 badges? 🏅",
+  "I want to report a question issue 📝",
+] as const;
 
 function loadSavedGender(): "male" | "female" | null {
   try {
@@ -654,34 +669,41 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   };
 
+  const sendDirectText = useCallback(
+    async (rawText: string) => {
+      if (!activePeerUuid || sending) return;
+      const cleaned = rawText.trim();
+      if (!cleaned) return;
+
+      const finalPayload = replyingTo
+        ? `↪ ${replyingTo.sender}: "${replyingTo.snippet}"\n\n${cleaned}`
+        : cleaned;
+
+      setSendError("");
+      setSending(true);
+      setDraft("");
+      setReplyingTo(null);
+
+      const res = await sendChatMessage(guestId, activePeerUuid, finalPayload);
+      setSending(false);
+
+      if (!res.ok || !res.message) {
+        setDraft(cleaned);
+        setSendError(res.error || "Could not send message.");
+        return;
+      }
+
+      setMessages((prev) =>
+        prev.some((item) => item.id === res.message!.id) ? prev : [...prev, res.message!]
+      );
+      markPeerRead(activePeerUuid, [res.message!]);
+    },
+    [activePeerUuid, guestId, markPeerRead, replyingTo, sending]
+  );
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activePeerUuid || sending) return;
-    const rawText = draft.trim();
-    if (!rawText) return;
-
-    const finalPayload = replyingTo
-      ? `↪ ${replyingTo.sender}: "${replyingTo.snippet}"\n\n${rawText}`
-      : rawText;
-
-    setSendError("");
-    setSending(true);
-    setDraft("");
-    setReplyingTo(null);
-
-    const res = await sendChatMessage(guestId, activePeerUuid, finalPayload);
-    setSending(false);
-
-    if (!res.ok || !res.message) {
-      setDraft(rawText);
-      setSendError(res.error || "Could not send message.");
-      return;
-    }
-
-    setMessages((prev) =>
-      prev.some((item) => item.id === res.message!.id) ? prev : [...prev, res.message!]
-    );
-    markPeerRead(activePeerUuid, [res.message!]);
+    await sendDirectText(draft);
   };
 
   const handleUnsendMessage = async (msgId: string) => {
@@ -753,9 +775,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
   if (activePeerUuid) {
     const isHelp = activePeerUuid === HELP_CHAT_UUID;
     const peerRank = !isHelp ? rankMap.get(activePeerUuid) : undefined;
+    const quickChips = isHelp ? HELP_QUICK_CHIPS : PEER_QUICK_CHIPS;
 
     return (
       <div className="space-y-3">
+        {/* Active Thread Header with Live Online Pulse */}
         <div className="amay-card rounded-[26px] p-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
             <button
@@ -809,10 +833,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     </span>
                   )}
               </div>
-              <span className="block text-[11px] text-[#5A6A92] dark:text-[#93A3CC]">
-                {isHelp
-                  ? "Official Support · Active now"
-                  : "Active · Double-tap a message to ❤️"}
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                <span>
+                  {isHelp
+                    ? "Official Support · Online"
+                    : "Online · Double-tap message to ❤️"}
+                </span>
               </span>
             </div>
           </div>
@@ -855,10 +885,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         )}
 
-        <div className="amay-card rounded-[28px] p-3.5 flex flex-col min-h-[410px] max-h-[63vh]">
+        {/* Messages Transcript + Quick-Reply Chips + Composer */}
+        <div className="amay-card rounded-[28px] p-3.5 flex flex-col min-h-[420px] max-h-[65vh]">
           <div className="flex-1 overflow-y-auto px-1 space-y-1">
             {activeMessages.length === 0 ? (
-              <div className="py-12 text-center flex flex-col items-center space-y-2">
+              <div className="py-10 text-center flex flex-col items-center space-y-2">
                 {isHelp ? (
                   <div className="w-16 h-16 rounded-full flex items-center justify-center font-extrabold text-xl text-white mb-1 bg-gradient-to-br from-[#38B0FF] to-[#0B57DD] ring-4 ring-[#1457E0]/20">
                     <LifeBuoy className="w-7 h-7" />
@@ -872,10 +903,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <p className="text-base font-extrabold text-[#0B1B4D] dark:text-white">
                   {activePeerName}
                 </p>
-                <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] max-w-[240px]">
+                <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] max-w-[250px]">
                   {isHelp
-                    ? "Need help with quizzes, XP, or chapters? Send a message below."
-                    : `AmaySST Quiz · Chatting as ${myName}`}
+                    ? "Need help with quizzes, XP, or chapters? Tap a quick prompt below or type your question."
+                    : `AmaySST Quiz · Tap a quick challenge below to start chatting as ${myName}`}
                 </p>
               </div>
             ) : (
@@ -944,7 +975,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           <div
                             onClick={() => handleMessageTap(m.id, false)}
                             onDoubleClick={() => triggerHeartLike(m.id)}
-                            className={`relative px-3.5 py-2 text-[14px] leading-relaxed break-words bg-white/90 dark:bg-[#131E3A] text-[#0B1B4D] dark:text-white border border-[#1846AA]/12 dark:border-white/10 select-none cursor-pointer transition active:scale-[0.99] ${peerRadius}`}
+                            className={`relative px-3.5 py-2 text-[14px] leading-relaxed break-words bg-white/95 dark:bg-[#131E3A] text-[#0B1B4D] dark:text-white border border-[#1846AA]/12 dark:border-white/10 shadow-xs select-none cursor-pointer transition active:scale-[0.99] ${peerRadius}`}
                           >
                             {replyQuote && (
                               <div className="mb-1.5 pl-2 border-l-2 border-[#38B0FF] text-[11px] text-[#5A6A92] dark:text-[#93A3CC] line-clamp-2">
@@ -1027,7 +1058,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             role="button"
                             tabIndex={0}
                             aria-expanded={isSelected}
-                            className={`relative px-3.5 py-2 text-[14px] leading-relaxed break-words text-left bg-gradient-to-b from-[#256EF6] to-[#1457E0] text-white shadow-sm cursor-pointer select-none transition active:scale-[0.99] ${mineRadius} ${
+                            className={`relative px-3.5 py-2 text-[14px] leading-relaxed break-words text-left bg-gradient-to-b from-[#2B7BFF] to-[#1457E0] text-white shadow-[0_8px_20px_-10px_rgba(20,87,224,0.75)] cursor-pointer select-none transition active:scale-[0.99] ${mineRadius} ${
                               isSelected ? "ring-2 ring-[#5AA2FF]" : ""
                             }`}
                           >
@@ -1038,8 +1069,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             )}
                             <p className="whitespace-pre-wrap">{cleanBody}</p>
                             {!sameAsNext && (
-                              <span className="block text-[9px] font-mono mt-1 text-white/75 text-right">
-                                {formatMsgTime(m.created_at)}
+                              <span className="inline-flex items-center justify-end gap-1 w-full text-[9px] font-mono mt-1 text-white/80">
+                                <span>{formatMsgTime(m.created_at)}</span>
+                                <CheckCheck className="w-3 h-3 text-[#7DD3FC]" />
                               </span>
                             )}
 
@@ -1110,7 +1142,26 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </div>
           )}
 
-          <form onSubmit={handleSend} className="pt-2.5 mt-2 flex items-center gap-2">
+          {/* #5: One-Tap Quick-Reply Challenge Chips */}
+          <div className="pt-2.5 mt-1.5 border-t border-[#1846AA]/10 dark:border-white/10 flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider text-[#1457E0] dark:text-[#5AA2FF] shrink-0 px-1">
+              <Sparkles className="w-3 h-3" />
+              <span>Quick</span>
+            </span>
+            {quickChips.map((chip) => (
+              <button
+                key={chip}
+                type="button"
+                disabled={sending}
+                onClick={() => sendDirectText(chip)}
+                className="px-3 py-1.5 rounded-full bg-[#1457E0]/[0.08] hover:bg-[#1457E0]/16 dark:bg-white/[0.07] dark:hover:bg-white/[0.14] border border-[#1846AA]/15 dark:border-white/10 text-[11.5px] font-bold text-[#0B1B4D] dark:text-[#EAF0FF] whitespace-nowrap shrink-0 cursor-pointer active:scale-95 transition disabled:opacity-50"
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+
+          <form onSubmit={handleSend} className="pt-2 flex items-center gap-2">
             <div className="flex-1 h-11 pl-4 pr-1.5 rounded-full bg-white/90 dark:bg-[#0B1224] border border-[#1846AA]/15 dark:border-white/10 flex items-center gap-2 focus-within:border-[#1457E0]">
               <input
                 ref={inputRef}
@@ -1285,8 +1336,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
         }}
         className="w-full amay-card rounded-[26px] p-4 flex items-center gap-3.5 text-left hover:brightness-[0.99] active:scale-[0.99] transition cursor-pointer border-2 border-[#1457E0]/20 dark:border-[#5AA2FF]/25"
       >
-        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#38B0FF] to-[#0B57DD] text-white flex items-center justify-center shrink-0 shadow-[0_10px_20px_-10px_rgba(11,87,221,0.85)]">
+        <div className="relative w-12 h-12 rounded-2xl bg-gradient-to-br from-[#38B0FF] to-[#0B57DD] text-white flex items-center justify-center shrink-0 shadow-[0_10px_20px_-10px_rgba(11,87,221,0.85)]">
           <LifeBuoy className="w-6 h-6" />
+          <span className="w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#080D1B] -bottom-0.5 -right-0.5 absolute" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
@@ -1407,13 +1459,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   className="w-full py-3 px-1 flex items-center gap-3 text-left cursor-pointer hover:opacity-90"
                 >
                   <div
-                    className={`w-11 h-11 rounded-full p-[2px] shrink-0 ${
+                    className={`relative w-11 h-11 rounded-full p-[2px] shrink-0 ${
                       t.unread > 0
                         ? "bg-gradient-to-tr from-[#1457E0] to-[#38B0FF]"
                         : "bg-transparent"
                     }`}
                   >
                     <ProfileSilhouetteAvatar name={t.peerName} sizeClass="w-full h-full" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[#080D1B] bottom-0 right-0 absolute" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
