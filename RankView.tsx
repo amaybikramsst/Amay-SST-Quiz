@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Clock, Zap } from "lucide-react";
+import { ChevronRight, Clock, Crown, Zap } from "lucide-react";
 import {
   computeRankSnapshot,
   formatCompactXp,
@@ -46,7 +46,6 @@ export const RankView: React.FC<RankViewProps> = ({
   const [animRank, setAnimRank] = useState<number>(myRank);
   const [animXp, setAnimXp] = useState<number>(myXp);
 
-  // Smoothly animate the bluish fill-up bar and rank/XP numbers on mount and Today <-> Overall toggle
   useEffect(() => {
     setFillReady(false);
     const reduceMotion =
@@ -103,19 +102,50 @@ export const RankView: React.FC<RankViewProps> = ({
     myRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  // Left-to-right podium order: 1st (left, tallest), 2nd (center), 3rd (right)
+  // Classic 3D Podium order: #2 Silver (left), #1 Gold (center, tallest), #3 Bronze (right)
   const podiumSlots: Array<{
     rank: 1 | 2 | 3;
     entry?: RankEntry;
     badgeSize: "lg" | "md" | "sm";
-    cardPadding: string;
+    surfaceClass: string;
+    pedestalClass: string;
+    xpPillClass: string;
   }> = [
-    { rank: 1, entry: first, badgeSize: "lg", cardPadding: "pt-3.5 pb-4" },
-    { rank: 2, entry: second, badgeSize: "md", cardPadding: "pt-2.5 pb-3" },
-    { rank: 3, entry: third, badgeSize: "sm", cardPadding: "pt-2 pb-2.5" },
+    {
+      rank: 2,
+      entry: second,
+      badgeSize: "md",
+      surfaceClass:
+        "pt-3 pb-0 bg-gradient-to-b from-slate-300/30 via-sky-200/15 to-slate-400/10 border border-slate-300/60 dark:border-slate-300/30 shadow-[0_12px_24px_-14px_rgba(148,163,184,0.65)]",
+      pedestalClass:
+        "h-8 bg-gradient-to-b from-slate-300/55 to-slate-400/35 dark:from-slate-400/25 dark:to-slate-600/20 text-slate-800 dark:text-slate-200 border-t border-slate-300/50",
+      xpPillClass:
+        "bg-slate-400/20 text-slate-800 dark:text-slate-200",
+    },
+    {
+      rank: 1,
+      entry: first,
+      badgeSize: "lg",
+      surfaceClass:
+        "pt-3.5 pb-0 bg-gradient-to-b from-amber-400/32 via-yellow-300/18 to-amber-500/12 border-2 border-amber-400/70 dark:border-amber-300/50 shadow-[0_16px_32px_-12px_rgba(245,158,11,0.65)]",
+      pedestalClass:
+        "h-11 bg-gradient-to-b from-amber-400/65 to-amber-500/40 dark:from-amber-400/35 dark:to-amber-600/25 text-amber-950 dark:text-amber-200 border-t border-amber-300/60",
+      xpPillClass:
+        "bg-amber-400/25 text-amber-950 dark:text-amber-200",
+    },
+    {
+      rank: 3,
+      entry: third,
+      badgeSize: "sm",
+      surfaceClass:
+        "pt-2.5 pb-0 bg-gradient-to-b from-orange-400/26 via-amber-300/14 to-orange-500/10 border border-orange-400/55 dark:border-orange-300/30 shadow-[0_12px_24px_-14px_rgba(234,88,12,0.55)]",
+      pedestalClass:
+        "h-6 bg-gradient-to-b from-orange-400/55 to-orange-500/35 dark:from-orange-400/25 dark:to-orange-600/20 text-orange-950 dark:text-orange-200 border-t border-orange-300/50",
+      xpPillClass:
+        "bg-orange-400/20 text-orange-950 dark:text-orange-200",
+    },
   ];
 
-  // Today fill-up bar: simple 1-to-1 XP ratio toward Top 3 cutoff (#3), or toward #1 if already in Top 3
   const inDailyPrizeZone = myXp > 0 && myRank <= 3;
   const dailyTargetXp = inDailyPrizeZone ? (podium.first?.xp ?? myXp) : (podium.third?.xp ?? 0);
   const dailyFillPct =
@@ -126,7 +156,6 @@ export const RankView: React.FC<RankViewProps> = ({
         : 0;
   const dailyTrackScale = fillReady ? dailyFillPct / 100 : 0;
 
-  // Overall fill-up bar: simple rank position between #Last and #1
   const overallClimbScale = fillReady ? Math.max(0.04, Math.min(1, climbPercent / 100)) : 0;
   const nextOverallMilestone = getNextOverallMilestone(myXp);
 
@@ -162,10 +191,9 @@ export const RankView: React.FC<RankViewProps> = ({
         </button>
       </div>
 
-      {/* Simple Competition Card */}
+      {/* Competition Card */}
       {period === "td" ? (
         <section className="amay-card rounded-[28px] p-4 sm:p-5 space-y-3.5 overflow-hidden">
-          {/* Candidate Rank + 11:00 PM Countdown */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2 min-w-0">
               <span className="text-xs font-bold text-[#1457E0] dark:text-[#5AA2FF] truncate">
@@ -193,7 +221,6 @@ export const RankView: React.FC<RankViewProps> = ({
             </div>
           </div>
 
-          {/* Simple Bluish XP Fill-Up Bar */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2 text-xs font-semibold text-[#5A6A92] dark:text-[#93A3CC]">
               <span className="whitespace-nowrap">
@@ -221,7 +248,6 @@ export const RankView: React.FC<RankViewProps> = ({
             </div>
           </div>
 
-          {/* Immediately Next Ahead Today (Top-to-Bottom: e.g. #9, #10, #11) */}
           {nextAhead.length > 0 && (
             <div className="pt-3 border-t border-[#1846AA]/10 dark:border-white/10 space-y-2">
               <h3 className="font-display text-[15px] sm:text-base font-bold tracking-[-0.015em] text-[#0B1B4D] dark:text-[#EAF0FF]">
@@ -242,7 +268,7 @@ export const RankView: React.FC<RankViewProps> = ({
                         <button
                           type="button"
                           onClick={() => onChatWithPlayer({ uuid: r.peerUuid!, name: r.name })}
-                          className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] truncate text-left cursor-pointer"
+                          className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] hover:text-[#1457E0] dark:hover:text-[#5AA2FF] hover:underline truncate text-left cursor-pointer"
                         >
                           {r.name}
                         </button>
@@ -274,9 +300,7 @@ export const RankView: React.FC<RankViewProps> = ({
           )}
         </section>
       ) : (
-        /* Simple Overall Rank Fill-Up Bar & Next Ahead List */
         <section className="amay-card rounded-[28px] p-4 sm:p-5 space-y-3.5 overflow-hidden">
-          {/* Standing Header */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2 min-w-0">
               <span className="text-xs font-bold text-[#1457E0] dark:text-[#5AA2FF] truncate">
@@ -302,7 +326,6 @@ export const RankView: React.FC<RankViewProps> = ({
             </div>
           </div>
 
-          {/* Simple Bluish Rank Position Fill-Up Bar (#Last -> #1) */}
           <div className="space-y-1.5">
             <div className="relative h-3 rounded-full bg-[#1457E0]/12 dark:bg-white/10 overflow-hidden">
               <div
@@ -322,7 +345,6 @@ export const RankView: React.FC<RankViewProps> = ({
             </div>
           </div>
 
-          {/* Immediately Next Ahead Overall (Top-to-Bottom: e.g. #9, #10, #11) */}
           {nextAhead.length > 0 ? (
             <div className="pt-3 border-t border-[#1846AA]/10 dark:border-white/10 space-y-2">
               <h3 className="font-display text-[15px] sm:text-base font-bold tracking-[-0.015em] text-[#0B1B4D] dark:text-[#EAF0FF]">
@@ -343,7 +365,7 @@ export const RankView: React.FC<RankViewProps> = ({
                         <button
                           type="button"
                           onClick={() => onChatWithPlayer({ uuid: r.peerUuid!, name: r.name })}
-                          className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] truncate text-left cursor-pointer"
+                          className="font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] hover:text-[#1457E0] dark:hover:text-[#5AA2FF] hover:underline truncate text-left cursor-pointer"
                         >
                           {r.name}
                         </button>
@@ -393,47 +415,65 @@ export const RankView: React.FC<RankViewProps> = ({
         </a>
       </p>
 
-      {/* Top 3 Crown & Ribbon Podium */}
+      {/* 3D Gold, Silver & Bronze Top 3 Podium (#2 Left · #1 Gold Center · #3 Right) */}
       {top20.length > 0 && (
-        <section className="amay-card rounded-[30px] px-3 pt-4 pb-5">
+        <section className="amay-card rounded-[30px] px-3 pt-5 pb-4 overflow-hidden">
           <div className="grid grid-cols-3 gap-2 items-end">
-            {podiumSlots.map(({ rank, entry, badgeSize, cardPadding }) => {
+            {podiumSlots.map(({ rank, entry, badgeSize, surfaceClass, pedestalClass, xpPillClass }) => {
               if (!entry) {
                 return <div key={rank} />;
               }
               const isMe = entry.isMe;
+              const canChat = !isMe && Boolean(onChatWithPlayer && entry.peerUuid);
+
               return (
                 <div
                   key={`${period}-podium-${rank}`}
                   ref={isMe ? myRowRef : undefined}
-                  className={`flex flex-col items-center text-center rounded-[22px] px-1.5 ${cardPadding} transition-all ${
-                    isMe
-                      ? "bg-[#1457E0]/12 dark:bg-[#5AA2FF]/20 ring-2 ring-[#1457E0] dark:ring-[#5AA2FF]"
-                      : "bg-[#1457E0]/[0.04] dark:bg-white/[0.04]"
+                  className={`relative overflow-hidden flex flex-col items-center text-center rounded-[22px] transition-all ${surfaceClass} ${
+                    isMe ? "ring-2 ring-[#1457E0] dark:ring-[#5AA2FF]" : ""
                   }`}
                 >
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute -top-6 -right-6 w-16 h-16 rounded-full bg-white/30 dark:bg-white/10 blur-md"
+                  />
+
+                  {rank === 1 && (
+                    <Crown className="w-4 h-4 text-amber-500 dark:text-amber-300 fill-amber-400/50 mb-1 drop-shadow-xs" />
+                  )}
+
                   <RankBadge rank={rank} size={badgeSize} />
-                  <div className="mt-1.5 w-full h-[34px] flex items-center justify-center">
-                    {!isMe && onChatWithPlayer && entry.peerUuid ? (
+
+                  <div className="mt-1.5 px-1.5 w-full h-[36px] flex items-center justify-center">
+                    {canChat ? (
                       <button
                         type="button"
-                        onClick={() => onChatWithPlayer({ uuid: entry.peerUuid!, name: entry.name })}
-                        className="w-full text-[13px] sm:text-[14px] font-extrabold text-[#0B1B4D] dark:text-white leading-tight line-clamp-2 break-words cursor-pointer"
+                        onClick={() => onChatWithPlayer!({ uuid: entry.peerUuid!, name: entry.name })}
+                        className="w-full text-[13px] sm:text-[14px] font-extrabold text-[#0B1B4D] dark:text-white hover:text-[#1457E0] dark:hover:text-[#5AA2FF] hover:underline leading-tight line-clamp-2 break-words cursor-pointer"
                       >
                         {entry.name}
                       </button>
                     ) : (
-                      <strong
-                        className="w-full text-[13px] sm:text-[14px] font-extrabold text-[#0B1B4D] dark:text-white leading-tight line-clamp-2 break-words"
-                      >
+                      <strong className="w-full text-[13px] sm:text-[14px] font-extrabold text-[#0B1B4D] dark:text-white leading-tight line-clamp-2 break-words">
                         {entry.name}
                         {isMe ? " (You)" : ""}
                       </strong>
                     )}
                   </div>
-                  <span className="mt-1 text-[11px] sm:text-xs font-extrabold text-[#1457E0] dark:text-[#5AA2FF] font-mono-nums">
+
+                  <span
+                    className={`mt-1 mb-2.5 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-extrabold font-mono-nums ${xpPillClass}`}
+                  >
                     {period === "all" ? formatXpK(entry.xp) : entry.xp.toLocaleString()} XP
                   </span>
+
+                  {/* 3D Podium Step Pedestal */}
+                  <div
+                    className={`w-full flex items-center justify-center font-mono-nums text-xs font-black tracking-tight ${pedestalClass}`}
+                  >
+                    #{rank}
+                  </div>
                 </div>
               );
             })}
@@ -462,7 +502,7 @@ export const RankView: React.FC<RankViewProps> = ({
                     <button
                       type="button"
                       onClick={() => onChatWithPlayer({ uuid: entry.peerUuid!, name: entry.name })}
-                      className="text-base font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] truncate text-left cursor-pointer"
+                      className="text-base font-semibold text-[#0B1B4D] dark:text-[#EAF0FF] hover:text-[#1457E0] dark:hover:text-[#5AA2FF] hover:underline truncate text-left cursor-pointer"
                     >
                       {entry.name}
                     </button>
