@@ -1231,9 +1231,8 @@ export default function App() {
 
     const nextCombo = isCorrect ? (quiz.comboStreak ?? 0) + 1 : 0;
     const nextBestCombo = Math.max(quiz.bestCombo ?? 0, nextCombo);
-    const timeDelta = isCorrect && nextCombo > 0 && nextCombo % 3 === 0 ? 3 : isCorrect ? 0 : -2;
+    const timeDelta = isCorrect ? 2 : -2;
     const nextTime = Math.max(0, quiz.t + timeDelta);
-
     const nextSel = [...quiz.sel];
     nextSel[quiz.i] = optIdx;
 
