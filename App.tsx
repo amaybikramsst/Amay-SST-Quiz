@@ -18,30 +18,39 @@ import { type QuizKey, type RawQuestion, type SubjectKey } from "./data/question
 import { resolveBotRoster } from "./lib/botSimulator";
 import type { BadgeDesignSpec } from "./lib/badgeCanvas";
 import {
+  BLITZ_SECONDS,
+  buildBlitzQuizSet,
   buildQuizSet,
+  calculateBlitzScore,
   calculateQuizScore,
   clearProfileSession,
+  consumeBattleParamFromUrl,
   generateFreshGuestUUID,
   getGuestUUID,
   getRankDifficultyRule,
   getTodayCutoffStatus,
   LEVELS,
+  loadBlitzBest,
   loadProfile,
   loadQueue,
   markQuestionsSeen,
   mergeDynamicQuestions,
   QUIZ_LENGTHS,
+  saveBlitzBest,
   saveProfile,
   saveQueue,
   setGuestUUID,
   todayIST,
   todayUTC,
   type ActiveQuizState,
+  type BattleChallengePayload,
   type DailyBadgeRecord,
   type StudentProfile,
 } from "./lib/quizEngine";
 import { getCrossedXpMilestone, launchMilestoneConfetti } from "./lib/confetti";
 import {
+  playCorrectSound,
+  playIncorrectSound,
   playMilestoneSound,
   playQuizCompleteSound,
   playSelectTapSound,
@@ -103,6 +112,9 @@ export default function App() {
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [chatDirectory, setChatDirectory] = useState<ChatDirectoryUser[]>([]);
   const [pendingChatPeer, setPendingChatPeer] = useState<{ uuid: string; name: string } | null>(null);
+  const [pendingBattle, setPendingBattle] = useState<BattleChallengePayload | null>(() =>
+    consumeBattleParamFromUrl()
+  );
   const [view, setView] = useState<AppRoute>(() => {
     if (isSecretAdminUrl()) return "admin";
     const p = loadProfile();
@@ -207,7 +219,6 @@ export default function App() {
     [guestId, impersonated, profile.name]
   );
 
-  // Immediately log view receipt when a student sees the notification popup on screen
   useEffect(() => {
     if (!activePopupNotif || impersonated || !profile.name) return;
     reportNotificationsSeen(guestId, profile.name, [activePopupNotif.id]);
@@ -273,7 +284,6 @@ export default function App() {
     [guestId, impersonated]
   );
 
-  // Show install popup within the first 30 seconds to anyone who hasn't installed the app yet
   useEffect(() => {
     if (
       isInstalled ||
@@ -314,7 +324,6 @@ export default function App() {
     setShowInstallModal(true);
   }, [canNativeInstall, install, recordTap, view]);
 
-  // Report each student's app install state to Supabase (once installed, keep sticky so browser visits don't clear it)
   useEffect(() => {
     if (!profile.name || impersonated) return;
     const nextVal = isInstalled ? "1" : "0";
@@ -329,8 +338,6 @@ export default function App() {
     reportAppInstallStatus(guestId, profile.name, isInstalled);
   }, [guestId, impersonated, isInstalled, profile.name]);
 
-  // Sync cloud stats without overwriting client-side 1/4 negative-marked XP,
-  // while honoring admin manual XP edits and strictly resetting Today XP at 12:00 AM IST!
   const applyCloudStats = useCallback(
     (
       stats: CloudStats,
@@ -364,7 +371,6 @@ export default function App() {
           if (prev.lastCloudXp === undefined) {
             nextXp = Math.max(prev.xp, stats.xp);
           } else if (stats.xp !== prev.lastCloudXp) {
-            // Admin edited XP directly in Supabase
             const delta = stats.xp - prev.lastCloudXp;
             nextXp = Math.max(0, prev.xp + delta);
           }
@@ -553,7 +559,6 @@ export default function App() {
     };
   }, [applyCloudStats, flushQueue, guestId, refreshDynamicQuestions, refreshLeaderboard, syncIdentity]);
 
-  // Real-time unread chat badge sync across all screens
   useEffect(() => {
     if (!effectiveProfile.name || (!impersonated && !hasCompleteAccount) || view === "admin" || view === "gate") return;
 
@@ -596,15 +601,41 @@ export default function App() {
     return () => {
       unsub();
     };
-  }, [effectiveGuestId, effectiveProfile.name, view]);
+  }, [effectiveGuestId, effectiveProfile.name, view, hasCompleteAccount, impersonated]);
 
   const finishQuiz = useCallback(
     (active: ActiveQuizState) => {
       if (active.done) return;
 
-      const score = calculateQuizScore(active.qs, active.sel, active.L);
+      const isBlitz = active.mode === "blitz";
+      const isBattle = active.mode === "battle";
+      const bestCombo = Math.max(active.bestCombo ?? 0, active.comboStreak ?? 0);
+
+      const baseScore = isBlitz
+        ? calculateBlitzScore(active.qs, active.sel, bestCombo)
+        : calculateQuizScore(active.qs, active.sel, active.L);
+
+      let isNewBlitzBest = false;
+      if (isBlitz) {
+        const prevBest = loadBlitzBest();
+        if (baseScore.c > prevBest.correct || (baseScore.c === prevBest.correct && bestCombo > prevBest.streak)) {
+          isNewBlitzBest = true;
+          saveBlitzBest({
+            score: Math.max(prevBest.score, baseScore.xp),
+            correct: baseScore.c,
+            streak: Math.max(prevBest.streak, bestCombo),
+          });
+        }
+      }
+
+      const elapsedSec = active.startedAtMs
+        ? Math.max(1, Math.min(300, Math.round((Date.now() - active.startedAtMs) / 1000)))
+        : isBlitz
+          ? BLITZ_SECONDS
+          : 60;
+
       const prevXp = impersonated ? impersonated.profile.xp : loadProfile().xp;
-      const nextXpEst = Math.max(0, prevXp + score.xp);
+      const nextXpEst = Math.max(0, prevXp + baseScore.xp);
       const reachedMilestone = getCrossedXpMilestone(prevXp, nextXpEst);
       const unlockedFirstBadge = prevXp < 100 && nextXpEst >= 100;
 
@@ -612,12 +643,12 @@ export default function App() {
         playMilestoneSound();
         launchMilestoneConfetti(reachedMilestone);
       } else {
-        playQuizCompleteSound(score.c, score.w);
+        playQuizCompleteSound(baseScore.c, baseScore.w);
       }
 
       recordTap(
         "Finish Quiz",
-        `${active.k.toUpperCase()} (${LEVELS[active.L]}) · ${score.c}/${score.n} right, ${score.w} wrong (${score.xp >= 0 ? "+" : ""}${score.xp} XP)`,
+        `${isBlitz ? "BLITZ" : isBattle ? "BATTLE" : active.k.toUpperCase()} (${LEVELS[active.L]}) · ${baseScore.c}/${baseScore.n} right (${baseScore.xp >= 0 ? "+" : ""}${baseScore.xp} XP)`,
         "quiz"
       );
 
@@ -630,10 +661,10 @@ export default function App() {
             ...prev,
             profile: {
               ...prev.profile,
-              xp: Math.max(0, prev.profile.xp + score.xp),
+              xp: Math.max(0, prev.profile.xp + baseScore.xp),
               quizzes: prev.profile.quizzes + 1,
-              perfect: prev.profile.perfect + (score.c === score.n ? 1 : 0),
-              td: { d: today, xp: Math.max(0, prevTodayXp + score.xp) },
+              perfect: prev.profile.perfect + (!isBlitz && baseScore.c === baseScore.n ? 1 : 0),
+              td: { d: today, xp: Math.max(0, prevTodayXp + baseScore.xp) },
             },
           };
         });
@@ -643,8 +674,8 @@ export default function App() {
           const yesterday = todayIST(1);
           const nextStreak = prev.last === today ? prev.streak : prev.last === yesterday ? prev.streak + 1 : 1;
           const prevTodayXp = prev.td?.d === today ? prev.td.xp : 0;
-          const nextXp = Math.max(0, prev.xp + score.xp);
-          const nextTodayXp = Math.max(0, prevTodayXp + score.xp);
+          const nextXp = Math.max(0, prev.xp + baseScore.xp);
+          const nextTodayXp = Math.max(0, prevTodayXp + baseScore.xp);
 
           const updated: StudentProfile = {
             ...prev,
@@ -652,7 +683,7 @@ export default function App() {
             streak: nextStreak,
             last: today,
             quizzes: prev.quizzes + 1,
-            perfect: prev.perfect + (score.c === score.n ? 1 : 0),
+            perfect: prev.perfect + (!isBlitz && baseScore.c === baseScore.n ? 1 : 0),
             td: { d: today, xp: nextTodayXp },
           };
           saveProfile(updated);
@@ -660,7 +691,12 @@ export default function App() {
         });
 
         const queue = loadQueue();
-        queue.push({ k: active.k, L: active.L, t: score.n, c: score.c });
+        queue.push({
+          k: isBlitz ? "mix" : active.k,
+          L: active.L,
+          t: Math.max(1, baseScore.n),
+          c: Math.max(0, baseScore.c),
+        });
         saveQueue(queue);
         flushQueue();
       }
@@ -669,9 +705,21 @@ export default function App() {
         ...active,
         done: true,
         res: {
-          ...score,
+          ...baseScore,
           up: unlockedFirstBadge,
           milestoneXp: reachedMilestone,
+          mode: active.mode ?? "normal",
+          timeTakenSec: elapsedSec,
+          bestStreak: bestCombo,
+          isNewBlitzBest,
+          battleOpponent: active.battleMeta
+            ? {
+                name: active.battleMeta.challengerName,
+                correct: active.battleMeta.challengerCorrect,
+                total: active.battleMeta.challengerTotal,
+                secondsTaken: active.battleMeta.challengerSecondsTaken,
+              }
+            : undefined,
         },
       });
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -937,7 +985,6 @@ export default function App() {
     recordTap("Theme Toggle", `Switched to ${nextTheme}`, "me");
   };
 
-  // Unified Overall & Today Leaderboards (all players reset Today XP to 0 at 12:00 AM IST)
   const { allTimeEntries, todayEntries, botChatDirectory, botRosterDateKey, botLiveCeiling } = useMemo(() => {
     void botClockTick;
     const todayKeyIst = todayIST(0);
@@ -952,7 +999,6 @@ export default function App() {
       }
     }
 
-    // Prevent stale UTC today_xp (12:00 AM - 5:29 AM IST) if legacy get_leaderboard fallback was used
     const isUtcMismatchWindow = !liveLeaderboardIstSynced && todayKeyIst !== todayUTC(0);
     const resolvedLivePlayers = livePlayers.map((l) => {
       const baseToday = isUtcMismatchWindow ? 0 : Math.max(0, l.today_xp || 0);
@@ -1100,12 +1146,114 @@ export default function App() {
       sel: Array(qs.length).fill(undefined),
       t: minutes * 60,
       done: false,
+      mode: "normal",
+      startedAtMs: Date.now(),
+      comboStreak: 0,
+      bestCombo: 0,
     });
     setView("quiz");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Fire an exact tick right at 11:00 PM IST cutoff and 12:00 AM IST daily reset
+  // #4: Start 20-Second Rapid Fire Blitz (Science, SST, English & GK only)
+  const startBlitzQuiz = () => {
+    if (!impersonated && !hasCompleteAccount) {
+      setView("gate");
+      return;
+    }
+    const qs = buildBlitzQuizSet(mergedBank, effectiveGuestId, 25);
+    if (qs.length === 0) return;
+    markQuestionsSeen(effectiveGuestId, qs);
+    recordTap("Start Blitz", "20s Rapid Fire Blitz", "quiz");
+    setPreQuizRank(myEffectiveRank);
+    setQuiz({
+      k: "mix",
+      L: 1,
+      N: qs.length,
+      qs,
+      i: 0,
+      sel: Array(qs.length).fill(undefined),
+      t: BLITZ_SECONDS,
+      done: false,
+      mode: "blitz",
+      startedAtMs: Date.now(),
+      comboStreak: 0,
+      bestCombo: 0,
+    });
+    setView("quiz");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // #1: Accept 1v1 Battle Challenge
+  const acceptBattleChallenge = () => {
+    if (!pendingBattle) return;
+    if (!impersonated && !hasCompleteAccount) {
+      setView("gate");
+      return;
+    }
+    const battle = pendingBattle;
+    setPendingBattle(null);
+    recordTap("Accept 1v1", `Battle vs ${battle.challengerName}`, "quiz");
+    setPreQuizRank(myEffectiveRank);
+    setQuiz({
+      k: battle.k,
+      L: battle.L,
+      N: battle.qs.length,
+      qs: battle.qs,
+      i: 0,
+      sel: Array(battle.qs.length).fill(undefined),
+      t: 120,
+      done: false,
+      mode: "battle",
+      startedAtMs: Date.now(),
+      comboStreak: 0,
+      bestCombo: 0,
+      battleMeta: {
+        id: battle.id,
+        challengerName: battle.challengerName,
+        challengerCorrect: battle.challengerCorrect,
+        challengerTotal: battle.challengerTotal,
+        challengerSecondsTaken: battle.challengerSecondsTaken,
+      },
+    });
+    setView("quiz");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // #4: Blitz instant answer handler (+3s every 3-in-a-row, -2s on wrong answer)
+  const handleBlitzAnswer = (optIdx: number) => {
+    if (!quiz || quiz.done || quiz.mode !== "blitz") return;
+    const currentQ = quiz.qs[quiz.i];
+    const isCorrect = currentQ ? optIdx === currentQ[2] : false;
+
+    if (isCorrect) playCorrectSound();
+    else playIncorrectSound();
+
+    const nextCombo = isCorrect ? (quiz.comboStreak ?? 0) + 1 : 0;
+    const nextBestCombo = Math.max(quiz.bestCombo ?? 0, nextCombo);
+    const timeDelta = isCorrect && nextCombo > 0 && nextCombo % 3 === 0 ? 3 : isCorrect ? 0 : -2;
+    const nextTime = Math.max(0, quiz.t + timeDelta);
+
+    const nextSel = [...quiz.sel];
+    nextSel[quiz.i] = optIdx;
+
+    const nextIndex = (quiz.i + 1) % quiz.qs.length;
+    const updatedState: ActiveQuizState = {
+      ...quiz,
+      sel: nextSel,
+      i: nextIndex,
+      t: nextTime,
+      comboStreak: nextCombo,
+      bestCombo: nextBestCombo,
+    };
+
+    if (nextTime <= 0) {
+      finishQuiz({ ...updatedState, t: 0 });
+      return;
+    }
+    setQuiz(updatedState);
+  };
+
   useEffect(() => {
     const status = getTodayCutoffStatus(botClockTick);
     const targetSec = status.isLocked ? status.resetSeconds : status.remainingSeconds;
@@ -1117,7 +1265,6 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [botClockTick]);
 
-  // Automatically award Today #1, #2, or #3 badge once 11:00 PM IST cutoff is reached
   useEffect(() => {
     if (impersonated || !profile.name) return;
     const cutoff = getTodayCutoffStatus(botClockTick);
@@ -1253,7 +1400,11 @@ export default function App() {
               allTimeEntries={allTimeEntries}
               todayEntries={todayEntries}
               latestVideo={latestVideo}
+              pendingBattle={pendingBattle}
+              onAcceptBattle={acceptBattleChallenge}
+              onDismissBattle={() => setPendingBattle(null)}
               onStartNormalQuiz={() => openSubjectConfig("mix")}
+              onStartBlitz={startBlitzQuiz}
               onOpenSubjects={() => navigate("subs")}
               onOpenRank={() => navigate("rank")}
             />
@@ -1310,6 +1461,7 @@ export default function App() {
                   return { ...prev, sel: nextSel };
                 });
               }}
+              onBlitzAnswer={handleBlitzAnswer}
               onGoToQuestion={(idx) =>
                 setQuiz((prev) => {
                   if (!prev || prev.done) return prev;
@@ -1322,7 +1474,21 @@ export default function App() {
                 recordTap("Quit Quiz", `Left Q${quiz.i + 1}/${quiz.qs.length}`, "quiz");
                 navigate("home");
               }}
-              onRetry={() => startQuiz(quiz.k, quiz.L, quiz.N)}
+              onRetry={() =>
+                quiz.mode === "blitz"
+                  ? startBlitzQuiz()
+                  : quiz.mode === "battle" && quiz.battleMeta
+                    ? setQuiz({
+                        ...quiz,
+                        i: 0,
+                        sel: Array(quiz.qs.length).fill(undefined),
+                        t: 120,
+                        done: false,
+                        res: undefined,
+                        startedAtMs: Date.now(),
+                      })
+                    : startQuiz(quiz.k, quiz.L, quiz.N)
+              }
               onChangeSetup={() => openSubjectConfig(quiz.k)}
               onOpenRank={() => navigate("rank")}
               onOpenBadge={() => openBadgeModal(undefined, "quiz")}
