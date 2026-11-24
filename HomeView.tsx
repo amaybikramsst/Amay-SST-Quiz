@@ -78,7 +78,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
     if (tiedAtMyXp.length > 0 && strictlyAhead.length === 0) {
       xpToJump = 1;
       jumpToRank = 1;
-      nextLabel = `Break tie for #1`;
+      nextLabel = "Break tie for #1";
     } else if (tiedAtMyXp.length > 0) {
       xpToJump = 1;
       jumpToRank = snap.myRank;
@@ -174,7 +174,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   return (
     <div className="space-y-3.5">
-      {/* Greeting */}
       <div className="pt-1 pb-0.5 px-1">
         <h1 className="text-[28px] sm:text-[34px] leading-[1.12] font-extrabold tracking-tight text-[#0B1B4D] dark:text-[#EAF0FF] break-words">
           Hey, <span className="text-[#1457E0] dark:text-[#5AA2FF]">{profile.name}</span>{" "}
@@ -187,7 +186,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </p>
       </div>
 
-      {/* #1: Incoming 1v1 Direct Challenge Banner */}
       {pendingBattle && onAcceptBattle && (
         <div className="amay-card rounded-[28px] p-4 sm:p-5 bg-gradient-to-r from-[#1457E0]/16 via-[#2B7BFF]/12 to-amber-400/14 border-2 border-[#1457E0]/40 dark:border-[#5AA2FF]/45 space-y-3 shadow-[0_14px_30px_-14px_rgba(20,87,224,0.45)]">
           <div className="flex items-start gap-3">
@@ -236,9 +234,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       )}
 
-      {/* Minimalistic Standing + Play Card */}
       <section className="amay-card rounded-[28px] p-4 sm:p-5 space-y-4 overflow-hidden">
-        {/* Top Row: Clean Title + Today / Overall Switch */}
         <div className="flex items-center justify-between gap-2 min-w-0">
           <div className="min-w-0 flex-1 flex items-center gap-1.5 text-xs sm:text-[13px] font-extrabold text-[#0B1B4D] dark:text-[#EAF0FF]">
             {raceData.isSoleFirst && (
@@ -277,7 +273,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
         </div>
 
-        {/* Clean 2-Stat Summary */}
         <div className="grid grid-cols-2 divide-x divide-[#1846AA]/12 dark:divide-white/12 rounded-2xl bg-[#1457E0]/[0.05] dark:bg-white/[0.04] border border-[#1846AA]/10 dark:border-white/10 py-3 px-2 overflow-hidden">
           <div className="px-2.5 sm:px-3 min-w-0">
             <div className="text-[11px] font-bold text-[#5A6A92] dark:text-[#93A3CC]">
@@ -309,7 +304,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
         </div>
 
-        {/* Live Rival Alert Pill */}
         {immediateRival ? (
           <div className="rounded-2xl p-3 bg-gradient-to-r from-[#1457E0]/12 via-[#2B7BFF]/10 to-[#38B0FF]/12 dark:from-[#1457E0]/25 dark:to-[#38B0FF]/15 border border-[#1457E0]/25 dark:border-[#5AA2FF]/30 flex items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -367,7 +361,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
           )
         )}
 
-        {/* Milestone XP Progress Bar */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between gap-2 text-xs">
             <span className="font-semibold text-[#5A6A92] dark:text-[#93A3CC] truncate min-w-0">
@@ -416,7 +409,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
         </div>
 
-        {/* Primary Focal CTA */}
         <button
           type="button"
           onClick={onStartNormalQuiz}
@@ -427,7 +419,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <ChevronRight className="w-5 h-5 absolute right-5" />
         </button>
 
-        {/* 3-Row Mini Rank Table: One Up, My Rank, One Down */}
         <div className="rounded-2xl bg-[#1457E0]/[0.04] dark:bg-white/[0.04] border border-[#1846AA]/10 dark:border-white/10 divide-y divide-[#1846AA]/10 dark:divide-white/10 overflow-hidden">
           {raceData.nextAhead[0] && (
             <div className="px-3.5 py-2 flex items-center justify-between gap-2 text-[13px]">
@@ -486,7 +477,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
       </section>
 
-      {/* #4: 20-Second Rapid Fire Blitz Card (Science, SST, English & GK only) */}
       {onStartBlitz && (
         <button
           type="button"
@@ -514,7 +504,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </button>
       )}
 
-      {/* Choose a subject */}
       <button
         type="button"
         onClick={onOpenSubjects}
@@ -529,7 +518,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
         <ChevronRight className="w-5 h-5 text-[#5A6A92] dark:text-[#93A3CC]" />
       </button>
 
-      {/* Latest Video */}
       <a
         href={latestVideo.url || SOCIAL_LINKS.youtubeShort}
         target="_blank"
@@ -567,7 +555,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
         <ChevronRight className="w-5 h-5 text-[#5A6A92] dark:text-[#93A3CC] shrink-0" />
       </a>
 
-      {/* Socials */}
       <div className="pt-1 pb-2 text-center space-y-2">
         <p className="text-xs font-semibold text-[#5A6A92] dark:text-[#93A3CC]">Follow AmaySST</p>
         <div className="grid grid-cols-2 gap-3">
