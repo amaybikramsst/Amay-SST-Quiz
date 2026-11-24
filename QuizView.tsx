@@ -1,7 +1,4 @@
-import React, { useEffect, useState } from "react";
-import {
-  Check,
-  ChevronLeft,
+ ChevronLeft,
   Share2,
   Swords,
   TrendingUp,
@@ -883,7 +880,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
           </span>
           <span className="text-[#5A6A92] dark:text-[#93A3CC] font-mono-nums">
             {isBlitz
-              ? "3 in a row = +3s · Wrong = −2s"
+              ? "Right = +2s · Wrong = −2s"
               : `+${XP_PER_LEVEL[quiz.L]} XP · −${penalty} wrong`}
           </span>
         </div>
