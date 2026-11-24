@@ -1,10 +1,21 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, ChevronRight, Crown, Flame, Play, ShieldCheck } from "lucide-react";
+import {
+  ArrowUpRight,
+  ChevronRight,
+  Crown,
+  Flame,
+  Play,
+  ShieldCheck,
+  Swords,
+  Zap,
+} from "lucide-react";
 import { SOCIAL_LINKS } from "../data/benchmarks";
 import {
   computeRankSnapshot,
   formatCompactXp,
+  loadBlitzBest,
   todayIST,
+  type BattleChallengePayload,
   type StudentProfile,
 } from "../lib/quizEngine";
 import {
@@ -18,7 +29,11 @@ interface HomeViewProps {
   allTimeEntries: RankEntry[];
   todayEntries: RankEntry[];
   latestVideo: LatestVideoConfig;
+  pendingBattle?: BattleChallengePayload | null;
+  onAcceptBattle?: () => void;
+  onDismissBattle?: () => void;
   onStartNormalQuiz: () => void;
+  onStartBlitz?: () => void;
   onOpenSubjects: () => void;
   onOpenRank?: () => void;
 }
@@ -28,12 +43,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
   allTimeEntries,
   todayEntries,
   latestVideo,
+  pendingBattle = null,
+  onAcceptBattle,
+  onDismissBattle,
   onStartNormalQuiz,
+  onStartBlitz,
   onOpenSubjects,
 }) => {
   const [raceMode, setRaceMode] = useState<"td" | "all">("td");
   const [fillReady, setFillReady] = useState(false);
   const [failedThumbSrc, setFailedThumbSrc] = useState<string | null>(null);
+  const blitzBest = useMemo(() => loadBlitzBest(), [profile.xp, profile.quizzes]);
 
   const candidateThumb = latestVideo.thumbnailUrl || deriveYouTubeThumbnail(latestVideo.url);
   const resolvedThumb = failedThumbSrc !== candidateThumb ? candidateThumb : "";
@@ -167,6 +187,55 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </p>
       </div>
 
+      {/* #1: Incoming 1v1 Direct Challenge Banner */}
+      {pendingBattle && onAcceptBattle && (
+        <div className="amay-card rounded-[28px] p-4 sm:p-5 bg-gradient-to-r from-[#1457E0]/16 via-[#2B7BFF]/12 to-amber-400/14 border-2 border-[#1457E0]/40 dark:border-[#5AA2FF]/45 space-y-3 shadow-[0_14px_30px_-14px_rgba(20,87,224,0.45)]">
+          <div className="flex items-start gap-3">
+            <span className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#2B7BFF] to-[#1457E0] text-white flex items-center justify-center shrink-0 shadow-sm">
+              <Swords className="w-5 h-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <span className="inline-block text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#1457E0]/15 text-[#1457E0] dark:text-[#5AA2FF]">
+                1v1 Battle Challenge
+              </span>
+              <h2 className="text-base font-extrabold text-[#0B1B4D] dark:text-white mt-1 leading-snug">
+                {pendingBattle.challengerName} challenged you!
+              </h2>
+              <p className="text-xs font-semibold text-[#5A6A92] dark:text-[#93A3CC] mt-0.5">
+                Target to beat:{" "}
+                <strong className="text-[#0B1B4D] dark:text-white font-mono-nums">
+                  {pendingBattle.challengerCorrect}/{pendingBattle.challengerTotal}
+                </strong>{" "}
+                in{" "}
+                <strong className="text-[#0B1B4D] dark:text-white font-mono-nums">
+                  {pendingBattle.challengerSecondsTaken}s
+                </strong>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onAcceptBattle}
+              className="flex-1 h-11 rounded-[18px] amay-play-btn text-white font-extrabold text-sm inline-flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] transition"
+            >
+              <Swords className="w-4 h-4" />
+              <span>Accept 1v1 Battle</span>
+            </button>
+            {onDismissBattle && (
+              <button
+                type="button"
+                onClick={onDismissBattle}
+                className="h-11 px-4 rounded-[18px] amay-card text-xs font-bold text-[#5A6A92] dark:text-[#93A3CC] cursor-pointer"
+              >
+                Later
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Minimalistic Standing + Play Card */}
       <section className="amay-card rounded-[28px] p-4 sm:p-5 space-y-4 overflow-hidden">
         {/* Top Row: Clean Title + Today / Overall Switch */}
@@ -240,7 +309,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
         </div>
 
-        {/* #6: Live Rival Alert Pill */}
+        {/* Live Rival Alert Pill */}
         {immediateRival ? (
           <div className="rounded-2xl p-3 bg-gradient-to-r from-[#1457E0]/12 via-[#2B7BFF]/10 to-[#38B0FF]/12 dark:from-[#1457E0]/25 dark:to-[#38B0FF]/15 border border-[#1457E0]/25 dark:border-[#5AA2FF]/30 flex items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -298,7 +367,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           )
         )}
 
-        {/* Milestone XP Progress Bar (1,000 -> 10,000 -> 100,000 XP) */}
+        {/* Milestone XP Progress Bar */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between gap-2 text-xs">
             <span className="font-semibold text-[#5A6A92] dark:text-[#93A3CC] truncate min-w-0">
@@ -416,6 +485,34 @@ export const HomeView: React.FC<HomeViewProps> = ({
           )}
         </div>
       </section>
+
+      {/* #4: 20-Second Rapid Fire Blitz Card (Science, SST, English & GK only) */}
+      {onStartBlitz && (
+        <button
+          type="button"
+          onClick={onStartBlitz}
+          className="w-full amay-card rounded-[28px] p-4 sm:p-5 flex items-center gap-3.5 text-left cursor-pointer hover:-translate-y-0.5 active:scale-[0.99] transition-all overflow-hidden border border-amber-400/35 bg-gradient-to-r from-amber-500/[0.08] via-orange-500/[0.05] to-transparent"
+        >
+          <span className="w-12 h-12 rounded-[16px] bg-gradient-to-br from-amber-400 to-orange-500 text-slate-950 flex items-center justify-center shrink-0 shadow-sm">
+            <Zap className="w-6 h-6 fill-current" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <strong className="text-[17px] font-extrabold text-[#0B1B4D] dark:text-[#EAF0FF] truncate">
+                20s Rapid Fire Blitz
+              </strong>
+              <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-extrabold shrink-0">
+                +3s Streak
+              </span>
+            </div>
+            <span className="block text-xs font-medium text-[#5A6A92] dark:text-[#93A3CC] truncate mt-0.5">
+              Science · SST · English · GK{" "}
+              {blitzBest.correct > 0 ? `· Best: ${blitzBest.correct} right` : "· Tap fast!"}
+            </span>
+          </div>
+          <ChevronRight className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+        </button>
+      )}
 
       {/* Choose a subject */}
       <button
