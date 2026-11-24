@@ -1,4 +1,7 @@
- ChevronLeft,
+import React, { useEffect, useState } from "react";
+import {
+  Check,
+  ChevronLeft,
   Share2,
   Swords,
   TrendingUp,
@@ -299,7 +302,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
         qs: quiz.qs.slice(0, isBlitz ? Math.min(10, quiz.qs.length) : 10),
       });
 
-      const challengeText = `⚔️ 1v1 Quiz Battle on AmaySST Quiz!\nI scored ${c}/${n} in ${elapsedSec}s. Can you beat me?\n${shareUrl}`;
+      const challengeText = `1v1 Quiz Battle on AmaySST Quiz! I scored ${c}/${n} in ${elapsedSec}s. Can you beat me? ${shareUrl}`;
 
       if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
         try {
@@ -387,7 +390,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-2 px-1">
           <h1 className="text-[26px] font-extrabold tracking-tight text-[#0B1B4D] dark:text-[#EAF0FF]">
-            {isBlitz ? "⚡ Blitz Result" : isBattle ? "⚔️ 1v1 Battle Result" : "Result"}
+            {isBlitz ? "Blitz Result" : isBattle ? "1v1 Battle Result" : "Result"}
           </h1>
           {isNewBlitzBest && (
             <span className="px-3 py-1 rounded-full bg-amber-400 text-slate-950 text-xs font-extrabold inline-flex items-center gap-1 shadow-xs">
@@ -397,7 +400,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
           )}
         </div>
 
-        {/* #1: 1v1 Head-to-Head Scorecard */}
         {battleOpponent && (
           <div className="amay-card rounded-[28px] p-5 border-2 border-[#1457E0]/35 dark:border-[#5AA2FF]/40 space-y-3">
             <div className="text-center">
@@ -411,9 +413,9 @@ export const QuizView: React.FC<QuizViewProps> = ({
                 }`}
               >
                 {battleOutcome === "won"
-                  ? "🏆 You Won the 1v1 Battle!"
+                  ? "You Won the 1v1 Battle!"
                   : battleOutcome === "tie"
-                    ? "🤝 Tied Match!"
+                    ? "Tied Match!"
                     : `${battleOpponent.name} Edge — Rematch Ready!`}
               </span>
             </div>
@@ -463,8 +465,8 @@ export const QuizView: React.FC<QuizViewProps> = ({
           <p className="text-sm font-semibold text-[#5A6A92] dark:text-[#93A3CC]">
             Accuracy <span className="font-mono-nums">{animAccuracy}%</span> ·{" "}
             {isBlitz
-              ? `20s Blitz · Best Combo ${bestStreak ?? 0}🔥`
-              : `${LEVELS[quiz.L]} · ${profile.streak}🔥 day streak`}
+              ? `20s Blitz · Best Combo ${bestStreak ?? 0}`
+              : `${LEVELS[quiz.L]} · ${profile.streak} day streak`}
           </p>
 
           {rankChange && rankChange.climbed > 0 && (
@@ -479,7 +481,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                 </span>
                 <div className="min-w-0">
                   <strong className="block text-xs sm:text-sm font-extrabold text-[#0B1B4D] dark:text-white truncate">
-                    ↑ Climbed {rankChange.climbed} spot{rankChange.climbed === 1 ? "" : "s"} to #
+                    Climbed {rankChange.climbed} spot{rankChange.climbed === 1 ? "" : "s"} to #
                     {rankChange.newRank}!
                   </strong>
                   <span className="block text-[11px] font-semibold text-[#5A6A92] dark:text-[#93A3CC]">
@@ -493,7 +495,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
             </button>
           )}
 
-          {/* Breakdown */}
           <div className="grid grid-cols-3 gap-2 pt-1 text-center text-xs">
             <button
               type="button"
@@ -504,7 +505,9 @@ export const QuizView: React.FC<QuizViewProps> = ({
               <strong className="block text-base font-extrabold text-[#12A150] dark:text-[#3DD17F] font-mono-nums">
                 {c} (+{formatXpValue(posXp)})
               </strong>
-              <span className="text-[#5A6A92] dark:text-[#93A3CC]">Correct</span>
+              <span className="text-[#5A6A92] dark:text-[#93A3CC]">
+                {isBlitz ? "Right (+2s)" : "Correct"}
+              </span>
             </button>
             <button
               type="button"
@@ -535,7 +538,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
             </p>
           )}
 
-          {/* #1: 1v1 Challenge a Friend Share CTA */}
           <button
             type="button"
             onClick={handleShareBattleLink}
@@ -544,9 +546,9 @@ export const QuizView: React.FC<QuizViewProps> = ({
             <Swords className="w-4 h-4" />
             <span>
               {battleShareStatus === "copied"
-                ? "✅ Challenge Link Copied!"
+                ? "Challenge Link Copied!"
                 : battleShareStatus === "shared"
-                  ? "⚔️ Challenge Sent!"
+                  ? "Challenge Sent!"
                   : "Challenge a Friend (1v1 Link)"}
             </span>
           </button>
@@ -566,7 +568,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
           <div className="amay-card rounded-[28px] p-5 bg-gradient-to-r from-[#1457E0]/10 via-[#38B0FF]/10 to-[#F5B82E]/12 border border-[#1457E0]/20 dark:border-[#5AA2FF]/30 flex items-center justify-between gap-3">
             <div>
               <strong className="text-base font-extrabold text-[#0B1B4D] dark:text-white">
-                🏆 {milestoneXp.toLocaleString()} XP Milestone!
+                {milestoneXp.toLocaleString()} XP Milestone!
               </strong>
               <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC] mt-0.5">
                 Amazing progress! Keep climbing the leaderboard.
@@ -577,7 +579,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
               onClick={() => launchMilestoneConfetti(milestoneXp)}
               className="shrink-0 px-3.5 py-2 rounded-[16px] bg-white/85 dark:bg-white/10 text-xs font-extrabold text-[#1457E0] dark:text-[#5AA2FF] shadow-sm cursor-pointer active:scale-95 transition"
             >
-              🎉 Celebrate
+              Celebrate
             </button>
           </div>
         )}
@@ -586,7 +588,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
           <div className="amay-card rounded-[28px] p-5 space-y-3">
             <div>
               <strong className="text-base font-extrabold text-[#0B1B4D] dark:text-white">
-                {up ? "🎉 Badge unlocked!" : "🏅 Your badge"}
+                {up ? "Badge unlocked!" : "Your badge"}
               </strong>
               <p className="text-sm text-[#5A6A92] dark:text-[#93A3CC] mt-1">
                 {up ? "You reached 100 Overall XP! " : ""}Share your achievement with friends.
@@ -628,7 +630,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
           </button>
         </div>
 
-        {/* Review Section */}
         <div className="amay-card rounded-[28px] p-5 sm:p-6 space-y-3.5">
           <h2 className="text-lg font-extrabold text-[#0B1B4D] dark:text-white">Review</h2>
           <div className="space-y-3">
@@ -668,13 +669,15 @@ export const QuizView: React.FC<QuizViewProps> = ({
                     You:{" "}
                     {skipped
                       ? "Skipped (0 XP)"
-                      : `${qItem[1][sel]} ${
-                          ok
-                            ? "✅"
-                            : isBlitz
-                              ? "❌ (−2s)"
-                              : `❌ (−${formatXpValue(getNegativePenalty(quiz.L))} XP)`
-                        }`}
+                      : sel !== undefined
+                        ? `${qItem[1][sel]} ${
+                            ok
+                              ? "Correct"
+                              : isBlitz
+                                ? "Wrong (−2s)"
+                                : `Wrong (−${formatXpValue(getNegativePenalty(quiz.L))} XP)`
+                          }`
+                        : ""}
                   </p>
                   {!ok && (
                     <p className="text-xs font-bold text-[#12A150] dark:text-[#3DD17F]">
@@ -683,7 +686,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                   )}
                   {qItem[3] && (
                     <p className="text-xs text-[#5A6A92] dark:text-[#93A3CC] pt-0.5 leading-relaxed">
-                      💡 {qItem[3]}
+                      {qItem[3]}
                     </p>
                   )}
                 </div>
@@ -701,7 +704,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
   const progressPct = ((quiz.i + 1) / total) * 100;
   const penalty = formatXpValue(getNegativePenalty(quiz.L));
 
-  // Circular Countdown Timer Ring math
   const totalSeconds = isBlitz
     ? BLITZ_SECONDS
     : Math.max(1, (QUIZ_LENGTHS[quiz.N] ?? 2) * 60);
@@ -720,7 +722,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
       window.setTimeout(() => {
         setFlashState(null);
         onBlitzAnswer(idx);
-      }, 220);
+      }, 200);
       return;
     }
     onSelectOption(selected === idx ? undefined : idx);
@@ -728,7 +730,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
 
   return (
     <div className="space-y-3.5">
-      {/* #1: 1v1 Battle Opponent Strip */}
       {isBattle && quiz.battleMeta && (
         <div className="rounded-2xl px-3.5 py-2 bg-gradient-to-r from-[#1457E0]/15 to-amber-400/15 border border-[#1457E0]/25 flex items-center justify-between gap-2 text-xs font-extrabold text-[#0B1B4D] dark:text-white">
           <span className="inline-flex items-center gap-1.5 truncate">
@@ -742,7 +743,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
         </div>
       )}
 
-      {/* Top Bar with Circular Timer Ring */}
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
@@ -753,7 +753,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
           <X className="w-5 h-5" />
         </button>
 
-        {/* Circular Countdown Timer Ring */}
         <div
           className={`relative w-[56px] h-[56px] flex items-center justify-center shrink-0 ${
             isCriticalTime ? "animate-pulse" : ""
@@ -828,7 +827,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
         </div>
       </div>
 
-      {/* Progress Bar */}
       <div className="h-2 rounded-full bg-[#1457E0]/10 dark:bg-white/10 overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-300 ${
@@ -840,7 +838,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
         />
       </div>
 
-      {/* Question Navigator Dots Bar (hidden in Blitz tap-and-go mode) */}
       {!isBlitz && (
         <div
           className="flex items-center gap-1.5 overflow-x-auto py-1 px-0.5 no-scrollbar"
@@ -872,7 +869,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
         </div>
       )}
 
-      {/* Elevated Question Stage Card */}
       <div className="amay-card rounded-[28px] p-5 space-y-2.5 border border-[#1846AA]/15 dark:border-white/10 shadow-[0_14px_30px_-18px_rgba(20,87,224,0.35)]">
         <div className="flex items-center justify-between gap-2 text-xs font-bold">
           <span className="px-2.5 py-0.5 rounded-full bg-[#1457E0]/12 dark:bg-[#5AA2FF]/15 text-[#1457E0] dark:text-[#5AA2FF]">
@@ -902,11 +898,11 @@ export const QuizView: React.FC<QuizViewProps> = ({
         )}
       </div>
 
-      {/* Tactile Option Pills */}
       <div className="space-y-2.5">
         {q[1].map((opt, idx) => {
           const isFlashingThis = flashState?.idx === idx;
-          const active = isFlashingThis ? true : selected === idx;
+          const isPicked = selected === idx;
+          const active = isFlashingThis || isPicked;
 
           let flashStyle = "";
           if (isFlashingThis) {
@@ -953,7 +949,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
         })}
       </div>
 
-      {/* Navigation Buttons (hidden in 20s Blitz tap-and-go mode) */}
       {!isBlitz && (
         <div className="flex items-center gap-3 pt-1">
           {quiz.i > 0 && (
