@@ -502,7 +502,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 20s Rapid Fire Blitz
               </strong>
               <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-extrabold shrink-0">
-                +3s Streak
+                +2s / −2s
               </span>
             </div>
             <span className="block text-xs font-medium text-[#5A6A92] dark:text-[#93A3CC] truncate mt-0.5">
