@@ -12,6 +12,42 @@ export const QUIZ_LENGTHS: Record<number, number> = {
   20: 5,
 };
 
+// #4: 20-Second Rapid Fire Blitz (excludes Hindi 'hin' and Maths 'math')
+export const BLITZ_SECONDS = 20;
+export const BLITZ_SUBJECTS: SubjectKey[] = ["sci", "sst", "eng", "ca"];
+const BLITZ_BEST_KEY = "amaysst_blitz_best_v1";
+
+export interface BlitzBestRecord {
+  score: number;
+  correct: number;
+  streak: number;
+}
+
+export function loadBlitzBest(): BlitzBestRecord {
+  try {
+    const raw = localStorage.getItem(BLITZ_BEST_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      return {
+        score: Math.max(0, Number(p.score) || 0),
+        correct: Math.max(0, Number(p.correct) || 0),
+        streak: Math.max(0, Number(p.streak) || 0),
+      };
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return { score: 0, correct: 0, streak: 0 };
+}
+
+export function saveBlitzBest(rec: BlitzBestRecord): void {
+  try {
+    localStorage.setItem(BLITZ_BEST_KEY, JSON.stringify(rec));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export interface RankDifficultyRule {
   minLevel: number;
   defaultLevel: number;
@@ -92,6 +128,17 @@ export interface QueuedAttempt {
   c: number;
 }
 
+export interface BattleChallengePayload {
+  id: string;
+  challengerName: string;
+  challengerCorrect: number;
+  challengerTotal: number;
+  challengerSecondsTaken: number;
+  k: QuizKey;
+  L: number;
+  qs: RawQuestion[];
+}
+
 export interface QuizResultSummary {
   c: number;
   w: number;
@@ -103,6 +150,16 @@ export interface QuizResultSummary {
   xp: number;
   up: boolean;
   milestoneXp?: number | null;
+  mode?: "normal" | "blitz" | "battle";
+  timeTakenSec?: number;
+  bestStreak?: number;
+  isNewBlitzBest?: boolean;
+  battleOpponent?: {
+    name: string;
+    correct: number;
+    total: number;
+    secondsTaken: number;
+  };
 }
 
 export interface ActiveQuizState {
@@ -115,6 +172,17 @@ export interface ActiveQuizState {
   t: number;
   done: boolean;
   res?: QuizResultSummary;
+  mode?: "normal" | "blitz" | "battle";
+  startedAtMs?: number;
+  comboStreak?: number;
+  bestCombo?: number;
+  battleMeta?: {
+    id: string;
+    challengerName: string;
+    challengerCorrect: number;
+    challengerTotal: number;
+    challengerSecondsTaken: number;
+  };
 }
 
 export const SUBJECT_ORDER: SubjectKey[] = ["math", "sci", "sst", "eng", "hin", "ca"];
@@ -161,6 +229,107 @@ export function calculateQuizScore(
   const xp = Math.round(posXp - negXp + bonusXp);
 
   return { c, w, sk, n, posXp, negXp, bonusXp, xp };
+}
+
+export function calculateBlitzScore(
+  qs: RawQuestion[],
+  sel: (number | undefined)[],
+  bestCombo = 0
+): Omit<QuizResultSummary, "up"> {
+  let c = 0;
+  let w = 0;
+  let sk = 0;
+  let attempted = 0;
+
+  qs.forEach((q, idx) => {
+    const picked = sel[idx];
+    if (picked === undefined) {
+      sk++;
+    } else {
+      attempted++;
+      if (picked === q[2]) c++;
+      else w++;
+    }
+  });
+
+  const posXp = c * 12;
+  const negXp = w * 3;
+  const comboBonus = bestCombo >= 3 ? bestCombo * 5 : 0;
+  const xp = Math.max(5, Math.round(posXp - negXp + comboBonus));
+
+  return {
+    c,
+    w,
+    sk,
+    n: Math.max(1, attempted),
+    posXp,
+    negXp,
+    bonusXp: comboBonus,
+    xp,
+    mode: "blitz",
+    timeTakenSec: BLITZ_SECONDS,
+    bestStreak: bestCombo,
+  };
+}
+
+// #1: 1v1 Direct Challenge URL Encoding / Decoding
+export function encodeBattleChallenge(payload: BattleChallengePayload): string {
+  const json = JSON.stringify(payload);
+  const bytes = new TextEncoder().encode(json);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) {
+    bin += String.fromCharCode(bytes[i]);
+  }
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+export function decodeBattleChallenge(encoded: string): BattleChallengePayload | null {
+  try {
+    if (!encoded || encoded.length > 16000) return null;
+    const norm = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = norm.length % 4 === 0 ? "" : "=".repeat(4 - (norm.length % 4));
+    const bin = atob(norm + pad);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) {
+      bytes[i] = bin.charCodeAt(i);
+    }
+    const json = new TextDecoder().decode(bytes);
+    const parsed = JSON.parse(json) as BattleChallengePayload;
+    if (
+      !parsed ||
+      typeof parsed.challengerName !== "string" ||
+      !Array.isArray(parsed.qs) ||
+      parsed.qs.length === 0
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function buildBattleShareUrl(payload: BattleChallengePayload): string {
+  const token = encodeBattleChallenge(payload);
+  const base = `${window.location.origin}${window.location.pathname}`;
+  return `${base}?battle=${encodeURIComponent(token)}`;
+}
+
+export function consumeBattleParamFromUrl(): BattleChallengePayload | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("battle");
+  if (!token) return null;
+  const decoded = decodeBattleChallenge(token);
+  try {
+    params.delete("battle");
+    const nextSearch = params.toString();
+    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
+    window.history.replaceState(null, "", nextUrl);
+  } catch {
+    // ignore history errors
+  }
+  return decoded;
 }
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -328,10 +497,6 @@ export function saveQueue(q: QueuedAttempt[]): void {
 const SEEN_QUESTIONS_KEY = "amaysst_seen_q_v1";
 const MAX_SEEN_HISTORY = 500;
 
-/**
- * Canonical fingerprint ignoring casing, extra spaces, and punctuation
- * so duplicate or near-duplicate questions can never appear twice in any quiz.
- */
 function normalizeQuestionKey(text: string): string {
   return text
     .trim()
@@ -713,7 +878,6 @@ export function buildQuizSet(
       }
     }
 
-    // Never serve Easy (0) in Mixed Quiz for Top 50 when higher-tier items exist
     if (k === "mix" && isTop50) {
       const nonEasy = items.filter((q) => q[4] >= 1);
       if (nonEasy.length >= 6) {
@@ -721,7 +885,6 @@ export function buildQuizSet(
       }
     }
 
-    // Shuffle first for random ordering within equal priority tiers
     const randomized = shuffle(items);
 
     const priorityScore = (q: RawQuestion): number => {
@@ -778,6 +941,50 @@ export function buildQuizSet(
 
   return picked.map(([text, opts, correctIdx, expl, lvl]) => {
     const tagged = shuffle(opts.map((optText, idx) => ({ optText, isCorrect: idx === correctIdx })));
+    return [
+      text,
+      tagged.map((t) => t.optText) as [string, string, string, string],
+      tagged.findIndex((t) => t.isCorrect),
+      expl,
+      lvl,
+    ];
+  });
+}
+
+// #4: 20s Rapid Fire deck strictly from Science, SST, English, and Current Affairs
+export function buildBlitzQuizSet(
+  mergedBank: Record<SubjectKey, RawQuestion[]>,
+  guestId?: string,
+  count = 25
+): RawQuestion[] {
+  const seenList = loadSeenQuestionKeys(guestId);
+  const seenOrder = new Map<string, number>();
+  seenList.forEach((key, idx) => seenOrder.set(key, idx));
+
+  const pools = shuffle(BLITZ_SUBJECTS).map((subj) => {
+    const items = shuffle([...(mergedBank[subj] || [])]).sort((a, b) => {
+      const aSeen = seenOrder.get(normalizeQuestionKey(a[0]));
+      const bSeen = seenOrder.get(normalizeQuestionKey(b[0]));
+      return (aSeen === undefined ? -1 : aSeen) - (bSeen === undefined ? -1 : bSeen);
+    });
+    return items;
+  });
+
+  const picked: RawQuestion[] = [];
+  const used = new Set<string>();
+  let idx = 0;
+  let guard = 0;
+  while (picked.length < count && pools.some((p) => p.length > 0) && guard++ < count * 25) {
+    const next = pools[idx++ % pools.length].shift();
+    if (!next) continue;
+    const norm = normalizeQuestionKey(next[0]);
+    if (!norm || used.has(norm)) continue;
+    used.add(norm);
+    picked.push(next);
+  }
+
+  return shuffle(picked).map(([text, opts, correctIdx, expl, lvl]) => {
+    const tagged = shuffle(opts.map((optText, i) => ({ optText, isCorrect: i === correctIdx })));
     return [
       text,
       tagged.map((t) => t.optText) as [string, string, string, string],
