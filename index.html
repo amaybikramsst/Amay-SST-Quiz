@@ -7,13 +7,53 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <meta name="theme-color" content="#1457E0" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="AmaySST Quiz" />
     <title>AmaySST Quiz</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
-    <link rel="apple-touch-icon" href="./icon.svg" />
+    <link rel="icon" type="image/png" sizes="64x64" href="./favicon.png" />
+    <link rel="icon" type="image/x-icon" href="./favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+    <script>
+      (function () {
+        // 1. Capture Chrome's 1-tap PWA install event immediately before React mounts
+        window.__amayDeferredPrompt = null;
+        window.addEventListener("beforeinstallprompt", function (e) {
+          e.preventDefault();
+          window.__amayDeferredPrompt = e;
+          window.dispatchEvent(new Event("amay:install-ready"));
+        });
+        window.addEventListener("appinstalled", function () {
+          window.__amayDeferredPrompt = null;
+          try {
+            localStorage.setItem("amaysst_pwa_installed", "1");
+          } catch (err) {}
+          window.dispatchEvent(new Event("amay:app-installed"));
+        });
+
+        // 2. Auto-break out of Instagram / Facebook / WhatsApp / Telegram in-app browsers into Chrome on Android
+        var ua = navigator.userAgent || "";
+        var isAndroid = /Android/i.test(ua);
+        var isInApp = /FBAN|FBAV|Instagram|WhatsApp|Telegram|Snapchat|Line\/|wv\)/i.test(ua);
+        var isStandalone =
+          window.matchMedia("(display-mode: standalone)").matches ||
+          window.navigator.standalone === true;
+
+        if (isAndroid && isInApp && !isStandalone) {
+          var hostAndPath = window.location.host + window.location.pathname + window.location.search + window.location.hash;
+          var fallback = encodeURIComponent(window.location.href);
+          window.location.replace(
+            "intent://" +
+              hostAndPath +
+              "#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=" +
+              fallback +
+              ";end"
+          );
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
