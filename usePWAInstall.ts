@@ -9,7 +9,14 @@ interface NavigatorWithRelatedApps extends Navigator {
   getInstalledRelatedApps?: () => Promise<Array<{ id?: string; platform?: string; url?: string }>>;
 }
 
+declare global {
+  interface Window {
+    __amayDeferredPrompt?: BeforeInstallPromptEvent | null;
+  }
+}
+
 const INSTALLED_STORAGE_KEY = "amaysst_pwa_installed";
+const REPORTED_INSTALL_KEY = "amaysst_reported_install";
 
 function checkStandalone(): boolean {
   if (typeof window === "undefined") return false;
@@ -22,7 +29,10 @@ function checkStandalone(): boolean {
 
 function hasSavedInstallFlag(): boolean {
   try {
-    return localStorage.getItem(INSTALLED_STORAGE_KEY) === "1";
+    return (
+      localStorage.getItem(INSTALLED_STORAGE_KEY) === "1" ||
+      localStorage.getItem(REPORTED_INSTALL_KEY) === "1"
+    );
   } catch {
     return false;
   }
@@ -31,39 +41,41 @@ function hasSavedInstallFlag(): boolean {
 function markInstalledInStorage(): void {
   try {
     localStorage.setItem(INSTALLED_STORAGE_KEY, "1");
-  } catch {
-    // ignore storage errors
-  }
-}
-
-function clearInstalledInStorage(): void {
-  try {
-    localStorage.removeItem(INSTALLED_STORAGE_KEY);
+    localStorage.setItem(REPORTED_INSTALL_KEY, "1");
   } catch {
     // ignore storage errors
   }
 }
 
 export function usePWAInstall() {
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(() => {
+    if (typeof window !== "undefined" && window.__amayDeferredPrompt) {
+      return window.__amayDeferredPrompt;
+    }
+    return null;
+  });
+
   const [isInstalled, setIsInstalled] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return checkStandalone() || hasSavedInstallFlag();
   });
+
   const [isIOS, setIsIOS] = useState(false);
 
   useEffect(() => {
-    if (checkStandalone()) {
+    if (checkStandalone() || hasSavedInstallFlag()) {
       setIsInstalled(true);
       markInstalledInStorage();
-    } else if (hasSavedInstallFlag()) {
-      setIsInstalled(true);
+    }
+
+    if (window.__amayDeferredPrompt && !deferredPrompt) {
+      setDeferredPrompt(window.__amayDeferredPrompt);
     }
 
     const ua = window.navigator.userAgent.toLowerCase();
     setIsIOS(/iphone|ipad|ipod/.test(ua));
 
-    // Check Android Chrome's actual installed WebAPK list so uninstalling restores the Install button
+    // Check Android Chrome's installed WebAPK list (only marks installed; never clears existing install flag)
     const syncRelatedApps = () => {
       if (checkStandalone()) {
         setIsInstalled(true);
@@ -78,15 +90,8 @@ export function usePWAInstall() {
           if (Array.isArray(apps) && apps.length > 0) {
             setIsInstalled(true);
             setDeferredPrompt(null);
+            window.__amayDeferredPrompt = null;
             markInstalledInStorage();
-          } else if (
-            Array.isArray(apps) &&
-            apps.length === 0 &&
-            /android/i.test(window.navigator.userAgent) &&
-            window.location.hostname.endsWith("github.io")
-          ) {
-            clearInstalledInStorage();
-            setIsInstalled(false);
           }
         })
         .catch(() => {
@@ -98,20 +103,26 @@ export function usePWAInstall() {
 
     const onBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
+      const promptEvent = e as BeforeInstallPromptEvent;
+      window.__amayDeferredPrompt = promptEvent;
       if (checkStandalone()) {
         setIsInstalled(true);
         setDeferredPrompt(null);
         return;
       }
-      // Browser only fires beforeinstallprompt when the PWA is NOT currently installed
-      clearInstalledInStorage();
-      setIsInstalled(false);
-      setDeferredPrompt(e as BeforeInstallPromptEvent);
+      setDeferredPrompt(promptEvent);
+    };
+
+    const onEarlyInstallReady = () => {
+      if (window.__amayDeferredPrompt) {
+        setDeferredPrompt(window.__amayDeferredPrompt);
+      }
     };
 
     const onAppInstalled = () => {
       setIsInstalled(true);
       setDeferredPrompt(null);
+      window.__amayDeferredPrompt = null;
       markInstalledInStorage();
     };
 
@@ -129,6 +140,8 @@ export function usePWAInstall() {
     };
 
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("amay:install-ready", onEarlyInstallReady);
+    window.addEventListener("amay:app-installed", onAppInstalled);
     window.addEventListener("appinstalled", onAppInstalled);
     window.addEventListener("focus", syncRelatedApps);
     document.addEventListener("visibilitychange", onVisibilityOrFocus);
@@ -136,21 +149,25 @@ export function usePWAInstall() {
 
     return () => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("amay:install-ready", onEarlyInstallReady);
+      window.removeEventListener("amay:app-installed", onAppInstalled);
       window.removeEventListener("appinstalled", onAppInstalled);
       window.removeEventListener("focus", syncRelatedApps);
       document.removeEventListener("visibilitychange", onVisibilityOrFocus);
       mediaQuery.removeEventListener?.("change", onDisplayModeChange);
     };
-  }, []);
+  }, [deferredPrompt]);
 
   const install = useCallback(async (): Promise<"accepted" | "dismissed" | "unavailable"> => {
-    if (!deferredPrompt) return "unavailable";
+    const promptObj = deferredPrompt || window.__amayDeferredPrompt;
+    if (!promptObj) return "unavailable";
     try {
-      await deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
+      await promptObj.prompt();
+      const { outcome } = await promptObj.userChoice;
       if (outcome === "accepted") {
         setIsInstalled(true);
         setDeferredPrompt(null);
+        window.__amayDeferredPrompt = null;
         markInstalledInStorage();
         return "accepted";
       }
@@ -161,7 +178,7 @@ export function usePWAInstall() {
   }, [deferredPrompt]);
 
   return {
-    canNativeInstall: !!deferredPrompt,
+    canNativeInstall: Boolean(deferredPrompt || (typeof window !== "undefined" && window.__amayDeferredPrompt)),
     isInstalled,
     isIOS,
     isInAppBrowser: checkInAppBrowser(),
@@ -186,7 +203,7 @@ function getExternalBrowserUrl(): string {
   if (/Android/i.test(ua)) {
     const scheme = loc.protocol.replace(":", "") || "https";
     const target = `${loc.host}${loc.pathname}${loc.search}${loc.hash}`;
-    return `intent://${target}#Intent;scheme=${scheme};action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;S.browser_fallback_url=${encodeURIComponent(
+    return `intent://${target}#Intent;scheme=${scheme};package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(
       loc.href
     )};end`;
   }
