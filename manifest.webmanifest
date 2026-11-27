@@ -1,18 +1,19 @@
 {
-  "id": "./",
   "name": "AmaySST Quiz",
-  "short_name": "AmaySST",
-  "description": "Practice quizzes by level, current affairs, XP and badges.",
+  "short_name": "AmaySST Quiz",
+  "description": "Practice quizzes, climb live ranks, earn badges, and challenge friends on AmaySST Quiz.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#E7EAEE",
-  "theme_color": "#E7EAEE",
-  "lang": "en",
-  "categories": ["education"],
+  "background_color": "#080D1B",
+  "theme_color": "#1457E0",
+  "orientation": "portrait-primary",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
   ]
 }
