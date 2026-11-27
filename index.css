@@ -421,3 +421,42 @@ h2 {
 .font-extrabold {
   font-weight: 600 !important;
 }
+/* Refined, Clean & Professional Typography */
+:root {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  letter-spacing: -0.011em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 700 !important;
+  letter-spacing: -0.024em;
+  line-height: 1.2;
+}
+
+.font-extrabold {
+  font-weight: 600 !important;
+  letter-spacing: -0.015em;
+}
+
+.font-bold {
+  font-weight: 600 !important;
+}
+
+.font-mono-nums {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
